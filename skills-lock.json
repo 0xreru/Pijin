@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "assets": {
+      "source": "stellar/stellar-dev-skill",
+      "sourceType": "github",
+      "skillPath": "skills/assets/SKILL.md",
+      "computedHash": "16c00358fa5ba0cc56d448152c0fd508e071b8984b931e71b1198d9465dacbf9"
+    },
+    "caveman": {
+      "source": "JuliusBrussee/caveman",
+      "sourceType": "github",
+      "skillPath": "skills/caveman/SKILL.md",
+      "computedHash": "7935e83f9c6a8b7cbb5404d144b0d19e3ba93583f4388301c3dada37cd25adf8"
+    },
+    "dapp": {
+      "source": "stellar/stellar-dev-skill",
+      "sourceType": "github",
+      "skillPath": "skills/dapp/SKILL.md",
+      "computedHash": "31a6d867181a75a9a8e08ad4d1197d641edc9109f8e94ab05bcf6615b5f35f57"
+    },
+    "soroban": {
+      "source": "stellar/stellar-dev-skill",
+      "sourceType": "github",
+      "skillPath": "skills/soroban/SKILL.md",
+      "computedHash": "6f1936f9b0861d45d2259ccdbaa4a1a82f2383ec18ec373bedd5c6ee24abb2ed"
+    }
+  }
+}
