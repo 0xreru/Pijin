@@ -15,22 +15,59 @@
 # production
 /build
 
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
 # local env files
 .env*.local
 .env
 
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ----------------------------------------------------------------------
+# Mobile
+# ----------------------------------------------------------------------
+
+apps/mobile/node_modules/
+apps/mobile/.expo/
+apps/mobile/.ext/
+apps/mobile/dist/
+apps/mobile/*.jks
+apps/mobile/*.p8
+apps/mobile/*.mobileprovision
+
+apps/mobile/.env
+apps/mobile/.env.local
+
+# ----------------------------------------------------------------------
+# Backend
+# ----------------------------------------------------------------------
+
+# Next.js Build Output
+apps/backend/.next/
+apps/backend/out/
+apps/backend/build/
+
+# Environment Variables 
+apps/backend/.env
+apps/backend/.env.*.local
+apps/backend/.env.local
+apps/backend/.env.development.local
+apps/backend/.env.test.local
+apps/backend/.env.production.local
+
+# Database & Prisma
+#
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Vercel Deployment Cache
+apps/backend/.vercel/
+
+# Logs and Debugging
+apps/backend/npm-debug.log*
+apps/backend/yarn-debug.log*
+apps/backend/yarn-error.log*
+apps/backend/pnpm-debug.log*
+apps/backend/.eslintcache

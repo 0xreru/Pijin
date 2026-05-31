@@ -1,0 +1,45 @@
+export const colors = {
+  background: '#FFFFFF',
+  backgroundSoft: '#F5F5F6',
+  surface: '#FFFFFF',
+  surfaceMuted: '#F0F0F0',
+  pill: '#E8E8E8',
+  ink: '#08090A',
+  inkSoft: '#3F4144',
+  muted: '#707984',
+  mutedDark: '#55575A',
+  border: '#DADADA',
+  primary: '#000000',
+  primarySoft: '#121212',
+  walletPurple: '#635BFF',
+  success: '#16C784',
+  warning: '#F5A000',
+  danger: '#F04438',
+  notification: '#FF2D20',
+  offline: '#101010',
+  shadow: '#000000',
+};
+
+export const shadows = {
+  card: {
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  soft: {
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  receipt: {
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.24,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
+  },
+};

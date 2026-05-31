@@ -1,0 +1,43 @@
+{
+  "name": "abotpera-app",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "android:usb": "adb reverse tcp:8081 tcp:8081 && adb reverse tcp:19000 tcp:19000 && adb reverse tcp:19001 tcp:19001 && adb reverse tcp:19002 tcp:19002 && expo start --dev-client --host localhost -c",
+    "android:rebuild": "cd android && gradlew clean && cd .. && expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "~14.0.4",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-community/netinfo": "11.4.1",
+    "@stellar/stellar-base": "^15.0.0",
+    "@stellar/stellar-sdk": "^15.1.0",
+    "@walletconnect/react-native-compat": "^2.23.9",
+    "@walletconnect/sign-client": "^2.23.9",
+    "buffer": "^6.0.3",
+    "expo": "~52.0.0",
+    "expo-application": "~6.0.2",
+    "expo-asset": "~11.0.5",
+    "expo-camera": "~16.0.18",
+    "expo-dev-client": "~5.0.20",
+    "expo-file-system": "~18.0.12",
+    "expo-font": "~13.0.4",
+    "expo-secure-store": "~14.0.1",
+    "expo-status-bar": "~2.0.1",
+    "react": "18.3.1",
+    "react-native": "0.76.9",
+    "react-native-get-random-values": "~1.11.0",
+    "react-native-qrcode-svg": "^6.3.21",
+    "react-native-svg": "15.8.0",
+    "react-native-url-polyfill": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "~18.3.12",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}

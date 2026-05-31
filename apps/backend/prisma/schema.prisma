@@ -1,0 +1,29 @@
+// schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Account {
+  id               Int      @id @default(autoincrement())
+  shortId          String   @unique // e.g., "C-8A92" or "M-1B44"
+  role             String   // "CUSTOMER" or "MERCHANT"
+  stellarPublicKey String   @unique // e.g., "GC333QNW..."
+  offlineDeviceKey String?
+  merchantPin      String?  // e.g., "8492" (Used for SMS confirmation spoof-protection)
+  merchantPhone    String?
+  createdAt        DateTime @default(now())
+}
+
+model Settlement {
+  id               Int      @id @default(autoincrement())
+  customerShortId  String
+  merchantShortId  String
+  amountXlm        String
+  txHash           String?
+  status           String   // SUCCESS | FAILED
+  createdAt        DateTime @default(now())
+}

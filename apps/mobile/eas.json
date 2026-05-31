@@ -1,0 +1,36 @@
+{
+  "cli": {
+    "version": ">= 19.0.8",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://frank-handy-raven.ngrok-free.app",
+        "EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID": "5af2fb3bebe74b2806e6f9a57b9d79ff",
+        "EXPO_PUBLIC_WALLETCONNECT_RELAY_URL": "wss://relay.walletconnect.com",
+        "EXPO_PUBLIC_WALLETCONNECT_SIGN_DEEPLINK": "lobstr://",
+        "EXPO_PUBLIC_SOROBAN_RPC_URL": "https://rpc.lightsail.network",
+        "EXPO_PUBLIC_CONTRACT_ID": "CCJUISYGMTZUMFGOBZI5BTXWR37I6FGE37BCZFVDXNXAK4BFOPAXKI6W",
+        "EXPO_PUBLIC_TOKEN_ID": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+        "EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE": "Public Global Stellar Network ; September 2015",
+        "EXPO_PUBLIC_STELLAR_WALLET_CHAIN": "stellar:pubnet",
+        "EXPO_PUBLIC_SMS_GATEWAY_NUMBER": "+639915984988"
+      }
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
