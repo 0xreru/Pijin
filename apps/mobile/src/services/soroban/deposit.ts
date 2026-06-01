@@ -1,19 +1,14 @@
-// @ts-nocheck
 import { Buffer } from 'buffer';
-
-if (typeof global.Buffer === 'undefined') {
-  global.Buffer = Buffer;
-}
-
-const {
+import {
   rpc,
   xdr,
   TransactionBuilder,
+  Transaction,
   Account,
   Address,
   nativeToScVal,
   Contract,
-} = require('@stellar/stellar-sdk');
+} from '@stellar/stellar-sdk';
 
 import {
   CONTRACT_ID,
@@ -25,7 +20,39 @@ import {
 import { STELLAR_HORIZON_MAINNET_URL } from '../../constants/network';
 import { signTransactionXdr } from '../wallet/walletConnector';
 
-function assertContractConfig() {
+// Ensure Buffer is available globally for XDR serialization in Hermes.
+if (typeof global.Buffer === 'undefined') {
+  global.Buffer = Buffer;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Max polling rounds before declaring the transaction timed out. */
+const POLL_MAX_ATTEMPTS = 15;
+
+/** Milliseconds between each polling round. */
+const POLL_INTERVAL_MS = 2_000;
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+export type DepositStage =
+  | 'load-account'
+  | 'build-xdr'
+  | 'simulate'
+  | 'assemble'
+  | 'prepare-sign'
+  | 'wallet-sign'
+  | 'send';
+
+// ---------------------------------------------------------------------------
+// Guards
+// ---------------------------------------------------------------------------
+
+function assertContractConfig(): void {
   if (!CONTRACT_ID || !TOKEN_ID) {
     throw new Error(
       'Missing EXPO_PUBLIC_CONTRACT_ID or EXPO_PUBLIC_TOKEN_ID in apps/mobile/.env'
@@ -33,24 +60,35 @@ function assertContractConfig() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Core deposit lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Executes the full Soroban deposit lifecycle:
+ *   load-account → build-xdr → simulate → assemble → prepare-sign → wallet-sign → send
+ *
+ * Returns the transaction hash on success so the caller can poll with
+ * `waitForTransaction`.
+ */
 export async function depositToVault(input: {
   customerPublicKey: string;
   amountXlm: number;
   onStage?: (stage: DepositStage) => void;
 }): Promise<{ hash?: string }> {
   assertContractConfig();
+
   const startedAt = Date.now();
-  const markStage = (stage: DepositStage) => {
+  const markStage = (stage: DepositStage): void => {
     input.onStage?.(stage);
     console.log(`[deposit] stage=${stage} elapsedMs=${Date.now() - startedAt}`);
   };
-  markStage('load-account');
 
   const server = new rpc.Server(SOROBAN_RPC_URL, { allowHttp: true });
-  const sequenceNumber = await resolveAccountSequence(
-    server,
-    input.customerPublicKey
-  );
+
+  // ── 1. Resolve account sequence ────────────────────────────────────────
+  markStage('load-account');
+  const sequenceNumber = await resolveAccountSequence(input.customerPublicKey);
   if (sequenceNumber === '0') {
     throw new Error('Account not found on Horizon. Fund account first.');
   }
@@ -58,7 +96,9 @@ export async function depositToVault(input: {
   const sourceAccount = new Account(input.customerPublicKey, sequenceNumber);
   const contract = new Contract(CONTRACT_ID);
 
-  let tx = new TransactionBuilder(sourceAccount, {
+  // ── 2. Build unsigned transaction ──────────────────────────────────────
+  markStage('build-xdr');
+  let tx: Transaction = new TransactionBuilder(sourceAccount, {
     fee: '1000',
     networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
   })
@@ -73,26 +113,27 @@ export async function depositToVault(input: {
     .setTimeout(180)
     .build();
 
-  let unsignedXdr: string;
-  markStage('build-xdr');
+  // Validate the XDR is well-formed before proceeding.
   try {
-    unsignedXdr = encodeTransactionEnvelopeBase64(tx);
+    const unsignedXdr = encodeTransactionEnvelopeBase64(tx);
     xdr.TransactionEnvelope.fromXDR(unsignedXdr, 'base64');
   } catch (error) {
     throw new Error(`Deposit stage build-xdr failed: ${String(error)}`);
   }
 
-  let simulation;
+  // ── 3. Simulate via SDK ────────────────────────────────────────────────
   markStage('simulate');
+  let simulation: rpc.Api.SimulateTransactionResponse;
   try {
-    simulation = await simulateTransactionRaw(unsignedXdr);
-    if (simulation.error) {
+    simulation = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(simulation)) {
       throw new Error(`Simulation failed: ${simulation.error}`);
     }
   } catch (error) {
     throw new Error(`Deposit stage simulate failed: ${String(error)}`);
   }
 
+  // ── 4. Assemble (attach resource fees + footprint) ─────────────────────
   markStage('assemble');
   try {
     tx = rpc.assembleTransaction(tx, simulation).build();
@@ -100,19 +141,22 @@ export async function depositToVault(input: {
     throw new Error(`Deposit stage assemble failed: ${String(error)}`);
   }
 
-  let safeBase64Xdr: string;
+  // ── 5. Encode assembled XDR for wallet signing ─────────────────────────
   markStage('prepare-sign');
+  let safeBase64Xdr: string;
   try {
     safeBase64Xdr = encodeTransactionEnvelopeBase64(tx);
+    // Validate the assembled XDR round-trips correctly.
     xdr.TransactionEnvelope.fromXDR(safeBase64Xdr, 'base64');
   } catch (error) {
     throw new Error(`Deposit stage prepare-sign failed: ${String(error)}`);
   }
 
-  let signedXdr: string;
+  // ── 6. Request wallet signature ────────────────────────────────────────
   markStage('wallet-sign');
+  let signedXdrBase64: string;
   try {
-    signedXdr = await signTransactionXdr(
+    signedXdrBase64 = await signTransactionXdr(
       safeBase64Xdr,
       input.customerPublicKey,
       STELLAR_NETWORK_PASSPHRASE
@@ -121,115 +165,96 @@ export async function depositToVault(input: {
     throw new Error(`Deposit stage wallet-sign failed: ${String(error)}`);
   }
 
-  let sendResponse;
+  // ── 7. Dispatch via SDK ────────────────────────────────────────────────
   markStage('send');
   try {
-    sendResponse = await sendTransactionRaw(signedXdr);
+    // Deserialize the signed XDR back into a Transaction object so the SDK
+    // can dispatch it via its own typed sendTransaction method.
+    const signedTx = TransactionBuilder.fromXDR(
+      signedXdrBase64,
+      STELLAR_NETWORK_PASSPHRASE
+    ) as Transaction;
+
+    const sendResponse = await server.sendTransaction(signedTx);
+
+    if (sendResponse.status === 'ERROR') {
+      throw new Error(
+        `Transaction rejected by network. errorResult=${sendResponse.errorResult?.toXDR('base64') ?? 'unknown'}`
+      );
+    }
+
+    return { hash: sendResponse.hash };
   } catch (error) {
     throw new Error(`Deposit stage send failed: ${String(error)}`);
   }
-  if (sendResponse.errorResultXdr) {
-    throw new Error(`Transaction rejected by network. status=${sendResponse.status}`);
-  }
-
-  return { hash: sendResponse.hash };
 }
 
+// ---------------------------------------------------------------------------
+// Transaction status polling
+// ---------------------------------------------------------------------------
+
+/**
+ * Polls the Soroban RPC for the final status of a submitted transaction.
+ *
+ * Caps polling at `POLL_MAX_ATTEMPTS` rounds (default: 15 × 2 s = 30 s) to
+ * prevent infinite CPU spin and battery drain if the ledger drops the
+ * transaction.
+ *
+ * @throws If the transaction fails, or if it is still NOT_FOUND after timeout.
+ */
 export async function waitForTransaction(hash: string): Promise<void> {
   const server = new rpc.Server(SOROBAN_RPC_URL, { allowHttp: true });
-  while (true) {
+
+  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt += 1) {
     const response = await server.getTransaction(hash);
+
     if (response.status !== 'NOT_FOUND') {
       if (response.status !== 'SUCCESS') {
-        throw new Error(`Transaction failed: ${response.status}`);
+        throw new Error(`Transaction failed with status: ${response.status}`);
       }
-      return;
+      return; // SUCCESS – exit cleanly.
     }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Still pending – wait before next poll.
+    await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
+
+  throw new Error(
+    `Transaction ${hash} not confirmed after ${POLL_MAX_ATTEMPTS * (POLL_INTERVAL_MS / 1000)} seconds. ` +
+      'The network may be congested. Check the transaction status manually.'
+  );
 }
 
-async function resolveAccountSequence(server, publicKey) {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves the current sequence number for a Stellar account from Horizon.
+ * Returns `'0'` when the account does not yet exist on-ledger.
+ */
+async function resolveAccountSequence(publicKey: string): Promise<string> {
   const horizonSequence = await fetchHorizonSequence(publicKey);
-  if (horizonSequence) return horizonSequence;
-  return '0';
+  return horizonSequence ?? '0';
 }
 
-async function fetchHorizonSequence(publicKey) {
+async function fetchHorizonSequence(publicKey: string): Promise<string | null> {
   try {
     const response = await fetch(`${STELLAR_HORIZON_MAINNET_URL}/accounts/${publicKey}`);
     if (response.status === 404) return null;
     if (!response.ok) return null;
-    const data = await response.json();
+    const data = (await response.json()) as { sequence?: unknown };
     return typeof data.sequence === 'string' ? data.sequence : null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
 
-async function simulateTransactionRaw(transactionXdr: string) {
-  const payload = {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'simulateTransaction',
-    params: {
-      transaction: transactionXdr,
-    },
-  };
-
-  const response = await fetch(SOROBAN_RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`RPC simulate HTTP ${response.status}`);
-  }
-
-  const json = await response.json();
-  if (json.error) {
-    throw new Error(json.error.message || 'simulateTransaction RPC error');
-  }
-  if (!json.result) {
-    throw new Error('simulateTransaction missing result');
-  }
-
-  return json.result;
-}
-
-async function sendTransactionRaw(transactionXdr: string) {
-  const payload = {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'sendTransaction',
-    params: {
-      transaction: transactionXdr,
-    },
-  };
-
-  const response = await fetch(SOROBAN_RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`RPC send HTTP ${response.status}`);
-  }
-
-  const json = await response.json();
-  if (json.error) {
-    throw new Error(json.error.message || 'sendTransaction RPC error');
-  }
-  if (!json.result) {
-    throw new Error('sendTransaction missing result');
-  }
-
-  return json.result;
-}
-
-function encodeTransactionEnvelopeBase64(tx: any): string {
+/**
+ * Serializes a built `Transaction` into a base64-encoded XDR envelope string
+ * suitable for wallet signing or RPC dispatch.
+ */
+function encodeTransactionEnvelopeBase64(tx: Transaction): string {
   const raw = tx.toEnvelope().toXDR();
   const bytes = toUint8Array(raw);
   return Buffer.from(bytes).toString('base64');
@@ -239,7 +264,6 @@ function toUint8Array(raw: unknown): Uint8Array {
   if (raw instanceof Uint8Array) {
     return raw;
   }
-
   if (typeof raw === 'string') {
     // js-xdr may return a binary string (1 char = 1 byte).
     const out = new Uint8Array(raw.length);
@@ -248,15 +272,5 @@ function toUint8Array(raw: unknown): Uint8Array {
     }
     return out;
   }
-
   return new Uint8Array(raw as ArrayLike<number>);
 }
-
-export type DepositStage =
-  | 'load-account'
-  | 'build-xdr'
-  | 'simulate'
-  | 'assemble'
-  | 'prepare-sign'
-  | 'wallet-sign'
-  | 'send';
