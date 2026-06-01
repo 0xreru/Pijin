@@ -43,6 +43,7 @@ apps/mobile/.env.local
 # ----------------------------------------------------------------------
 
 # Next.js Build Output
+apps/backend/node_modules/
 apps/backend/.next/
 apps/backend/out/
 apps/backend/build/
