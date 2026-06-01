@@ -125,6 +125,9 @@ function RootNavigator() {
     <View style={{ flex: 1 }}>
       <NavigationContainer
         ref={navigationRef}
+        onReady={() => {
+          setCurrentRouteName(navigationRef.getCurrentRoute()?.name as keyof RootStackParamList);
+        }}
         onStateChange={() => {
           setCurrentRouteName(navigationRef.getCurrentRoute()?.name as keyof RootStackParamList);
         }}

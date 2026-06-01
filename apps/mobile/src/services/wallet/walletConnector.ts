@@ -4,7 +4,7 @@ import type { SessionTypes } from '@walletconnect/types';
 import { Linking } from 'react-native';
 
 declare const process: {
-  env?: Record<string, string | undefined>;
+  env: Record<string, string | undefined>;
 };
 
 function cleanEnv(value: string | undefined): string | undefined {

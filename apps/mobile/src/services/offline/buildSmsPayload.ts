@@ -35,9 +35,8 @@ export async function buildOfflineSmsVoucher(
   );
 
   const deviceKeypair = await getOrGenerateDeviceKeypair();
-  const secret = deviceKeypair.secret();
 
-  const signatureB64 = signOfflinePaymentMessage(signMessage, secret);
+  const signatureB64 = await signOfflinePaymentMessage(signMessage, deviceKeypair);
   const smsBody = [
     input.customerShortId,
     input.merchantShortId,

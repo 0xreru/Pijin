@@ -1,4 +1,4 @@
-import 'react-native-get-random-values';
+import { Buffer } from 'buffer';
 
 /** 8-byte nonce for SMS; backend expands to 32 bytes. */
 export function generateShortNonce(): Uint8Array {

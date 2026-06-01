@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { CameraView, type BarcodeScanningResult, useCameraPermissions } from 'expo-camera';
-import * as SMS from 'expo-sms';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../../constants/theme';
 import { spacing } from '../../constants/spacing';
 import { typography } from '../../constants/typography';
@@ -34,24 +33,29 @@ export function MerchantPosScanner({ gatewayNumber }: MerchantPosScannerProps) {
   }
 
   async function openSmsComposer(payload: string) {
-    const isAvailable = await SMS.isAvailableAsync();
-    if (!isAvailable) {
-      setStatus('SMS not available on this device.');
+    const destination = gatewayNumber?.trim() || SMS_GATEWAY_NUMBER || '';
+    if (!destination) {
+      setStatus('No SMS gateway configured.');
       return;
     }
 
-    const destination = gatewayNumber?.trim() || SMS_GATEWAY_NUMBER || '+639XX...';
-    const result = await SMS.sendSMSAsync([destination], payload);
+    // Use platform-native SMS URI — consistent with SmsPreparedPanel approach.
+    // Android uses '?body=', iOS uses '&body='.
+    const separator = '?';
+    const uri = `sms:${destination}${separator}body=${encodeURIComponent(payload)}`;
 
-    if (result.result === 'sent') {
-      setStatus('SMS sent.');
-      return;
+    try {
+      await Linking.openURL(uri);
+      setStatus('SMS composer opened.');
+    } catch {
+      setStatus('Unable to open SMS app on this device.');
+    } finally {
+      // Allow re-scan after a brief settle period.
+      setTimeout(() => {
+        scannerLockRef.current = false;
+        setIsLocked(false);
+      }, 3000);
     }
-    if (result.result === 'cancelled') {
-      setStatus('SMS cancelled.');
-      return;
-    }
-    setStatus('SMS result unknown.');
   }
 
   function handleScanAgain() {
