@@ -1,15 +1,18 @@
 import { Keypair } from '@stellar/stellar-base';
+import { Buffer } from 'buffer';
 import { stripBase64Padding } from './nonce';
 
 /**
  * Signs the exact UTF-8 string the backend verifies:
  * `${merchantShortId}:${amountPhp}:${nonceHex32}`
  */
-export function signOfflinePaymentMessage(
+export async function signOfflinePaymentMessage(
   message: string,
-  secretKey: string
-): string {
-  const keypair = Keypair.fromSecret(secretKey);
+  keypair: Keypair
+): Promise<string> {
+  // Yield control to the event loop to prevent UI stutter/thread blocking
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   const signature = keypair.sign(Buffer.from(message, 'utf8'));
   return stripBase64Padding(signature.toString('base64'));
 }

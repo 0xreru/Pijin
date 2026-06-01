@@ -1,6 +1,6 @@
-import 'react-native-get-random-values';
+import { Buffer } from 'buffer';
 import { loadStoredAccount } from '../storage/accountStorage';
-import { stripBase64Padding } from './nonce';
+import { generateShortNonce, shortNonceToBase64 } from './nonce';
 
 export async function buildCustomerOfflineQr(amount: string, merchantShortId: string): Promise<string> {
   const trimmedAmount = amount.trim();
@@ -21,13 +21,8 @@ export async function buildCustomerOfflineQr(amount: string, merchantShortId: st
     throw new Error('Only customer accounts can generate offline QR payloads.');
   }
 
-  const bytes = new Uint8Array(8);
-  const cryptoApi = globalThis.crypto as { getRandomValues: (array: Uint8Array) => Uint8Array } | undefined;
-  if (!cryptoApi) {
-    throw new Error('Crypto API not available for nonce generation.');
-  }
-  cryptoApi.getRandomValues(bytes);
-  const nonceB64 = stripBase64Padding(Buffer.from(bytes).toString('base64'));
+  const shortNonce = generateShortNonce();
+  const nonceB64 = shortNonceToBase64(shortNonce);
 
   return [account.shortId, trimmedMerchant, trimmedAmount, nonceB64].join(':');
 }
