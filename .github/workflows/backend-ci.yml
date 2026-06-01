@@ -1,0 +1,65 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'apps/backend/**'
+      - 'packages/omnifi-sdk/**'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'apps/backend/**'
+      - 'packages/omnifi-sdk/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  verify-and-build:
+    name: Backend Type Check & Smoke Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Build OmniFi SDK
+        run: |
+          cd packages/omnifi-sdk
+          npx tsc
+
+      - name: Validate & Generate Prisma Client
+        env:
+          # A dummy database URL allows Prisma to generate types without needing live Neon access
+          DATABASE_URL: "postgresql://postgres:password@localhost:5432/dummy"
+        run: |
+          cd apps/backend
+          npx prisma validate
+          npx prisma generate
+
+      - name: Strict Type Check
+        run: |
+          cd apps/backend
+          npx tsc --noEmit
+
+      - name: Next.js Build (Smoke Test)
+        env:
+          DATABASE_URL: "postgresql://postgres:password@localhost:5432/dummy"
+          # Mock environment variables to satisfy Next.js build-time requirements
+          CONTRACT_ID: "C_DUMMY_ID"
+          TOKEN_ID: "C_DUMMY_TOKEN"
+          SOROBAN_RPC_URL: "https://soroban-testnet.stellar.org"
+        run: |
+          cd apps/backend
+          npm run build
