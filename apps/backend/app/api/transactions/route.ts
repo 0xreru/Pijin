@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     }
 
     const settlements = await prisma.settlement.findMany({
-      where: { merchantShortId, status: "SUCCESS" },
+      where: { merchantShortId, status: "SETTLED" },
       orderBy: { createdAt: "desc" },
       take: 50,
     });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { Client, networks, rpc, Keypair, TransactionBuilder } from '@/abotpera-sdk/src';
+import { Client, networks, rpc } from '@/lib/omnifi-sdk';
+import { Keypair, TransactionBuilder } from '@stellar/stellar-sdk';
 import { expandNonce, verifySignatureLocally } from '@/lib/crypto';
 import { sendSmsReceipt } from '@/lib/textbee';
  
