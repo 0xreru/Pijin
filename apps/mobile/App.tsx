@@ -1,142 +1,341 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, shadows } from './src/constants/theme';
-import { radius } from './src/constants/radius';
-import { spacing } from './src/constants/spacing';
-import { typography } from './src/constants/typography';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
+import { colors } from './src/constants/theme';
 import { BottomNavBar, BottomTab } from './src/components/ui/BottomNavBar';
 import { MerchantBottomNavBar, MerchantTab } from './src/components/ui/MerchantBottomNavBar';
-import { CustomerOnlineScreen } from './src/screens/CustomerOnlineScreen';
-import { OnboardingScreen } from './src/screens/OnboardingScreen';
-import { LockFundsScreen } from './src/screens/LockFundsScreen';
-import { MerchantDashboardScreen } from './src/screens/merchant/MerchantDashboardScreen';
-import { MerchantScannerScreen } from './src/screens/merchant/MerchantScannerScreen';
-import { MerchantSetupScreen } from './src/screens/merchant/MerchantSetupScreen';
-import { MerchantWalletScreen } from './src/screens/merchant/MerchantWalletScreen';
-import { OfflineWalletScreen } from './src/screens/OfflineWalletScreen';
-import { OnlineOfflineWalletScreen } from './src/screens/OnlineOfflineWalletScreen';
-import { PayAmountScreen } from './src/screens/PayAmountScreen';
-import { QRVoucherScreen } from './src/screens/QRVoucherScreen';
-import { TransactionStatusScreen } from './src/screens/TransactionStatusScreen';
-import { UnlockFundsScreen } from './src/screens/UnlockFundsScreen';
-import { WalletSetupScreen } from './src/screens/WalletSetupScreen';
-import { clearStoredAccount, loadStoredAccount, type StoredAccount } from './src/services/storage/accountStorage';
-import 'react-native-get-random-values';
+import { LogoutConfirmationModal } from './src/components/ui/LogoutConfirmationModal';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 
-type ScreenKey =
-  | 'onboarding'
-  | 'customer-online'
-  | 'wallet-setup'
-  | 'online-offline-wallet'
-  | 'offline-wallet'
-  | 'lock-funds'
-  | 'transaction-status'
-  | 'unlock-funds'
-  | 'pay-amount'
-  | 'qr-voucher'
-  | 'merchant-dashboard'
-  | 'merchant-scanner'
-  | 'merchant-wallet';
+import {
+  OnboardingScreen,
+  CustomerOnlineScreen,
+  WalletSetupScreen,
+  OnlineOfflineWalletScreen,
+  OfflineWalletScreen,
+  LockFundsScreen,
+  TransactionStatusScreen,
+  UnlockFundsScreen,
+  PayAmountScreen,
+  QRVoucherScreen,
+  MerchantSetupScreen,
+  MerchantDashboardScreen,
+  MerchantScannerScreen,
+  MerchantWalletScreen,
+} from './src/screens';
 
-type UserMode = 'customer' | 'merchant';
+type RootStackParamList = {
+  Onboarding: undefined;
+  CustomerOnline: undefined;
+  WalletSetup: undefined;
+  MerchantSetup: undefined;
 
-function AnimatedScreenWrapper({ children, screenKey }: { children: React.ReactNode; screenKey: string }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(16)).current;
+  // Customer
+  OnlineOfflineWallet: undefined;
+  OfflineWallet: undefined;
+  PayAmount: undefined;
+  QrVoucher: { amount: number; merchantShortId?: string };
+  LockFunds: undefined;
+  UnlockFunds: undefined;
+  TransactionStatus: undefined;
 
-  useEffect(() => {
-    fadeAnim.setValue(0);
-    slideAnim.setValue(16);
+  // Merchant
+  MerchantDashboard: undefined;
+  MerchantScanner: { initialState?: 'idle' | 'scanner' } | undefined;
+  MerchantWallet: undefined;
+};
 
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 380,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 380,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [screenKey]);
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+function RootNavigator() {
+  const { activeAccount, connectedWalletPublicKey, userMode, login, setUserMode, logout } = useAuth();
+  const [merchantScannerState, setMerchantScannerState] = useState<'idle' | 'scanner'>('scanner');
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+  const [currentRouteName, setCurrentRouteName] = useState<keyof RootStackParamList | undefined>(undefined);
+
+  function handleBottomTabPress(tab: BottomTab) {
+    if (tab === 'Home') {
+      navigationRef.navigate('OnlineOfflineWallet');
+    } else if (tab === 'Pay') {
+      navigationRef.navigate('PayAmount');
+    } else if (tab === 'Wallet') {
+      navigationRef.navigate('OfflineWallet');
+    }
+  }
+
+  function handleMerchantTabPress(tab: MerchantTab) {
+    if (tab === 'Dashboard') {
+      navigationRef.navigate('MerchantDashboard');
+    } else if (tab === 'Scan') {
+      navigationRef.navigate('MerchantScanner', { initialState: 'scanner' });
+    } else if (tab === 'Wallet') {
+      navigationRef.navigate('MerchantWallet');
+    }
+  }
+
+  function renderBottomBar() {
+    if (!activeAccount) return null;
+
+    const showCustomerBar = currentRouteName === 'OnlineOfflineWallet' || currentRouteName === 'OfflineWallet';
+    const showMerchantBar = currentRouteName === 'MerchantDashboard' || currentRouteName === 'MerchantScanner' || currentRouteName === 'MerchantWallet';
+
+    if (showCustomerBar) {
+      const activeTab: BottomTab = currentRouteName === 'OnlineOfflineWallet' ? 'Home' : 'Wallet';
+      return (
+        <View
+          style={[
+            styles.bottomBarContainer,
+            { bottom: Math.max(insets.bottom, 16) }
+          ]}
+        >
+          <BottomNavBar active={activeTab} onTabPress={handleBottomTabPress} />
+        </View>
+      );
+    }
+
+    if (showMerchantBar) {
+      let activeTab: MerchantTab = 'Dashboard';
+      if (currentRouteName === 'MerchantScanner') activeTab = 'Scan';
+      if (currentRouteName === 'MerchantWallet') activeTab = 'Wallet';
+      return (
+        <View
+          style={[
+            styles.bottomBarContainer,
+            { bottom: Math.max(insets.bottom, 16) }
+          ]}
+        >
+          <MerchantBottomNavBar active={activeTab} onTabPress={handleMerchantTabPress} />
+        </View>
+      );
+    }
+
+    return null;
+  }
 
   return (
-    <Animated.View
-      style={{
-        flex: 1,
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }],
-      }}
-    >
-      {children}
-    </Animated.View>
+    <View style={{ flex: 1 }}>
+      <NavigationContainer
+        ref={navigationRef}
+        onStateChange={() => {
+          setCurrentRouteName(navigationRef.getCurrentRoute()?.name as keyof RootStackParamList);
+        }}
+      >
+        <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+          {!activeAccount ? (
+            <>
+              <Stack.Screen name="Onboarding">
+                {(props) => (
+                  <OnboardingScreen
+                    onFinish={() => props.navigation.navigate('CustomerOnline')}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="CustomerOnline">
+                {(props) => (
+                  <CustomerOnlineScreen
+                    onContinue={(mode) => {
+                      setUserMode(mode);
+                      props.navigation.navigate(mode === 'merchant' ? 'MerchantSetup' : 'WalletSetup');
+                    }}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="MerchantSetup">
+                {(props) => (
+                  <MerchantSetupScreen
+                    onBack={() => props.navigation.navigate('CustomerOnline')}
+                    onRegistered={async (publicKey, shortId) => {
+                      await login(publicKey, shortId, 'MERCHANT');
+                    }}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="WalletSetup">
+                {(props) => (
+                  <WalletSetupScreen
+                    userMode={userMode}
+                    onBack={() => props.navigation.navigate('CustomerOnline')}
+                    onWalletConnected={async (publicKey, shortId) => {
+                      const role = userMode === 'merchant' ? 'MERCHANT' : 'CUSTOMER';
+                      await login(publicKey, shortId, role);
+                    }}
+                  />
+                )}
+              </Stack.Screen>
+            </>
+          ) : activeAccount.role === 'MERCHANT' ? (
+            <>
+              <Stack.Screen name="MerchantWallet">
+                {() => (
+                  <MerchantWalletScreen
+                    connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                    merchantShortId={activeAccount.shortId}
+                    onMerchantTabPress={handleMerchantTabPress}
+                    onLogout={() => setShowLogoutModal(true)}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="MerchantDashboard">
+                {() => (
+                  <MerchantDashboardScreen
+                    connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                    merchantShortId={activeAccount.shortId}
+                    onMerchantTabPress={handleMerchantTabPress}
+                    onScanPress={() => navigationRef.navigate('MerchantScanner', { initialState: 'scanner' })}
+                    onLogout={() => setShowLogoutModal(true)}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="MerchantScanner">
+                {(props) => {
+                  const initialState = props.route.params?.initialState || merchantScannerState;
+                  return (
+                    <MerchantScannerScreen
+                      connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                      merchantShortId={activeAccount.shortId}
+                      onMerchantTabPress={handleMerchantTabPress}
+                      onBackToDashboard={() => navigationRef.navigate('MerchantDashboard')}
+                      onViewHistory={() => navigationRef.navigate('MerchantWallet')}
+                      initialState={initialState}
+                      onStateChange={setMerchantScannerState}
+                      onLogout={() => setShowLogoutModal(true)}
+                    />
+                  );
+                }}
+              </Stack.Screen>
+            </>
+          ) : (
+            <>
+              <Stack.Screen name="OnlineOfflineWallet">
+                {() => (
+                  <OnlineOfflineWalletScreen
+                    bottomTab="Home"
+                    connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                    shortId={activeAccount.shortId}
+                    onBottomTabPress={handleBottomTabPress}
+                    onLogout={() => setShowLogoutModal(true)}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="OfflineWallet">
+                {() => (
+                  <OfflineWalletScreen
+                    bottomTab="Wallet"
+                    connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                    shortId={activeAccount.shortId}
+                    onBottomTabPress={handleBottomTabPress}
+                    onPrepareOfflineCash={() => navigationRef.navigate('LockFunds')}
+                    onLogout={() => setShowLogoutModal(true)}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="PayAmount">
+                {() => (
+                  <PayAmountScreen
+                    connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                    onBack={() => navigationRef.navigate('OfflineWallet')}
+                    onGenerateQr={(amount) => navigationRef.navigate('QrVoucher', { amount })}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="QrVoucher">
+                {(props) => {
+                  const amount = props.route.params?.amount ?? 0;
+                  return (
+                    <QRVoucherScreen
+                      amount={amount}
+                      customerPublicKey={connectedWalletPublicKey ?? undefined}
+                      customerShortId={activeAccount.shortId}
+                      merchantShortId="M-DEMO"
+                      onCancel={() => navigationRef.navigate('PayAmount')}
+                    />
+                  );
+                }}
+              </Stack.Screen>
+              <Stack.Screen name="LockFunds">
+                {() => (
+                  <LockFundsScreen
+                    connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                    shortId={activeAccount.shortId}
+                    onBack={() => navigationRef.navigate('OfflineWallet')}
+                    onDepositComplete={() => navigationRef.navigate('OfflineWallet')}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="TransactionStatus">
+                {() => <TransactionStatusScreen />}
+              </Stack.Screen>
+              <Stack.Screen name="UnlockFunds">
+                {() => (
+                  <UnlockFundsScreen
+                    connectedPublicKey={connectedWalletPublicKey ?? undefined}
+                    shortId={activeAccount.shortId}
+                  />
+                )}
+              </Stack.Screen>
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+      {renderBottomBar()}
+      <LogoutConfirmationModal
+        visible={showLogoutModal}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={async () => {
+          setShowLogoutModal(false);
+          await logout();
+        }}
+      />
+    </View>
+  );
+}
+
+function AppContent({
+  fontsLoaded,
+  fontError,
+  fontLoadTimedOut,
+}: {
+  fontsLoaded: boolean;
+  fontError: any;
+  fontLoadTimedOut: boolean;
+}) {
+  const { isAppReady } = useAuth();
+
+  if (!isAppReady || (!fontsLoaded && !fontError && !fontLoadTimedOut)) {
+    return (
+      <View style={styles.splashContainer}>
+        <ActivityIndicator size="large" color="#111111" />
+        <Text style={styles.splashText}>Starting AbotPera...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <RootNavigator />
+      <StatusBar style="auto" />
+    </>
   );
 }
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   const [fontLoadTimedOut, setFontLoadTimedOut] = useState(false);
-  const [currentScreen, setCurrentScreen] = useState<ScreenKey>('onboarding');
-  const [userMode, setUserMode] = useState<UserMode>('customer');
-  const [isAppReady, setIsAppReady] = useState(false);
-  const [connectedWalletPublicKey, setConnectedWalletPublicKey] = useState<string | null>(null);
-  const [activeAccount, setActiveAccount] = useState<StoredAccount | null>(null);
-  const [qrAmount, setQrAmount] = useState<number>(0);
-  const [qrMerchantShortId, setQrMerchantShortId] = useState<string>('M-DEMO');
-  const [merchantScannerState, setMerchantScannerState] = useState<'idle' | 'scanner'>('scanner');
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     if (fontError) {
       console.error('Failed to load Ionicons font:', fontError);
     }
   }, [fontError]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const bootstrap = async () => {
-      try {
-        const account = await loadStoredAccount();
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (account) {
-          setActiveAccount(account);
-          setConnectedWalletPublicKey(account.stellarPublicKey);
-          const resolvedMode = account.role === 'MERCHANT' ? 'merchant' : 'customer';
-          setUserMode(resolvedMode);
-          setCurrentScreen(account.role === 'MERCHANT' ? 'merchant-wallet' : 'online-offline-wallet');
-        } else {
-          setCurrentScreen('onboarding');
-        }
-      } catch (error) {
-        console.error('Failed to load stored account:', error);
-        if (isMounted) {
-          setCurrentScreen('wallet-setup');
-        }
-      } finally {
-        if (isMounted) {
-          setIsAppReady(true);
-        }
-      }
-    };
-
-    bootstrap();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -151,421 +350,35 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [fontsLoaded, fontError]);
 
-  if (!isAppReady || (!fontsLoaded && !fontError && !fontLoadTimedOut)) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: '#FFFFFF',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 12,
-        }}
-      >
-        <ActivityIndicator size="large" color="#111111" />
-        <Text style={{ color: '#4B5563', fontSize: 14 }}>Starting AbotPera...</Text>
-      </View>
-    );
-  }
-
-  function goToLockFunds() {
-    setCurrentScreen('lock-funds');
-  }
-
-  function goToOfflineWallet() {
-    setCurrentScreen('offline-wallet');
-  }
-
-  function goToPayAmount() {
-    setCurrentScreen('pay-amount');
-  }
-
-  function goToQrVoucher(amount: number) {
-    setQrAmount(amount);
-    setCurrentScreen('qr-voucher');
-  }
-
-  function goBackFromQrVoucher() {
-    goToPayAmount();
-  }
-
-  function handleBottomTabPress(tab: BottomTab) {
-    if (tab === 'Home') {
-      setCurrentScreen('online-offline-wallet');
-      return;
-    }
-
-    if (tab === 'Pay') {
-      goToPayAmount();
-      return;
-    }
-
-    if (tab === 'Wallet') {
-      setCurrentScreen('offline-wallet');
-    }
-  }
-
-  function handleMerchantTabPress(tab: MerchantTab) {
-    if (tab === 'Dashboard') {
-      setCurrentScreen('merchant-dashboard');
-      return;
-    }
-
-    if (tab === 'Scan') {
-      setCurrentScreen('merchant-scanner');
-      return;
-    }
-
-    if (tab === 'Wallet') {
-      setCurrentScreen('merchant-wallet');
-    }
-  }
-
-  async function handleLogout() {
-    setShowLogoutModal(true);
-  }
-
-  async function confirmLogout() {
-    setShowLogoutModal(false);
-    try {
-      await clearStoredAccount();
-      setActiveAccount(null);
-      setConnectedWalletPublicKey(null);
-      setCurrentScreen('onboarding');
-    } catch (error) {
-      console.error('Failed to logout:', error);
-    }
-  }
-
-  function renderScreen() {
-    if (currentScreen === 'onboarding') {
-      return (
-        <OnboardingScreen
-          onFinish={() => setCurrentScreen('customer-online')}
-        />
-      );
-    }
-
-    if (!activeAccount) {
-      if (currentScreen === 'customer-online') {
-        return (
-          <CustomerOnlineScreen
-            onContinue={(mode) => {
-              setUserMode(mode);
-              setCurrentScreen('wallet-setup');
-            }}
-          />
-        );
-      }
-      return (
-        userMode === 'merchant' ? (
-          <MerchantSetupScreen
-            onBack={() => setCurrentScreen('customer-online')}
-            onRegistered={(publicKey, shortId) => {
-              setConnectedWalletPublicKey(publicKey);
-              setActiveAccount({
-                shortId,
-                role: 'MERCHANT',
-                stellarPublicKey: publicKey,
-              });
-              setCurrentScreen('merchant-wallet');
-            }}
-          />
-        ) : (
-          <WalletSetupScreen
-            userMode={userMode}
-            onBack={() => setCurrentScreen('customer-online')}
-            onWalletConnected={(publicKey, shortId) => {
-              setConnectedWalletPublicKey(publicKey);
-              const role = userMode === 'merchant' ? 'MERCHANT' : 'CUSTOMER';
-              setActiveAccount({
-                shortId,
-                role,
-                stellarPublicKey: publicKey,
-              });
-              setCurrentScreen(userMode === 'customer' ? 'online-offline-wallet' : 'merchant-wallet');
-            }}
-          />
-        )
-      );
-    }
-
-    if (currentScreen === 'online-offline-wallet') {
-      return (
-        <OnlineOfflineWalletScreen
-          bottomTab="Home"
-          connectedPublicKey={connectedWalletPublicKey ?? undefined}
-          shortId={activeAccount?.shortId}
-          onBottomTabPress={handleBottomTabPress}
-          onLogout={handleLogout}
-        />
-      );
-    }
-
-    if (currentScreen === 'offline-wallet') {
-      return (
-        <OfflineWalletScreen
-          bottomTab="Wallet"
-          connectedPublicKey={connectedWalletPublicKey ?? undefined}
-          shortId={activeAccount?.shortId}
-          onBottomTabPress={handleBottomTabPress}
-          onPrepareOfflineCash={goToLockFunds}
-          onLogout={handleLogout}
-        />
-      );
-    }
-
-    if (currentScreen === 'pay-amount') {
-      return (
-        <PayAmountScreen
-          connectedPublicKey={connectedWalletPublicKey ?? undefined}
-          onBack={goToOfflineWallet}
-          onGenerateQr={goToQrVoucher}
-        />
-      );
-    }
-
-    if (currentScreen === 'qr-voucher') {
-      return (
-        <QRVoucherScreen
-          amount={qrAmount}
-          customerPublicKey={connectedWalletPublicKey ?? undefined}
-          customerShortId={activeAccount?.shortId}
-          merchantShortId={qrMerchantShortId}
-          onCancel={goBackFromQrVoucher}
-        />
-      );
-    }
-
-    if (currentScreen === 'merchant-dashboard') {
-      return (
-        <MerchantDashboardScreen
-          connectedPublicKey={connectedWalletPublicKey ?? undefined}
-          merchantShortId={activeAccount?.shortId}
-          onMerchantTabPress={handleMerchantTabPress}
-          onScanPress={() => setCurrentScreen('merchant-scanner')}
-          onLogout={handleLogout}
-        />
-      );
-    }
-
-    if (currentScreen === 'merchant-scanner') {
-      return (
-        <MerchantScannerScreen
-          connectedPublicKey={connectedWalletPublicKey ?? undefined}
-          merchantShortId={activeAccount?.shortId}
-          onMerchantTabPress={handleMerchantTabPress}
-          onBackToDashboard={() => setCurrentScreen('merchant-dashboard')}
-          onViewHistory={() => setCurrentScreen('merchant-wallet')}
-          initialState={merchantScannerState}
-          onStateChange={setMerchantScannerState}
-          onLogout={handleLogout}
-        />
-      );
-    }
-
-    if (currentScreen === 'merchant-wallet') {
-      return (
-        <MerchantWalletScreen
-          connectedPublicKey={connectedWalletPublicKey ?? undefined}
-          merchantShortId={activeAccount?.shortId}
-          onMerchantTabPress={handleMerchantTabPress}
-          onLogout={handleLogout}
-        />
-      );
-    }
-
-    if (currentScreen === 'lock-funds') {
-      return (
-        <LockFundsScreen
-          connectedPublicKey={connectedWalletPublicKey ?? undefined}
-          shortId={activeAccount?.shortId}
-          onBack={goToOfflineWallet}
-          onDepositComplete={goToOfflineWallet}
-        />
-      );
-    }
-
-    if (currentScreen === 'transaction-status') {
-      return <TransactionStatusScreen />;
-    }
-
-    return (
-      <UnlockFundsScreen
-        connectedPublicKey={connectedWalletPublicKey ?? undefined}
-        shortId={activeAccount?.shortId}
-      />
-    );
-  }
-
-  function renderBottomBar() {
-    if (activeAccount) {
-      if (currentScreen === 'online-offline-wallet' || currentScreen === 'offline-wallet') {
-        const activeTab = currentScreen === 'online-offline-wallet' ? 'Home' : 'Wallet';
-        return (
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 24,
-              alignItems: 'center',
-            }}
-          >
-            <BottomNavBar active={activeTab} onTabPress={handleBottomTabPress} />
-          </View>
-        );
-      }
-
-      if (currentScreen === 'merchant-dashboard' || currentScreen === 'merchant-scanner' || currentScreen === 'merchant-wallet') {
-        let activeTab: MerchantTab = 'Dashboard';
-        if (currentScreen === 'merchant-scanner') activeTab = 'Scan';
-        if (currentScreen === 'merchant-wallet') activeTab = 'Wallet';
-        return (
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 24,
-              alignItems: 'center',
-            }}
-          >
-            <MerchantBottomNavBar active={activeTab} onTabPress={handleMerchantTabPress} />
-          </View>
-        );
-      }
-    }
-    return null;
-  }
-
   return (
-    <>
-      <AnimatedScreenWrapper screenKey={currentScreen}>
-        {renderScreen()}
-      </AnimatedScreenWrapper>
-      {renderBottomBar()}
-      <StatusBar style="auto" />
-
-      {/* Logout Confirmation Modal */}
-      <Modal
-        visible={showLogoutModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowLogoutModal(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalIconContainer}>
-              <Ionicons name="log-out-outline" size={28} color={colors.danger} />
-            </View>
-            <Text style={styles.modalTitle}>Log Out of Account?</Text>
-            <Text style={styles.modalMessage}>
-              Are you sure you want to log out of your merchant dashboard? You will need to sign back in to access your transactions.
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.modalButton,
-                  styles.modalButtonCancel,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => setShowLogoutModal(false)}
-              >
-                <Text style={styles.modalButtonCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.modalButton,
-                  styles.modalButtonConfirm,
-                  pressed && styles.pressed,
-                ]}
-                onPress={confirmLogout}
-              >
-                <Text style={styles.modalButtonConfirmText}>Log Out</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppContent
+          fontsLoaded={fontsLoaded}
+          fontError={fontError}
+          fontLoadTimedOut={fontLoadTimedOut}
+        />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  modalBackdrop: {
+  bottomBarContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  splashContainer: {
     flex: 1,
-    backgroundColor: 'rgba(8, 9, 10, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 340,
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.xl,
-    alignItems: 'center',
-    ...shadows.card,
-  },
-  modalIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(240, 68, 56, 0.08)',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.lg,
+    gap: 12,
   },
-  modalTitle: {
-    ...typography.title,
-    fontSize: 20,
-    fontWeight: '900',
-    color: colors.ink,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
-  },
-  modalMessage: {
-    ...typography.body,
+  splashText: {
+    color: '#4B5563',
     fontSize: 14,
-    color: colors.muted,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: spacing.xl,
-    paddingHorizontal: spacing.sm,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    width: '100%',
-  },
-  modalButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalButtonCancel: {
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-  },
-  modalButtonCancelText: {
-    color: colors.mutedDark,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  modalButtonConfirm: {
-    backgroundColor: colors.danger,
-  },
-  modalButtonConfirmText: {
-    color: colors.surface,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  pressed: {
-    opacity: 0.85,
   },
 });
