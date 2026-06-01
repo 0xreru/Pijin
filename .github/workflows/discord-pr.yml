@@ -1,0 +1,26 @@
+name: Pull Request Discord Notifier
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [ "main" ]
+
+jobs:
+  notify:
+    name: Send Discord Notification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send PR Alert via Discord Webhook
+        uses: tsickert/discord-webhook@v7.0.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK }}
+          embed-title: "🚀 New Pull Request Opened"
+          embed-description: |
+            **PR Title:** ${{ github.event.pull_request.title }}
+            **Author:** ${{ github.event.pull_request.user.login }}
+            **Branch:** `${{ github.event.pull_request.head.ref }}` into `main`
+            
+            [View Pull Request on GitHub](${{ github.event.pull_request.html_url }})
+          embed-color: 10325 
+          username: "CelluFi CI Bot"
