@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { MerchantBottomNavBar, MerchantTab } from '../../components/ui/MerchantBottomNavBar';
 import { ScreenContainer } from '../../components/ui/ScreenContainer';
 import { AppCard } from '../../components/ui/AppCard';
@@ -12,6 +13,8 @@ import { typography } from '../../constants/typography';
 import { getMerchantSettlements, type SettlementRecord } from '../../services/api/transactions';
 import { useStellarAccount } from '../../hooks/useStellarAccount';
 import { formatCurrency } from '../../utils/formatCurrency';
+import { loadOfflinePaymentsQueue } from '../../services/storage/paymentQueueStorage';
+import { OfflinePaymentPayload } from '../../types/payment';
 
 type MerchantDashboardScreenProps = {
   connectedPublicKey?: string;
@@ -28,9 +31,11 @@ export function MerchantDashboardScreen({
   onScanPress,
   onLogout,
 }: MerchantDashboardScreenProps) {
+  const isFocused = useIsFocused();
   const { account, isLoading, error } = useStellarAccount(connectedPublicKey);
   const walletStatus = getWalletStatus({ connectedPublicKey, account, isLoading, error });
   const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
+  const [offlineQueue, setOfflineQueue] = useState<OfflinePaymentPayload[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,6 +48,14 @@ export function MerchantDashboardScreen({
         setLoadError(err instanceof Error ? err.message : 'Unable to load settlements.')
       );
   }, [merchantShortId]);
+
+  useEffect(() => {
+    if (isFocused) {
+      loadOfflinePaymentsQueue()
+        .then(setOfflineQueue)
+        .catch((err) => console.error('[Dashboard] failed to load offline queue:', err));
+    }
+  }, [isFocused]);
 
   const todayTotal = settlements.reduce(
     (sum, row) => sum + Number.parseFloat(row.amountPhp || '0'),
@@ -130,6 +143,44 @@ export function MerchantDashboardScreen({
           </View>
 
           {loadError ? <Text style={styles.loadError}>{loadError}</Text> : null}
+
+          {/* Offline Queued Payments */}
+          {offlineQueue.length > 0 ? (
+            <View style={{ marginTop: spacing.md }}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Offline Queued Payments</Text>
+                <Text style={styles.sectionAction}>{offlineQueue.length} pending</Text>
+              </View>
+              <AppCard bordered style={styles.transactionsCard}>
+                {offlineQueue.map((payment, index) => {
+                  const isLast = index === offlineQueue.length - 1;
+                  return (
+                    <View key={index} style={[styles.paymentRow, isLast && styles.paymentRowLast]}>
+                      <View style={[styles.paymentIconContainer, { backgroundColor: 'rgba(16, 16, 16, 0.06)' }]}>
+                        <Ionicons name="cloud-offline" size={18} color={colors.offline} />
+                      </View>
+                      <View style={styles.paymentInfo}>
+                        <Text style={styles.paymentCustomer} numberOfLines={1}>
+                          Customer: {payment.customerShortId}
+                        </Text>
+                        <Text style={styles.paymentMeta}>
+                          Voucher created: {formatTime(payment.createdAt)}
+                        </Text>
+                      </View>
+                      <View style={styles.paymentAmountContainer}>
+                        <Text style={styles.paymentTitle}>✦{Number(payment.amount || 0).toFixed(2)}</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: 'rgba(16, 16, 16, 0.08)' }]}>
+                          <Text style={[styles.statusBadgeText, { color: colors.inkSoft }]}>
+                            QUEUED
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </AppCard>
+            </View>
+          ) : null}
 
           {/* Settlements Section */}
           <View style={styles.sectionHeader}>
