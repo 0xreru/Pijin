@@ -49,7 +49,22 @@ async function signWithRelayer(
 
 function normalizePhone(value?: string | null): string | null {
     if (!value) return null;
-    return value.replace(/[^\d+]/g, '');
+    const raw = value.trim();
+    if (!raw) return null;
+
+    // Keep digits only for canonical matching.
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return null;
+
+    // PH normalization:
+    // +639XXXXXXXXX / 639XXXXXXXXX / 09XXXXXXXXX -> 09XXXXXXXXX
+    if (digits.startsWith('63') && digits.length === 12) {
+        return `0${digits.slice(2)}`;
+    }
+    if (digits.startsWith('9') && digits.length === 10) {
+        return `0${digits}`;
+    }
+    return digits;
 }
 
 function extractAuthSecret(req: Request): string | null {
