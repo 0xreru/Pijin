@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model Account {
@@ -24,6 +24,6 @@ model Settlement {
   merchantShortId  String
   amountXlm        String
   txHash           String?
-  status           String   // SUCCESS | FAILED
+  status           String   // SETTLED | FAILED
   createdAt        DateTime @default(now())
 }

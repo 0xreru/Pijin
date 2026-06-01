@@ -1,4 +1,4 @@
-import { Client, networks, rpc } from "@/abotpera-sdk/src";
+import { Client, networks, rpc } from "@/lib/omnifi-sdk";
 
 const sorobanRpcUrl =
   process.env.SOROBAN_RPC_URL ?? "https://rpc.lightsail.network";

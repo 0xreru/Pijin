@@ -1,5 +1,5 @@
 import { Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
-import { networks } from "@/abotpera-sdk/src";
+import { networks } from "@/lib/omnifi-sdk";
 import { prisma } from "@/lib/prisma";
 import { expandNonce, verifySignatureLocally } from "@/lib/crypto";
 import { sendSmsReceipt } from "@/lib/textbee";
@@ -37,7 +37,7 @@ async function signWithRelayer(
 
   const relayerKeypair = Keypair.fromSecret(process.env.RELAYER_SECRET_KEY);
   const passphrase =
-    signOpts?.networkPassphrase ?? networks.testnet.networkPassphrase;
+    signOpts?.networkPassphrase ?? networks.unknown.networkPassphrase;
   const transaction = TransactionBuilder.fromXDR(xdr, passphrase);
   transaction.sign(relayerKeypair);
   return {
@@ -127,7 +127,7 @@ export async function processOfflineSettlement(
       merchantShortId: merchId,
       amountXlm: amountStr,
       txHash: sendTransactionResponse?.hash ?? null,
-      status: "SUCCESS",
+      status: "SETTLED",
     },
   });
 
