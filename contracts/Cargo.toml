@@ -1,16 +1,25 @@
 [package]
-name = "abotpera-contract"
-version = "0.0.0"
+name = "pijin-contract"
+version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["lib", "cdylib"]
-name = "abotpera_contract"
-doctest = false
+crate-type = ["rlib"]
+name = "pijin_contract"
 
 [dependencies]
-soroban-sdk = { workspace = true }
+soroban-sdk = "22.0.0" 
 
 [dev-dependencies]
-soroban-sdk = { workspace = true, features = ["testutils"] }
+soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
