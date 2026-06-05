@@ -19,10 +19,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test-and-build:
-    name: test-and-build
+  # Rust Smart Contracts Job
+  rust-test-and-build:
+    name: Rust Test and Build
     runs-on: ubuntu-latest
-
+    defaults: 
+      working-directory: ./contracts
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,8 +32,7 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Required target for Soroban Smart Contracts
-          targets: wasm32v1-none
+          targets: wasm32-unknown-unknown
 
       - name: Rust Cache (Speed Optimization)
         uses: Swatinem/rust-cache@v2
