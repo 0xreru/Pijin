@@ -23,8 +23,9 @@ jobs:
   rust-test-and-build:
     name: Rust Test and Build
     runs-on: ubuntu-latest
-    defaults: 
-      working-directory: ./contracts
+    defaults:
+      run:
+        working-directory: ./contracts
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
