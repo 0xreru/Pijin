@@ -56,6 +56,12 @@ apps/backend/.env.development.local
 apps/backend/.env.test.local
 apps/backend/.env.production.local
 
+# ----------------------------------------------------------------------
+# Contracts
+# ----------------------------------------------------------------------
+contracts/target/
+contracts/test_snapshots/
+
 # Database & Prisma
 #
 *.db
