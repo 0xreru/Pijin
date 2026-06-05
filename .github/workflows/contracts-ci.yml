@@ -5,14 +5,15 @@ on:
     branches: [ "main" ]
     paths:
       - 'contracts/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
+      # Adjust these paths if your toml files are inside the contracts folder:
+      - 'contracts/Cargo.toml'
+      - 'contracts/Cargo.lock'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'contracts/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
+      - 'contracts/Cargo.toml'
+      - 'contracts/Cargo.lock'
 
 env:
   CARGO_TERM_COLOR: always
@@ -34,9 +35,13 @@ jobs:
 
       - name: Rust Cache (Speed Optimization)
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "contracts -> target"
 
       - name: Run Unit Tests
         run: cargo test
+        working-directory: ./contracts
 
       - name: Verify WASM Compilation
         run: cargo build --target wasm32v1-none --release
+        working-directory: ./contracts
