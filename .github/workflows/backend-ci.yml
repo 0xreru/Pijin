@@ -30,9 +30,16 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            packages/omnifi-sdk/package-lock.json
 
       - name: Install Monorepo Dependencies
-        run: npm ci
+        run: |
+          cd packages/omnifi-sdk
+          npm ci
+          cd ../../apps/backend
+          npm ci --ignore-scripts
 
       - name: Build OmniFi SDK
         run: |
