@@ -15,35 +15,34 @@ concurrency:
 
 jobs:
   verify:
-    test-and-build:
-      name: Typecheck and Bundle Smoke Test
-      runs-on: ubuntu-latest
-      defaults:
-        run:
-          working-directory: ./apps/mobile
-      
-      env:
-        EXPO_PUBLIC_API_BASE_URL: https://ci.example.com
-        EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID: ci-dummy-project-id
-        EXPO_PUBLIC_WALLETCONNECT_RELAY_URL: wss://relay.walletconnect.com
-        EXPO_PUBLIC_SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
-        EXPO_PUBLIC_CONTRACT_ID: C_DUMMY_CONTRACT
-        EXPO_PUBLIC_TOKEN_ID: C_DUMMY_TOKEN
-        EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
-        EXPO_PUBLIC_STELLAR_WALLET_CHAIN: stellar:testnet
-        EXPO_PUBLIC_SMS_GATEWAY_NUMBER: "+10000000000"
+    name: Typecheck and Bundle Smoke Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/mobile
+    
+    env:
+      EXPO_PUBLIC_API_BASE_URL: https://ci.example.com
+      EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID: ci-dummy-project-id
+      EXPO_PUBLIC_WALLETCONNECT_RELAY_URL: wss://relay.walletconnect.com
+      EXPO_PUBLIC_SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+      EXPO_PUBLIC_CONTRACT_ID: C_DUMMY_CONTRACT
+      EXPO_PUBLIC_TOKEN_ID: C_DUMMY_TOKEN
+      EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      EXPO_PUBLIC_STELLAR_WALLET_CHAIN: stellar:testnet
+      EXPO_PUBLIC_SMS_GATEWAY_NUMBER: "+10000000000"
 
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
-        
-        - name: Setup Node.js Environment
-          uses: actions/setup-node@v4
-          with:
-            node-version: '20'
-            cache: 'npm'
-            cache-dependency-path: ./apps/mobile/package-lock.json
-        
-        - run: npm ci
-        - run: tsc --noEmit
-        - run: npm run ci:verify
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ./apps/mobile/package-lock.json
+      
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx expo export --platform web
