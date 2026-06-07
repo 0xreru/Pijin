@@ -1,0 +1,7 @@
+# #region agent log
+node -e "require('fs').appendFileSync('debug-994f76.log',JSON.stringify({sessionId:'994f76',location:'.husky/pre-commit',message:'pre-commit hook start',data:{command:'npx lint-staged',cwd:process.cwd()},timestamp:Date.now(),hypothesisId:'H1',runId:'pre-fix'})+'\n')" 2>/dev/null || true
+# #endregion
+npx lint-staged
+# #region agent log
+node -e "require('fs').appendFileSync('debug-994f76.log',JSON.stringify({sessionId:'994f76',location:'.husky/pre-commit',message:'pre-commit hook end',data:{exitCode:0},timestamp:Date.now(),hypothesisId:'H1',runId:'pre-fix'})+'\n')" 2>/dev/null || true
+# #endregion
