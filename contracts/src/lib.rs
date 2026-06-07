@@ -1,8 +1,15 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
+    xdr::ToXdr, Address, BytesN, Env,
 };
+
+pub const DAY_IN_LEDGERS: u32 = 17_280;
+pub const THIRTY_DAYS_IN_LEDGERS: u32 = 518_400;
+
+const DAY_IN_SECONDS: u64 = 86_400;
+const BOUNTY_FEE: i128 = 10_000_000;
 
 /// Stable, client-readable contract errors.
 #[contracterror]
@@ -15,6 +22,8 @@ pub enum ContractError {
     ExpiredVoucher = 4,
     NonceReplayed = 5,
     InsufficientBalance = 6,
+    TimelockActive = 7,
+    MathOverflow = 8,
 }
 
 /// Typed storage keys for all contract state.
@@ -25,16 +34,53 @@ pub enum ContractError {
 /// - `Token`: official accepted asset contract.
 ///
 /// Persistent storage:
-/// - `Vault(Address)`: user locked balance.
+/// - `Vault(Address, Address)`: user locked balance by token.
 /// - `Nonce(BytesN<32>)`: replay protection for settled vouchers.
+/// - `Timelock(Address)`: user withdrawal delay.
+/// - `RegisteredKey(Address)`: user's offline Ed25519 key.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
     Treasury,
     Token,
-    Vault(Address),
+    Vault(Address, Address),
     Nonce(BytesN<32>),
+    Timelock(Address),
+    RegisteredKey(Address),
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct DepositEvent {
+    pub sender: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub balance: i128,
+    pub unlock_time: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct SpendEvent {
+    pub sender: Address,
+    pub gateway: Address,
+    pub token: Address,
+    pub receiver: Address,
+    pub bounty_relayer: Option<Address>,
+    pub amount: i128,
+    pub protocol_toll: i128,
+    pub bounty_fee: i128,
+    pub nonce: BytesN<32>,
+    pub balance: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct WithdrawEvent {
+    pub sender: Address,
+    pub token: Address,
+    pub amount: i128,
 }
 
 /// Pijin P2P data-free transport contract foundation.
@@ -70,6 +116,224 @@ impl PijinContract {
 
         Ok(())
     }
+
+    pub fn deposit(
+        env: Env,
+        sender: Address,
+        token: Address,
+        pubkey: BytesN<32>,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        sender.require_auth();
+
+        let vault_key = DataKey::Vault(sender.clone(), token.clone());
+        let timelock_key = DataKey::Timelock(sender.clone());
+        let registered_key = DataKey::RegisteredKey(sender.clone());
+        let current_balance = get_persistent_i128(&env, &vault_key);
+        let new_balance = current_balance
+            .checked_add(amount)
+            .ok_or(ContractError::MathOverflow)?;
+        let unlock_time = env
+            .ledger()
+            .timestamp()
+            .checked_add(DAY_IN_SECONDS)
+            .ok_or(ContractError::MathOverflow)?;
+
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+        env.storage().persistent().set(&vault_key, &new_balance);
+        env.storage().persistent().set(&timelock_key, &unlock_time);
+        env.storage().persistent().set(&registered_key, &pubkey);
+        extend_persistent_ttl(&env, &vault_key);
+        extend_persistent_ttl(&env, &timelock_key);
+        extend_persistent_ttl(&env, &registered_key);
+
+        let event = DepositEvent {
+            sender: sender.clone(),
+            token: token.clone(),
+            amount,
+            balance: new_balance,
+            unlock_time,
+        };
+        env.events()
+            .publish((symbol_short!("deposit"), sender, token), event);
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn spend_offline(
+        env: Env,
+        gateway: Address,
+        sender: Address,
+        token: Address,
+        receiver: Address,
+        bounty_relayer: Option<Address>,
+        amount: i128,
+        protocol_toll: i128,
+        nonce: BytesN<32>,
+        signature: BytesN<64>,
+    ) -> Result<(), ContractError> {
+        if amount <= 0 || protocol_toll < 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        gateway.require_auth();
+
+        let registered_key = DataKey::RegisteredKey(sender.clone());
+        let sender_pubkey: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&registered_key)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::Unauthorized));
+        extend_persistent_ttl(&env, &registered_key);
+
+        let payload = (
+            amount,
+            protocol_toll,
+            nonce.clone(),
+            receiver.clone(),
+            gateway.clone(),
+            bounty_relayer.clone(),
+            token.clone(),
+        )
+            .to_xdr(&env);
+        env.crypto()
+            .ed25519_verify(&sender_pubkey, &payload, &signature);
+
+        let nonce_key = DataKey::Nonce(nonce.clone());
+        if env.storage().persistent().has(&nonce_key) {
+            extend_persistent_ttl(&env, &nonce_key);
+            return Err(ContractError::NonceReplayed);
+        }
+
+        let bounty_fee = if bounty_relayer.is_some() {
+            BOUNTY_FEE
+        } else {
+            0
+        };
+        let total_deduction = checked_sum3(amount, protocol_toll, bounty_fee)?;
+        let vault_key = DataKey::Vault(sender.clone(), token.clone());
+        let current_balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&vault_key)
+            .ok_or(ContractError::InsufficientBalance)?;
+        extend_persistent_ttl(&env, &vault_key);
+
+        if current_balance < total_deduction {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let new_balance = current_balance
+            .checked_sub(total_deduction)
+            .ok_or(ContractError::MathOverflow)?;
+        let treasury: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .ok_or(ContractError::Unauthorized)?;
+
+        env.storage().persistent().set(&nonce_key, &true);
+        extend_persistent_ttl(&env, &nonce_key);
+        env.storage().persistent().set(&vault_key, &new_balance);
+        extend_persistent_ttl(&env, &vault_key);
+
+        let token_client = token::Client::new(&env, &token);
+        let contract = env.current_contract_address();
+        token_client.transfer(&contract, &receiver, &amount);
+        if protocol_toll > 0 {
+            token_client.transfer(&contract, &treasury, &protocol_toll);
+        }
+        if let Some(relayer) = bounty_relayer.clone() {
+            token_client.transfer(&contract, &relayer, &bounty_fee);
+        }
+
+        let event = SpendEvent {
+            sender: sender.clone(),
+            gateway: gateway.clone(),
+            token: token.clone(),
+            receiver: receiver.clone(),
+            bounty_relayer,
+            amount,
+            protocol_toll,
+            bounty_fee,
+            nonce,
+            balance: new_balance,
+        };
+        env.events()
+            .publish((symbol_short!("spend"), sender, token), event);
+
+        Ok(())
+    }
+
+    pub fn withdraw(env: Env, sender: Address, token: Address) -> Result<(), ContractError> {
+        sender.require_auth();
+
+        let timelock_key = DataKey::Timelock(sender.clone());
+        let unlock_time: u64 = env
+            .storage()
+            .persistent()
+            .get(&timelock_key)
+            .ok_or(ContractError::TimelockActive)?;
+        extend_persistent_ttl(&env, &timelock_key);
+
+        if env.ledger().timestamp() <= unlock_time {
+            return Err(ContractError::TimelockActive);
+        }
+
+        let vault_key = DataKey::Vault(sender.clone(), token.clone());
+        let balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&vault_key)
+            .ok_or(ContractError::InsufficientBalance)?;
+        extend_persistent_ttl(&env, &vault_key);
+
+        if balance <= 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&env.current_contract_address(), &sender, &balance);
+
+        env.storage().persistent().remove(&vault_key);
+        env.storage().persistent().remove(&timelock_key);
+
+        let event = WithdrawEvent {
+            sender: sender.clone(),
+            token: token.clone(),
+            amount: balance,
+        };
+        env.events()
+            .publish((symbol_short!("withdraw"), sender, token), event);
+
+        Ok(())
+    }
+}
+
+fn get_persistent_i128(env: &Env, key: &DataKey) -> i128 {
+    if env.storage().persistent().has(key) {
+        extend_persistent_ttl(env, key);
+    }
+    env.storage().persistent().get(key).unwrap_or(0)
+}
+
+fn extend_persistent_ttl(env: &Env, key: &DataKey) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, DAY_IN_LEDGERS, THIRTY_DAYS_IN_LEDGERS);
+}
+
+fn checked_sum3(a: i128, b: i128, c: i128) -> Result<i128, ContractError> {
+    a.checked_add(b)
+        .and_then(|v| v.checked_add(c))
+        .ok_or(ContractError::MathOverflow)
 }
 
 #[cfg(test)]
