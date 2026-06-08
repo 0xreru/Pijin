@@ -1,24 +1,43 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 
-export function SectionHeader() {
+interface SectionHeaderProps {
+  title: string;
+  actionLabel?: string;
+  onActionPress?: () => void;
+}
+
+export function SectionHeader({ title, actionLabel, onActionPress }: SectionHeaderProps) {
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>SectionHeader Component</Text>
+      <Text style={styles.titleText}>{title}</Text>
+      {actionLabel && onActionPress && (
+        <TouchableOpacity onPress={onActionPress} activeOpacity={0.7}>
+          <Text style={styles.actionText}>{actionLabel}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 10,
   },
-  text: {
+  titleText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#031634',
+    letterSpacing: -0.2,
+  },
+  actionText: {
     fontSize: 14,
-    color: '#374151',
+    fontWeight: '700',
+    color: '#635BFF',
   },
 });
+
