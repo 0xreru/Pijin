@@ -1,35 +1,24 @@
+import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../../constants/theme';
-import { typography } from '../../constants/typography';
 
-type SectionHeaderProps = {
-  title: string;
-  action?: string;
-};
-
-export function SectionHeader({ title, action }: SectionHeaderProps) {
+export function SectionHeader() {
   return (
-    <View style={styles.row}>
-      <Text style={styles.title}>{title}</Text>
-      {action ? <Text style={styles.action}>{action}</Text> : null}
+    <View style={styles.container}>
+      <Text style={styles.text}>SectionHeader Component</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
+  container: {
+    padding: 16,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
   },
-  title: {
-    ...typography.sectionTitle,
-    color: colors.mutedDark,
-  },
-  action: {
-    ...typography.caption,
-    color: colors.ink,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+  text: {
+    fontSize: 14,
+    color: '#374151',
   },
 });
