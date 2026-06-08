@@ -78,3 +78,6 @@ apps/backend/yarn-debug.log*
 apps/backend/yarn-error.log*
 apps/backend/pnpm-debug.log*
 apps/backend/.eslintcache
+
+#markdown
+walkthrough.md
