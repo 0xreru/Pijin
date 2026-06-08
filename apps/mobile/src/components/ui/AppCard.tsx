@@ -1,28 +1,24 @@
-import { ReactNode } from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
-import { radius } from '../../constants/radius';
-import { spacing } from '../../constants/spacing';
-import { colors, shadows } from '../../constants/theme';
+import React from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
-type AppCardProps = {
-  children: ReactNode;
-  style?: StyleProp<ViewStyle>;
-  bordered?: boolean;
-  shadow?: boolean;
-};
-
-export function AppCard({ children, style, bordered = false, shadow = false }: AppCardProps) {
-  return <View style={[styles.card, bordered && styles.bordered, shadow && shadows.soft, style]}>{children}</View>;
+export function AppCard() {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.text}>AppCard Component</Text>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
+  container: {
+    padding: 16,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  bordered: {
-    borderWidth: 1,
-    borderColor: colors.border,
+  text: {
+    fontSize: 14,
+    color: '#374151',
   },
 });
