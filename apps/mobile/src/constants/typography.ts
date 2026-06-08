@@ -40,8 +40,8 @@ export const typography = {
     fontWeight: '900' as const,
   },
   button: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '800' as const,
   },
 };
