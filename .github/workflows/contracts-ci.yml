@@ -33,7 +33,7 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Rust Cache (Speed Optimization)
         uses: Swatinem/rust-cache@v2
