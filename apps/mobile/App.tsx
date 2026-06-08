@@ -8,68 +8,29 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-
-import {
-  OnboardingScreen,
-  CustomerOnlineScreen,
-  WalletSetupScreen,
-  OnlineOfflineWalletScreen,
-  OfflineWalletScreen,
-  LockFundsScreen,
-  TransactionStatusScreen,
-  UnlockFundsScreen,
-  PayAmountScreen,
-  QRVoucherScreen,
-  MerchantSetupScreen,
-  MerchantDashboardScreen,
-  MerchantScannerScreen,
-  MerchantWalletScreen,
-} from './src/screens';
+import { OnboardingScreen, DashboardScreen } from './src/screens';
+import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 
 type RootStackParamList = {
   Onboarding: undefined;
-  CustomerOnline: undefined;
-  WalletSetup: undefined;
-  MerchantSetup: undefined;
-  MerchantDashboard: undefined;
-  MerchantScanner: undefined;
-  MerchantWallet: undefined;
-  OnlineOfflineWallet: undefined;
-  OfflineWallet: undefined;
-  PayAmount: undefined;
-  QrVoucher: undefined;
-  LockFunds: undefined;
-  UnlockFunds: undefined;
-  TransactionStatus: undefined;
+  Dashboard: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function RootNavigator() {
+function RootNavigator({ initialRoute }: { initialRoute: keyof RootStackParamList }) {
   return (
     <View style={{ flex: 1 }}>
       <NavigationContainer>
-        <Stack.Navigator 
-          initialRouteName="Onboarding" 
-          screenOptions={{ 
-            headerShown: true, 
-            animation: 'slide_from_right' 
+        <Stack.Navigator
+          initialRouteName={initialRoute}
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
           }}
         >
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-          <Stack.Screen name="CustomerOnline" component={CustomerOnlineScreen} />
-          <Stack.Screen name="WalletSetup" component={WalletSetupScreen} />
-          <Stack.Screen name="MerchantSetup" component={MerchantSetupScreen} />
-          <Stack.Screen name="MerchantDashboard" component={MerchantDashboardScreen} />
-          <Stack.Screen name="MerchantScanner" component={MerchantScannerScreen} />
-          <Stack.Screen name="MerchantWallet" component={MerchantWalletScreen} />
-          <Stack.Screen name="OnlineOfflineWallet" component={OnlineOfflineWalletScreen} />
-          <Stack.Screen name="OfflineWallet" component={OfflineWalletScreen} />
-          <Stack.Screen name="PayAmount" component={PayAmountScreen} />
-          <Stack.Screen name="QrVoucher" component={QRVoucherScreen} />
-          <Stack.Screen name="LockFunds" component={LockFundsScreen} />
-          <Stack.Screen name="UnlockFunds" component={UnlockFundsScreen} />
-          <Stack.Screen name="TransactionStatus" component={TransactionStatusScreen} />
+          <Stack.Screen name="Dashboard" component={DashboardScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </View>
@@ -86,8 +47,25 @@ function AppContent({
   fontLoadTimedOut: boolean;
 }) {
   const { isAppReady } = useAuth();
+  const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList | null>(null);
 
-  if (!isAppReady || (!fontsLoaded && !fontError && !fontLoadTimedOut)) {
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      try {
+        const complete = await isOnboardingComplete();
+        setInitialRoute(complete ? 'Dashboard' : 'Onboarding');
+      } catch (err) {
+        console.error('Failed to load onboarding status:', err);
+        setInitialRoute('Onboarding');
+      }
+    };
+
+    if (isAppReady) {
+      checkOnboardingStatus();
+    }
+  }, [isAppReady]);
+
+  if (!isAppReady || (!fontsLoaded && !fontError && !fontLoadTimedOut) || !initialRoute) {
     return (
       <View style={styles.splashContainer}>
         <ActivityIndicator size="large" color="#111111" />
@@ -98,7 +76,7 @@ function AppContent({
 
   return (
     <>
-      <RootNavigator />
+      <RootNavigator initialRoute={initialRoute} />
       <StatusBar style="auto" />
     </>
   );
