@@ -1,24 +1,52 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View, ViewStyle, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-export function ScreenContainer() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.text}>ScreenContainer Component</Text>
-    </View>
-  );
+interface ScreenContainerProps {
+  children: React.ReactNode;
+  style?: ViewStyle;
+  scrollable?: boolean;
+  contentContainerStyle?: ViewStyle;
+}
+
+export function ScreenContainer({
+  children,
+  style,
+  scrollable = false,
+  contentContainerStyle,
+}: ScreenContainerProps) {
+  const insets = useSafeAreaInsets();
+
+  const containerStyle = [
+    styles.container,
+    { paddingTop: Math.max(insets.top, 16), paddingBottom: Math.max(insets.bottom, 16) },
+    style,
+  ];
+
+  if (scrollable) {
+    return (
+      <ScrollView
+        style={styles.scrollContainer}
+        contentContainerStyle={[containerStyle, contentContainerStyle]}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </ScrollView>
+    );
+  }
+
+  return <View style={containerStyle}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+  scrollContainer: {
+    flex: 1,
+    backgroundColor: '#F7F9FB',
   },
-  text: {
-    fontSize: 14,
-    color: '#374151',
+  container: {
+    flex: 1,
+    backgroundColor: '#F7F9FB',
+    paddingHorizontal: 20,
   },
 });
+

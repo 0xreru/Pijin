@@ -15,13 +15,14 @@ import {
   LayoutAnimation,
   UIManager,
   Animated,
+  BackHandler,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppButton } from '../components/ui/AppButton';
 import { AppPinInput } from '../components/ui/AppPinInput';
-import { setOnboardingComplete, saveUserPin } from '../services/storage/onboardingStorage';
+import { setOnboardingComplete, saveUserPin, saveUserPhone } from '../services/storage/onboardingStorage';
 import { StatusBar } from 'expo-status-bar';
 
 // Enable LayoutAnimation on Android
@@ -35,7 +36,8 @@ const ONBOARDING_DARK_BLUE = '#031634';
 const ONBOARDING_LIGHT_GRAY = '#EDEDED';
 
 type RootStackParamList = {
-  Onboarding: undefined;
+  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 } | undefined;
+  SignIn: undefined;
   Dashboard: undefined;
 };
 
@@ -43,6 +45,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding'
 
 export function OnboardingScreen() {
   const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<RouteProp<RootStackParamList, 'Onboarding'>>();
   const scrollViewRef = useRef<ScrollView>(null);
   
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
@@ -69,6 +72,36 @@ export function OnboardingScreen() {
       friction: 8,
       tension: 50,
     }).start();
+  }, [step]);
+
+  // Handle navigating to initialStep if passed from navigation params
+  useEffect(() => {
+    if (route.params?.initialStep) {
+      const targetStep = route.params.initialStep;
+      // We need to wait for layout/ref to be ready if called on mount
+      const timeout = setTimeout(() => {
+        navigateToStep(targetStep);
+      }, 100);
+      return () => clearTimeout(timeout);
+    }
+  }, [route.params?.initialStep]);
+
+  // Intercept native back button on Android to navigate back through onboarding steps
+  useEffect(() => {
+    const backAction = () => {
+      if (step > 1) {
+        navigateToStep((step - 1) as any);
+        return true; // block default behavior (exiting the app)
+      }
+      return false; // default behavior (exit app)
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction
+    );
+
+    return () => backHandler.remove();
   }, [step]);
 
   const isDark = step === 1 || step === 3 || step === 5;
@@ -107,16 +140,21 @@ export function OnboardingScreen() {
   };
 
   const handleSignIn = () => {
-    Alert.alert('Sign In', 'Sign-in feature is coming soon! Please use "Create an account" for now.');
+    navigation.navigate('SignIn');
   };
 
-  const handleSendOtp = () => {
+  const handleSendOtp = async () => {
     const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
     if (cleanNumber.length !== 10) {
       setPhoneError('Please enter a valid 10-digit phone number (e.g. 9123456789)');
       return;
     }
     setPhoneError('');
+    try {
+      await saveUserPhone(cleanNumber);
+    } catch (e) {
+      console.error('Failed to save phone number:', e);
+    }
     navigateToStep(3);
   };
 
@@ -175,9 +213,10 @@ export function OnboardingScreen() {
   };
 
   const renderDots = () => {
+    if (step === 1) return null;
     return (
       <View style={styles.dotsContainer}>
-        {[1, 2, 3, 4, 5].map((i) => {
+        {[2, 3, 4, 5].map((i) => {
           // Dynamic width animation: active dot stretches to 24, inactive are 8
           const dotWidth = activeStepAnimated.interpolate({
             inputRange: [i - 1, i, i + 1],
@@ -545,7 +584,7 @@ const styles = StyleSheet.create({
   },
   welcomeButtonsContainer: {
     width: '100%',
-    paddingBottom: 8,
+    paddingBottom: 48,
     zIndex: 2,
   },
   formContentContainer: {

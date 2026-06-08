@@ -8,11 +8,12 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { OnboardingScreen, DashboardScreen } from './src/screens';
+import { OnboardingScreen, DashboardScreen, SignInScreen } from './src/screens';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 
 type RootStackParamList = {
-  Onboarding: undefined;
+  Onboarding: { initialStep?: number } | undefined;
+  SignIn: undefined;
   Dashboard: undefined;
 };
 
@@ -30,6 +31,7 @@ function RootNavigator({ initialRoute }: { initialRoute: keyof RootStackParamLis
           }}
         >
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="SignIn" component={SignInScreen} />
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
         </Stack.Navigator>
       </NavigationContainer>
@@ -53,7 +55,7 @@ function AppContent({
     const checkOnboardingStatus = async () => {
       try {
         const complete = await isOnboardingComplete();
-        setInitialRoute(complete ? 'Dashboard' : 'Onboarding');
+        setInitialRoute(complete ? 'SignIn' : 'Onboarding');
       } catch (err) {
         console.error('Failed to load onboarding status:', err);
         setInitialRoute('Onboarding');
