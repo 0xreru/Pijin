@@ -1,24 +1,36 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View, ViewStyle, TouchableOpacity } from 'react-native';
 
-export function AppCard() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.text}>AppCard Component</Text>
-    </View>
-  );
+interface AppCardProps {
+  children: React.ReactNode;
+  style?: ViewStyle;
+  onPress?: () => void;
+}
+
+export function AppCard({ children, style, onPress }: AppCardProps) {
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={[styles.card, style]}>
+        {children}
+      </TouchableOpacity>
+    );
+  }
+
+  return <View style={[styles.card, style]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  text: {
-    fontSize: 14,
-    color: '#374151',
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 18,
+    shadowColor: '#031634',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#EBF0F5',
   },
 });
+
