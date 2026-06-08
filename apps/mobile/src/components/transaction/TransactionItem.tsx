@@ -1,24 +1,101 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { typography } from '../../constants/typography';
 
-export function TransactionItem() {
+export interface TransactionItemProps {
+  id: string;
+  title: string;
+  subtitle: string;
+  amount: number;
+  type: 'incoming' | 'outgoing' | 'transfer' | 'settlement';
+  timestamp?: string;
+}
+
+export function TransactionItem({
+  title,
+  subtitle,
+  amount,
+  type,
+  timestamp,
+}: TransactionItemProps) {
+  const isIncoming = type === 'incoming' || type === 'settlement';
+
+  // Format currency
+  const formatAmount = (val: number) => {
+    const formatted = new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency: 'PHP',
+      minimumFractionDigits: 2,
+    }).format(val);
+    return isIncoming ? `+ ${formatted}` : `- ${formatted}`;
+  };
+
+  const getIconName = () => {
+    return isIncoming ? 'arrow-down' : 'arrow-up';
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>TransactionItem Component</Text>
+      <View style={styles.leftSection}>
+        <View style={styles.iconWrapper}>
+          <Ionicons
+            name={getIconName()}
+            size={18}
+            color="#FFFFFF"
+            style={styles.rotatedIcon}
+          />
+        </View>
+        <View style={styles.textWrapper}>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderColor: '#E6E9EE',
+  },
+  leftSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  iconWrapper: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#001E42',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 14,
   },
-  text: {
-    fontSize: 14,
-    color: '#374151',
+  rotatedIcon: {
+    transform: [{ rotate: '45deg' }],
+  },
+  textWrapper: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#001E42',
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: '#707984',
   },
 });
+
