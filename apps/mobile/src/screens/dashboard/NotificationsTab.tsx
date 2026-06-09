@@ -222,8 +222,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   notifChipActive: {
-    backgroundColor: '#001E42',
-    borderColor: '#001E42',
+    backgroundColor: '#04295A',
+    borderColor: '#04295A',
   },
   notifChipInactive: {
     backgroundColor: 'transparent',
