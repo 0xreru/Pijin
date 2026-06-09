@@ -8,13 +8,15 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { OnboardingScreen, DashboardScreen, SignInScreen } from './src/screens';
+import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen } from './src/screens';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 
 type RootStackParamList = {
   Onboarding: { initialStep?: number } | undefined;
   SignIn: undefined;
   Dashboard: undefined;
+  TransactionReceipt: { transaction: any };
+  LoadOfflineFunds: { balance: number };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -33,6 +35,8 @@ function RootNavigator({ initialRoute }: { initialRoute: keyof RootStackParamLis
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           <Stack.Screen name="SignIn" component={SignInScreen} />
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
+          <Stack.Screen name="TransactionReceipt" component={TransactionReceiptScreen} />
+          <Stack.Screen name="LoadOfflineFunds" component={LoadOfflineFundsScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </View>
