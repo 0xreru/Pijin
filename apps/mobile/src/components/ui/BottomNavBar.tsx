@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#00224E', // Inner dark blue circle
+    backgroundColor: '#04295A', // Inner dark blue circle
     alignItems: 'center',
     justifyContent: 'center',
   },
