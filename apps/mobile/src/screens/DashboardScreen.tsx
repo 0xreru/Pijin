@@ -6,6 +6,7 @@ import {
   Dimensions,
   Alert,
   StatusBar,
+  DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
@@ -28,7 +29,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'abotpera.cached_balance';
 const TABS: TabType[] = ['home', 'notifications', 'scan', 'transactions', 'profile'];
 
-export function DashboardScreen() {
+export function DashboardScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { activeAccount, logout } = useAuth();
   const shortId = activeAccount?.shortId || '0000';
@@ -85,6 +86,18 @@ export function DashboardScreen() {
       }
     };
     initData();
+  }, []);
+
+  // Listen for simulated offline loading success events
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('ON_FUND_SUCCESS', (amount: number) => {
+      setCachedBalance((prev) => {
+        const newBalance = Math.max(0, prev - amount);
+        AsyncStorage.setItem(CACHED_BALANCE_KEY, newBalance.toString());
+        return newBalance;
+      });
+    });
+    return () => sub.remove();
   }, []);
 
   // Update cached balance whenever live balance is fetched successfully
@@ -210,6 +223,11 @@ export function DashboardScreen() {
               onManualToggle={handleManualToggle}
               onSyncQueue={handleSyncQueue}
               onAddMockQueueItem={handleAddMockQueueItem}
+              onLoadOfflineFundsPress={() => {
+                navigation.navigate('LoadOfflineFunds', {
+                  balance: cachedBalance,
+                });
+              }}
             />
           </View>
 

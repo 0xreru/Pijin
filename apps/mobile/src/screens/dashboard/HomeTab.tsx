@@ -32,6 +32,7 @@ interface HomeTabProps {
   onManualToggle: (online: boolean) => void;
   onSyncQueue: () => void;
   onAddMockQueueItem: () => void;
+  onLoadOfflineFundsPress: () => void;
 }
 
 export function HomeTab({
@@ -48,6 +49,7 @@ export function HomeTab({
   onManualToggle,
   onSyncQueue,
   onAddMockQueueItem,
+  onLoadOfflineFundsPress,
 }: HomeTabProps) {
   return (
     <ScrollView
@@ -141,7 +143,7 @@ export function HomeTab({
               <View style={styles.actionItem}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={onAddMockQueueItem}
+                  onPress={onLoadOfflineFundsPress}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="cloud-offline" size={20} color="#FFFFFF" />
