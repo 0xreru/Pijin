@@ -1,73 +1,218 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
   ScrollView,
+  Dimensions,
+  Animated,
+  Image,
 } from 'react-native';
-import { TransactionList } from '../../components/transaction/TransactionList';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
 import { Transaction } from '../../types/transaction';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface TransactionsTabProps {
   mockTxs: Transaction[];
   insets: { top: number; bottom: number; left: number; right: number };
 }
 
-export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
-  const [activeFilter, setActiveFilter] = useState<'all' | 'sent' | 'received'>('all');
+export function TransactionsTab({ insets }: TransactionsTabProps) {
+  const navigation = useNavigation<any>();
+  const TRANS_SCREEN_WIDTH = SCREEN_WIDTH - 40;
+  const [activeFilter, setActiveFilter] = useState<'all' | 'wallet' | 'offline'>('all');
+  const transSlideAnim = useRef(new Animated.Value(0)).current;
 
-  const filteredTxs = mockTxs.filter(tx => {
-    if (activeFilter === 'all') return true;
-    if (activeFilter === 'sent') {
-      // Sent transactions generally have negative amounts or are outgoing/transfers
-      return tx.amount < 0 || tx.type === 'outgoing' || tx.type === 'transfer';
-    }
-    if (activeFilter === 'received') {
-      // Received transactions have positive amounts or are incoming
-      return tx.amount > 0 || tx.type === 'incoming';
-    }
-    return true;
-  });
+  useEffect(() => {
+    const filterIndex = ['all', 'wallet', 'offline'].indexOf(activeFilter);
+    Animated.spring(transSlideAnim, {
+      toValue: -filterIndex * TRANS_SCREEN_WIDTH,
+      useNativeDriver: true,
+      tension: 45,
+      friction: 8.5,
+    }).start();
+  }, [activeFilter]);
+
+  const mockWalletTxs = [
+    {
+      id: '1',
+      dateGroup: 'June 03, 2026',
+      tag: 'WALLET',
+      timeAgo: '1 day ago',
+      title: 'Deposited from G-Xchange Inc. / Gcash',
+      amountPhp: '₱25,000.00',
+      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
+    },
+    {
+      id: '2',
+      dateGroup: 'June 03, 2026',
+      tag: 'WALLET',
+      timeAgo: '1 day ago',
+      title: 'Deposited from G-Xchange Inc. / Gcash',
+      amountPhp: '₱25,000.00',
+      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
+    },
+    {
+      id: '3',
+      dateGroup: 'May 20, 2026',
+      tag: 'WALLET',
+      timeAgo: '14 days ago',
+      title: 'Deposited from G-Xchange Inc. / Gcash',
+      amountPhp: '₱25,000.00',
+      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
+    },
+    {
+      id: '4',
+      dateGroup: 'May 14, 2026',
+      tag: 'WALLET',
+      timeAgo: '22 days ago',
+      title: 'Deposited from G-Xchange Inc. / Gcash',
+      amountPhp: '₱25,000.00',
+      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
+    },
+  ];
+
+  const handleFilterChange = (filter: 'all' | 'wallet' | 'offline') => {
+    setActiveFilter(filter);
+  };
+
+  const renderFilterChip = (filter: 'all' | 'wallet' | 'offline', label: string) => {
+    const isActive = activeFilter === filter;
+    return (
+      <TouchableOpacity
+        key={filter}
+        style={[styles.filterChip, isActive ? styles.filterChipActive : styles.filterChipInactive]}
+        onPress={() => handleFilterChange(filter)}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.filterChipText, isActive ? styles.filterChipTextActive : styles.filterChipTextInactive]}>
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderTransactionList = (items: typeof mockWalletTxs) => {
+    // Group items by dateGroup
+    const groups: { [key: string]: typeof mockWalletTxs } = {};
+    items.forEach(item => {
+      if (!groups[item.dateGroup]) {
+        groups[item.dateGroup] = [];
+      }
+      groups[item.dateGroup].push(item);
+    });
+
+    const groupKeys = Object.keys(groups);
+
+    return (
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        style={{ flex: 1 }}
+      >
+        {groupKeys.map(dateKey => (
+          <View key={dateKey} style={styles.groupContainer}>
+            {/* Horizontal Line with Center Date Tag */}
+            <View style={styles.dateHeaderRow}>
+              <View style={styles.dateDividerLine} />
+              <View style={styles.dateBadge}>
+                <Text style={styles.dateBadgeText}>{dateKey}</Text>
+              </View>
+            </View>
+
+            {/* Group Cards */}
+            {groups[dateKey].map(tx => (
+              <TouchableOpacity
+                key={tx.id}
+                style={styles.cardContainer}
+                activeOpacity={0.85}
+                onPress={() => navigation.navigate('TransactionReceipt', { transaction: tx })}
+              >
+                {/* Header Row */}
+                <View style={styles.cardHeader}>
+                  <View style={styles.walletTag}>
+                    <Text style={styles.walletTagText}>{tx.tag}</Text>
+                  </View>
+                  <Text style={styles.timeAgoText}>{tx.timeAgo}</Text>
+                </View>
+
+                {/* Info Column */}
+                <Text style={styles.txTitle}>{tx.title}</Text>
+                <Text style={styles.txAmount}>{tx.amountPhp}</Text>
+                <Text style={styles.txDesc}>{tx.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ))}
+      </ScrollView>
+    );
+  };
+
+  const renderEmptyState = () => {
+    return (
+      <View style={styles.emptyStateContainer}>
+        <Image
+          source={require('../../../assets/transactions/piji-transactions.png')}
+          style={styles.emptyStateImage}
+          resizeMode="contain"
+        />
+        <Text style={styles.emptyStateText}>No transactions.</Text>
+      </View>
+    );
+  };
 
   return (
-    <ScrollView
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={[styles.tabContentContainer, { paddingTop: Math.max(insets.top, 20) }]}
-    >
-      <Text style={styles.tabHeaderTitle}>Transactions</Text>
-      
-      {/* Mini Tab Filter Bar */}
-      <View style={styles.transactionsFilterBar}>
-        <TouchableOpacity 
-          style={[styles.filterChip, activeFilter === 'all' && styles.filterChipActive]}
-          onPress={() => setActiveFilter('all')}
-        >
-          <Text style={[styles.filterChipText, activeFilter === 'all' && styles.filterChipTextActive]}>All</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.filterChip, activeFilter === 'sent' && styles.filterChipActive]}
-          onPress={() => setActiveFilter('sent')}
-        >
-          <Text style={[styles.filterChipText, activeFilter === 'sent' && styles.filterChipTextActive]}>Sent</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.filterChip, activeFilter === 'received' && styles.filterChipActive]}
-          onPress={() => setActiveFilter('received')}
-        >
-          <Text style={[styles.filterChipText, activeFilter === 'received' && styles.filterChipTextActive]}>Received</Text>
-        </TouchableOpacity>
+    <View style={[styles.tabContentContainer, { paddingTop: Math.max(insets.top, 20), flex: 1 }]}>
+      {/* Header Row */}
+      <View style={styles.headerRow}>
+        <Ionicons name="receipt-outline" size={28} color="#001E42" />
+        <Text style={styles.tabHeaderTitle}>Transactions</Text>
       </View>
 
-      <View style={{ marginTop: 10 }}>
-        <TransactionList
-          transactions={filteredTxs}
-          onViewAll={() => {}}
-        />
+      {/* Filter Bar */}
+      <View style={styles.filterContainer}>
+        <Text style={styles.filterLabel}>Filter</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScroll}
+        >
+          {renderFilterChip('all', 'All')}
+          {renderFilterChip('wallet', 'Wallet')}
+          {renderFilterChip('offline', 'Offline Funds')}
+        </ScrollView>
       </View>
-    </ScrollView>
+
+      {/* Horizontal Sliding Panels */}
+      <View style={{ flex: 1, overflow: 'hidden', marginTop: 10 }}>
+        <Animated.View
+          style={{
+            flexDirection: 'row',
+            width: TRANS_SCREEN_WIDTH * 3,
+            flex: 1,
+            transform: [{ translateX: transSlideAnim }],
+          }}
+        >
+          {/* Panel 0: All */}
+          <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
+            {renderTransactionList(mockWalletTxs)}
+          </View>
+
+          {/* Panel 1: Wallet */}
+          <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
+            {renderTransactionList(mockWalletTxs)}
+          </View>
+
+          {/* Panel 2: Offline Funds (Empty) */}
+          <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
+            {renderEmptyState()}
+          </View>
+        </Animated.View>
+      </View>
+    </View>
   );
 }
 
@@ -76,32 +221,158 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 110,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
   tabHeaderTitle: {
     fontSize: 28,
     fontWeight: '800',
     color: '#001E42',
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 20,
   },
-  transactionsFilterBar: {
-    flexDirection: 'row',
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginRight: 12,
+  },
+  filterScroll: {
     gap: 8,
-    marginBottom: 16,
+    paddingRight: 20,
   },
   filterChip: {
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 16,
-    backgroundColor: '#E6E9EE',
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   filterChipActive: {
-    backgroundColor: '#001E42',
+    backgroundColor: '#04295A',
+    borderColor: '#04295A',
+  },
+  filterChipInactive: {
+    backgroundColor: 'transparent',
+    borderColor: '#D1D5DB',
   },
   filterChipText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#707984',
+    fontSize: 13,
+    fontWeight: '600',
   },
   filterChipTextActive: {
     color: '#FFFFFF',
+  },
+  filterChipTextInactive: {
+    color: '#1F2937',
+  },
+  groupContainer: {
+    marginBottom: 20,
+  },
+  dateHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    height: 30,
+    marginBottom: 16,
+  },
+  dateDividerLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: '#D1D5DB',
+  },
+  dateBadge: {
+    backgroundColor: '#04295A',
+    paddingVertical: 4,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    zIndex: 2,
+  },
+  dateBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  cardContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    alignItems: 'center',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  walletTag: {
+    backgroundColor: '#2B5783',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  walletTagText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  timeAgoText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  txTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#001E42',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  txAmount: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#04295A',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  txDesc: {
+    fontSize: 12,
+    color: '#707984',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyStateImage: {
+    width: 260,
+    height: 200,
+    marginBottom: 20,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#707984',
+    textAlign: 'center',
   },
 });
