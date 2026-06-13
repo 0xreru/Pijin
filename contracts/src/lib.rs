@@ -315,6 +315,11 @@ impl PijinContract {
 
         Ok(())
     }
+
+    pub fn get_vault(env: Env, user: Address, token: Address) -> i128 {
+        let vault_key = DataKey::Vault(user, token);
+        env.storage().persistent().get(&vault_key).unwrap_or(0)
+    }
 }
 
 fn get_persistent_i128(env: &Env, key: &DataKey) -> i128 {
