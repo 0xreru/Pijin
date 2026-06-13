@@ -1,13 +1,13 @@
 import { Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
-import { networks } from "@/lib/omnifi-sdk";
+import { networks } from "pijin_core";
 import { prisma } from "@/lib/prisma";
 import { expandNonce, verifySignatureLocally } from "@/lib/crypto";
 import { sendSmsReceipt } from "@/lib/textbee";
 import {
-  abotPeraContract,
+  pijinContract,
   contractConfig,
   sorobanRpcServer,
-} from "@/lib/omnifi-contract";
+} from "@/lib/pijin-contract";
 
 export type SettlementInput = {
   smsContent: string;
@@ -37,7 +37,7 @@ async function signWithRelayer(
 
   const relayerKeypair = Keypair.fromSecret(process.env.RELAYER_SECRET_KEY);
   const passphrase =
-    signOpts?.networkPassphrase ?? networks.unknown.networkPassphrase;
+    signOpts?.networkPassphrase ?? networks.testnet.networkPassphrase;
   const transaction = TransactionBuilder.fromXDR(xdr, passphrase);
   transaction.sign(relayerKeypair);
   return {
@@ -92,7 +92,7 @@ export async function processOfflineSettlement(
 
   const amountStroops = BigInt(Math.round(parseFloat(amountStr) * 10_000_000));
 
-  const tx = await abotPeraContract.spend_offline(
+  const tx = await pijinContract.spend_offline(
     {
       gateway: process.env.RELAYER_PUBLIC_KEY,
       customer: customerAccount.stellarPublicKey,

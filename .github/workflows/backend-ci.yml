@@ -5,14 +5,14 @@ on:
     branches: [ "main" ]
     paths:
       - 'apps/backend/**'
-      - 'packages/omnifi-sdk/**'
+      - 'packages/pijin_core/**'
       - 'package.json'
       - 'package-lock.json'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'apps/backend/**'
-      - 'packages/omnifi-sdk/**'
+      - 'packages/pijin_core/**'
       - 'package.json'
       - 'package-lock.json'
 
@@ -32,18 +32,18 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             apps/backend/package-lock.json
-            packages/omnifi-sdk/package-lock.json
+            packages/pijin_core/package-lock.json
 
       - name: Install Monorepo Dependencies
         run: |
-          cd packages/omnifi-sdk
+          cd packages/pijin_core
           npm ci
           cd ../../apps/backend
           npm ci --ignore-scripts
 
-      - name: Build OmniFi SDK
+      - name: Build Pijin SDK
         run: |
-          cd packages/omnifi-sdk
+          cd packages/pijin_core
           npx tsc
 
       - name: Validate & Generate Prisma Client
@@ -67,6 +67,14 @@ jobs:
           CONTRACT_ID: "C_DUMMY_ID"
           TOKEN_ID: "C_DUMMY_TOKEN"
           SOROBAN_RPC_URL: "https://soroban-testnet.stellar.org"
+          RELAYER_PUBLIC_KEY: "C_DUMMY_KEY"
+          RELAYER_SECRET_KEY: "C_DUMMY_KEY"
+          TEXTBEE_GATEWAY_URL: "C_DUMMY_URL"
+          TEXTBEE_API_KEY: "C_DUMMY_KEY"
+          TEXTBEE_DEVICE_ID: "C_DUMMY_ID"
+          STELLAR_HORIZON_MAINNET_URL: "C_DUMMY_URL"
+          STELLAR_NETWORK_PASSPHRASE: "C_DUMMY_PASSPHRASE"
+          WEBHOOK_SECRET: "C_DUMMY_SECRET"
         run: |
           cd apps/backend
           npm run build
