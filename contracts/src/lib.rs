@@ -24,6 +24,7 @@ pub enum ContractError {
     InsufficientBalance = 6,
     TimelockActive = 7,
     MathOverflow = 8,
+    NotWhitelistedGateway = 9,
 }
 
 /// Typed storage keys for all contract state.
@@ -48,6 +49,7 @@ pub enum DataKey {
     Nonce(BytesN<32>),
     Timelock(Address),
     RegisteredKey(Address),
+    Gateway(Address)
 }
 
 #[contracttype]
@@ -185,6 +187,17 @@ impl PijinContract {
 
         gateway.require_auth();
 
+        // ── Gateway Whitelist Firewall ────────────────────────────────────────
+        // Single `.has()` call – cheapest possible persistent read.
+        // If the key is live, also bump its TTL to prevent accidental archival.
+        let gateway_key = DataKey::Gateway(gateway.clone());
+        if !env.storage().persistent().has(&gateway_key) {
+            return Err(ContractError::NotWhitelistedGateway);
+        }
+        extend_persistent_ttl(&env, &gateway_key);
+        // ─────────────────────────────────────────────────────────────────────
+
+
         let registered_key = DataKey::RegisteredKey(sender.clone());
         let sender_pubkey: BytesN<32> = env
             .storage()
@@ -319,6 +332,59 @@ impl PijinContract {
     pub fn get_vault(env: Env, user: Address, token: Address) -> i128 {
         let vault_key = DataKey::Vault(user, token);
         env.storage().persistent().get(&vault_key).unwrap_or(0)
+    }
+
+    /// Whitelist a gateway relayer address.
+    ///
+    /// Only the stored admin may call this. The value written is a compact
+    /// boolean (`true`) to minimise ledger entry size.
+    pub fn register_gateway(
+        env: Env,
+        admin: Address,
+        gateway: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::Unauthorized)?;
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let key = DataKey::Gateway(gateway);
+        env.storage().persistent().set(&key, &true);
+        extend_persistent_ttl(&env, &key);
+
+        Ok(())
+    }
+
+    /// Remove a previously whitelisted gateway relayer.
+    ///
+    /// Only the stored admin may call this.
+    pub fn remove_gateway(
+        env: Env,
+        admin: Address,
+        gateway: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::Unauthorized)?;
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Gateway(gateway));
+
+        Ok(())
     }
 }
 

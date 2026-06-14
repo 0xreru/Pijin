@@ -15,6 +15,8 @@ const BOUNTY_FEE: i128 = 10_000_000;
 struct TestContext {
     env: Env,
     contract_id: Address,
+    #[allow(dead_code)]
+    admin: Address,
     treasury: Address,
     gateway: Address,
     receiver: Address,
@@ -89,9 +91,13 @@ fn setup_test() -> TestContext {
 
     token::StellarAssetClient::new(&env, &token).mint(&sender, &INITIAL_BALANCE);
 
+    let client = PijinContractClient::new(&env, &contract_id);
+    client.register_gateway(&admin, &gateway);
+
     TestContext {
         env,
         contract_id,
+        admin,
         treasury,
         gateway,
         receiver,
@@ -282,5 +288,47 @@ fn test_spend_offline_insufficient_balance() {
             &signature,
         ),
         Err(Ok(ContractError::InsufficientBalance))
+    );
+}
+
+#[test]
+fn test_spend_offline_fails_unregistered_gateway() {
+    let ctx = setup_test();
+
+    // A brand-new address that was never passed to register_gateway.
+    let malicious_gateway = Address::generate(&ctx.env);
+
+    let amount = 100_000_000;
+    let protocol_toll = 5_000_000;
+    // Use a unique nonce to avoid any interference with other tests.
+    let nonce = BytesN::from_array(&ctx.env, &[99; 32]);
+    let bounty_relayer: Option<Address> = None;
+
+    // Sign the payload as if the malicious gateway were legitimate.
+    let signature = ctx.sign_payload(
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver,
+        &malicious_gateway,
+        &bounty_relayer,
+    );
+
+    ctx.deposit(DEPOSIT_AMOUNT);
+
+    // The firewall must reject this before any business logic executes.
+    assert_eq!(
+        ctx.client().try_spend_offline(
+            &malicious_gateway,
+            &ctx.sender,
+            &ctx.token,
+            &ctx.receiver,
+            &bounty_relayer,
+            &amount,
+            &protocol_toll,
+            &nonce,
+            &signature,
+        ),
+        Err(Ok(ContractError::NotWhitelistedGateway))
     );
 }
