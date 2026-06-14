@@ -11,7 +11,7 @@ export async function signOfflinePaymentMessage(
   keypair: Keypair
 ): Promise<string> {
   // Yield control to the event loop to prevent UI stutter/thread blocking
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0)); 
 
   const signature = keypair.sign(Buffer.from(message, 'utf8'));
   return stripBase64Padding(signature.toString('base64'));
