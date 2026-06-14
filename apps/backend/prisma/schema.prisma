@@ -1,4 +1,3 @@
-// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -28,86 +27,31 @@ enum SettlementStatus {
 
 model Account {
   id               Int      @id @default(autoincrement())
-<<<<<<< HEAD
-<<<<<<< HEAD
-  shortId          String   @unique @map("short_id")           // e.g., "aB3x9Q"
-  role             Role     @default(USER) @map("role")
-  stellarPublicKey String   @unique @map("stellar_public_key") // e.g., "GC333QNW..."
-  offlineDeviceKey String?  @map("offline_device_key")         // Ed25519 public key
-  pin              String?  @map("pin")
-  phoneNumber      String?  @map("phone_number")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  shortId          String   @unique
+  role             String   @default("USER")
+  stellarPublicKey String   @unique
+  offlineDeviceKey String?
+  pin              String?
+  phoneNumber      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime
+}
 
-  @@map("account")
+model Settlement {
+  id              Int      @id @default(autoincrement())
+  senderShortId   String
+  receiverShortId String
+  relayerAddress  String?
+  amountToken     String
+  txHash          String?
+  status          String
+  createdAt       DateTime @default(now())
 }
 
 model GatewayNode {
   id               Int      @id @default(autoincrement())
-  name             String   @map("name")                       // e.g. "Backup Server 1"
-  stellarPublicKey String   @unique @map("stellar_public_key")
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at")
-
-  @@map("gateway_node")
-}
-
-/// Supported tokens
-
-model Token {
-  id         Int      @id @default(autoincrement()) @map("id")
-  symbol     String   @unique @map("symbol")       // e.g., "PHPC"
-  contractId String   @unique @map("contract_id")  // Soroban contract / SAC address
-  decimals   Int      @default(7) @map("decimals") // Stellar standard: 7 decimal places
-  isActive   Boolean  @default(true) @map("is_active")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  settlements Settlement[]
-
-  @@map("token")
-}
-
-model Settlement {
-  id              Int              @id @default(autoincrement())
-  qstashMessageId String           @unique @map("qstash_message_id") // Upstash-Message-Id header
-  nonce           String           @unique @map("nonce")              // Replay-attack dedup key
-  senderShortId   String           @map("sender_short_id")
-  receiverShortId String           @map("receiver_short_id")
-  relayerAddress  String?          @map("relayer_address")            // Gateway node public key
-  tokenId         Int              @map("token_id")
-  amountStroops   BigInt           @map("amount_stroops")             // Stellar stroops (7-decimal integer)
-  txHash          String?          @map("tx_hash")
-  status          SettlementStatus @map("status")
-  failReason      String?          @map("fail_reason")
-  createdAt       DateTime         @default(now()) @map("created_at")
-
-  token Token @relation(fields: [tokenId], references: [id])
-
-  @@map("settlement")
-}
-=======
-  shortId          String   @unique
-  role             String   @default("USER")
+  name             String
   stellarPublicKey String   @unique
-=======
-  shortId          String   @unique // e.g., "C-8A92" or "M-1B44"
-  role             String   // "CUSTOMER" or "MERCHANT"
-  stellarPublicKey String   @unique // e.g., "GC333QNW..."
->>>>>>> fc2d17c (Revert "feat: ESLint for pre-commit code changes")
-  offlineDeviceKey String?
-  merchantPin      String?  // e.g., "8492" (Used for SMS confirmation spoof-protection)
-  merchantPhone    String?
+  isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
 }
-
-model Settlement {
-  id               Int      @id @default(autoincrement())
-  customerShortId  String
-  merchantShortId  String
-  amountXlm        String
-  txHash           String?
-  status           String   // SETTLED | FAILED
-  createdAt        DateTime @default(now())
-}
->>>>>>> 586f435 (feat: ESLint for pre-commit code changes)
