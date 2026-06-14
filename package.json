@@ -9,12 +9,10 @@
   },
   "lint-staged": {
       "apps/backend/**/*.{js,jsx,ts,tsx}": [
-        "eslint --fix",
-        "prettier --write"
+        "eslint --config apps/backend/eslint.config.mjs --fix"
       ],
       "apps/mobile/**/*.{js,jsx,ts,tsx}": [
-        "eslint --fix",
-        "prettier --write"
+        "eslint --fix"
       ],
       "contracts/**/*.rs": "cargo fmt --"
     }
