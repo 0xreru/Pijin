@@ -1,4 +1,3 @@
-// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -28,6 +27,7 @@ enum SettlementStatus {
 
 model Account {
   id               Int      @id @default(autoincrement())
+<<<<<<< HEAD
   shortId          String   @unique @map("short_id")           // e.g., "aB3x9Q"
   role             Role     @default(USER) @map("role")
   stellarPublicKey String   @unique @map("stellar_public_key") // e.g., "GC333QNW..."
@@ -84,3 +84,33 @@ model Settlement {
 
   @@map("settlement")
 }
+=======
+  shortId          String   @unique
+  role             String   @default("USER")
+  stellarPublicKey String   @unique
+  offlineDeviceKey String?
+  pin              String?
+  phoneNumber      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime
+}
+
+model Settlement {
+  id              Int      @id @default(autoincrement())
+  senderShortId   String
+  receiverShortId String
+  relayerAddress  String?
+  amountToken     String
+  txHash          String?
+  status          String
+  createdAt       DateTime @default(now())
+}
+
+model GatewayNode {
+  id               Int      @id @default(autoincrement())
+  name             String
+  stellarPublicKey String   @unique
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+}
+>>>>>>> 586f435 (feat: ESLint for pre-commit code changes)
