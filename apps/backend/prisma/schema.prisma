@@ -1,3 +1,4 @@
+// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,31 +9,21 @@ datasource db {
 
 model Account {
   id               Int      @id @default(autoincrement())
-  shortId          String   @unique
-  role             String   @default("USER")
-  stellarPublicKey String   @unique
+  shortId          String   @unique // e.g., "C-8A92" or "M-1B44"
+  role             String   // "CUSTOMER" or "MERCHANT"
+  stellarPublicKey String   @unique // e.g., "GC333QNW..."
   offlineDeviceKey String?
-  pin              String?
-  phoneNumber      String?
+  merchantPin      String?  // e.g., "8492" (Used for SMS confirmation spoof-protection)
+  merchantPhone    String?
   createdAt        DateTime @default(now())
-  updatedAt        DateTime
 }
 
 model Settlement {
-  id              Int      @id @default(autoincrement())
-  senderShortId   String
-  receiverShortId String
-  relayerAddress  String?
-  amountToken     String
-  txHash          String?
-  status          String
-  createdAt       DateTime @default(now())
-}
-
-model GatewayNode {
   id               Int      @id @default(autoincrement())
-  name             String
-  stellarPublicKey String   @unique
-  isActive         Boolean  @default(true)
+  customerShortId  String
+  merchantShortId  String
+  amountXlm        String
+  txHash           String?
+  status           String   // SETTLED | FAILED
   createdAt        DateTime @default(now())
 }

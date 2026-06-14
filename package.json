@@ -1,6 +1,5 @@
 {
   "devDependencies": {
-    "eslint-plugin-react": "^7.37.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0"
   },
@@ -9,12 +8,14 @@
     "lint-staged": "lint-staged"
   },
   "lint-staged": {
-    "apps/backend/**/*.{js,jsx,ts,tsx}": [
-      "eslint --config apps/backend/eslint.config.mjs --fix"
-    ],
-    "apps/mobile/**/*.{js,jsx,ts,tsx}": [
-      "eslint --fix"
-    ],
-    "contracts/**/*.rs": "cargo fmt --"
-  }
+      "apps/backend/**/*.{js,jsx,ts,tsx}": [
+        "eslint --fix",
+        "prettier --write"
+      ],
+      "apps/mobile/**/*.{js,jsx,ts,tsx}": [
+        "eslint --fix",
+        "prettier --write"
+      ],
+      "contracts/**/*.rs": "cargo fmt --"
+    }
 }
