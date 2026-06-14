@@ -7,7 +7,10 @@
     "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "ci:verify": "npm run typecheck && npx expo-doctor && npx expo export --platform android --output-dir /tmp/mobile-export"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
