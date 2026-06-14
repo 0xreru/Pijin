@@ -49,7 +49,7 @@ jobs:
       - name: Validate & Generate Prisma Client
         env:
           # A dummy database URL allows Prisma to generate types without needing live Neon access
-          DATABASE_URL: "postgresql://postgres:password@localhost:5432/dummy"
+          DATABASE_URL: env.DATABASE_URL || "postgresql://postgres:password@localhost:5432/dummy"
         run: |
           cd apps/backend
           npx prisma validate
@@ -62,7 +62,7 @@ jobs:
 
       - name: Next.js Build (Smoke Test)
         env:
-          DATABASE_URL: "postgresql://postgres:password@localhost:5432/dummy"
+          DATABASE_URL: env:DATABASE_URL || "postgresql://postgres:password@localhost:5432/dummy"
           # Mock environment variables to satisfy Next.js build-time requirements
           CONTRACT_ID: "C_DUMMY_ID"
           TOKEN_ID: "C_DUMMY_TOKEN"
