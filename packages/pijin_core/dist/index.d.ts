@@ -7,7 +7,7 @@ export * as rpc from "@stellar/stellar-sdk/rpc";
 export declare const networks: {
     readonly testnet: {
         readonly networkPassphrase: "Test SDF Network ; September 2015";
-        readonly contractId: "CCAYJIDDXHNCKIYOJPCLVIN5SPVOU4GQ4KXJNJLABAQ37RYE5I2YFSKD";
+        readonly contractId: "CCIYHL76UBBEOO3QNH775POWFQKYQ5U6IZEMZFHBSNYAU73EE64IXQZF";
     };
 };
 /**
@@ -44,6 +44,9 @@ export type DataKey = {
     values: readonly [string];
 } | {
     tag: "RegisteredKey";
+    values: readonly [string];
+} | {
+    tag: "Gateway";
     values: readonly [string];
 };
 export interface SpendEvent {
@@ -91,6 +94,9 @@ export declare const ContractError: {
         message: string;
     };
     8: {
+        message: string;
+    };
+    9: {
         message: string;
     };
 };
@@ -144,6 +150,27 @@ export interface Client {
         nonce: Buffer;
         signature: Buffer;
     }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
+    /**
+     * Construct and simulate a remove_gateway transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Remove a previously whitelisted gateway relayer.
+     *
+     * Only the stored admin may call this.
+     */
+    remove_gateway: ({ admin, gateway }: {
+        admin: string;
+        gateway: string;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
+    /**
+     * Construct and simulate a register_gateway transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Whitelist a gateway relayer address.
+     *
+     * Only the stored admin may call this. The value written is a compact
+     * boolean (`true`) to minimise ledger entry size.
+     */
+    register_gateway: ({ admin, gateway }: {
+        admin: string;
+        gateway: string;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
 }
 export declare class Client extends ContractClient {
     readonly options: ContractClientOptions;
@@ -170,5 +197,7 @@ export declare class Client extends ContractClient {
         withdraw: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         get_vault: (json: string) => AssembledTransaction<bigint>;
         spend_offline: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
+        remove_gateway: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
+        register_gateway: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
     };
 }

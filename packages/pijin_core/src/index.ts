@@ -34,7 +34,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CCAYJIDDXHNCKIYOJPCLVIN5SPVOU4GQ4KXJNJLABAQ37RYE5I2YFSKD",
+    contractId: "CCIYHL76UBBEOO3QNH775POWFQKYQ5U6IZEMZFHBSNYAU73EE64IXQZF",
   }
 } as const
 
@@ -52,7 +52,7 @@ export const networks = {
  * - `Timelock(Address)`: user withdrawal delay.
  * - `RegisteredKey(Address)`: user's offline Ed25519 key.
  */
-export type DataKey = {tag: "Admin", values: void} | {tag: "Treasury", values: void} | {tag: "Token", values: void} | {tag: "Vault", values: readonly [string, string]} | {tag: "Nonce", values: readonly [Buffer]} | {tag: "Timelock", values: readonly [string]} | {tag: "RegisteredKey", values: readonly [string]};
+export type DataKey = {tag: "Admin", values: void} | {tag: "Treasury", values: void} | {tag: "Token", values: void} | {tag: "Vault", values: readonly [string, string]} | {tag: "Nonce", values: readonly [Buffer]} | {tag: "Timelock", values: readonly [string]} | {tag: "RegisteredKey", values: readonly [string]} | {tag: "Gateway", values: readonly [string]};
 
 
 export interface SpendEvent {
@@ -88,7 +88,8 @@ export const ContractError = {
   5: {message:"NonceReplayed"},
   6: {message:"InsufficientBalance"},
   7: {message:"TimelockActive"},
-  8: {message:"MathOverflow"}
+  8: {message:"MathOverflow"},
+  9: {message:"NotWhitelistedGateway"}
 }
 
 
@@ -125,6 +126,23 @@ export interface Client {
    */
   spend_offline: ({gateway, sender, token, receiver, bounty_relayer, amount, protocol_toll, nonce, signature}: {gateway: string, sender: string, token: string, receiver: string, bounty_relayer: Option<string>, amount: i128, protocol_toll: i128, nonce: Buffer, signature: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
+  /**
+   * Construct and simulate a remove_gateway transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Remove a previously whitelisted gateway relayer.
+   * 
+   * Only the stored admin may call this.
+   */
+  remove_gateway: ({admin, gateway}: {admin: string, gateway: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a register_gateway transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Whitelist a gateway relayer address.
+   * 
+   * Only the stored admin may call this. The value written is a compact
+   * boolean (`true`) to minimise ledger entry size.
+   */
+  register_gateway: ({admin, gateway}: {admin: string, gateway: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
 }
 export class Client extends ContractClient {
   static async deploy<T = Client>(
@@ -149,13 +167,15 @@ export class Client extends ContractClient {
         "AAAAAAAAACJVcGdyYWRlIHRoZSBjdXJyZW50IGNvbnRyYWN0IFdBU00uAAAAAAAHdXBncmFkZQAAAAABAAAAAAAAAA1uZXdfd2FzbV9oYXNoAAAAAAAD7gAAACAAAAABAAAD6QAAA+0AAAAAAAAH0AAAAA1Db250cmFjdEVycm9yAAAA",
         "AAAAAAAAAAAAAAAId2l0aGRyYXcAAAACAAAAAAAAAAZzZW5kZXIAAAAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAfQAAAADUNvbnRyYWN0RXJyb3IAAAA=",
         "AAAAAAAAAAAAAAAJZ2V0X3ZhdWx0AAAAAAAAAgAAAAAAAAAEdXNlcgAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAEAAAAL",
-        "AAAAAgAAAcVUeXBlZCBzdG9yYWdlIGtleXMgZm9yIGFsbCBjb250cmFjdCBzdGF0ZS4KCkluc3RhbmNlIHN0b3JhZ2U6Ci0gYEFkbWluYDogcHJpdmlsZWdlZCBhY2NvdW50IGFsbG93ZWQgdG8gdXBncmFkZSB0aGUgY29udHJhY3QuCi0gYFRyZWFzdXJ5YDogcHJvdG9jb2wgdG9sbCByZWNpcGllbnQuCi0gYFRva2VuYDogb2ZmaWNpYWwgYWNjZXB0ZWQgYXNzZXQgY29udHJhY3QuCgpQZXJzaXN0ZW50IHN0b3JhZ2U6Ci0gYFZhdWx0KEFkZHJlc3MsIEFkZHJlc3MpYDogdXNlciBsb2NrZWQgYmFsYW5jZSBieSB0b2tlbi4KLSBgTm9uY2UoQnl0ZXNOPDMyPilgOiByZXBsYXkgcHJvdGVjdGlvbiBmb3Igc2V0dGxlZCB2b3VjaGVycy4KLSBgVGltZWxvY2soQWRkcmVzcylgOiB1c2VyIHdpdGhkcmF3YWwgZGVsYXkuCi0gYFJlZ2lzdGVyZWRLZXkoQWRkcmVzcylgOiB1c2VyJ3Mgb2ZmbGluZSBFZDI1NTE5IGtleS4AAAAAAAAAAAAAB0RhdGFLZXkAAAAABwAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAAIVHJlYXN1cnkAAAAAAAAAAAAAAAVUb2tlbgAAAAAAAAEAAAAAAAAABVZhdWx0AAAAAAAAAgAAABMAAAATAAAAAQAAAAAAAAAFTm9uY2UAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAAhUaW1lbG9jawAAAAEAAAATAAAAAQAAAAAAAAANUmVnaXN0ZXJlZEtleQAAAAAAAAEAAAAT",
+        "AAAAAgAAAcVUeXBlZCBzdG9yYWdlIGtleXMgZm9yIGFsbCBjb250cmFjdCBzdGF0ZS4KCkluc3RhbmNlIHN0b3JhZ2U6Ci0gYEFkbWluYDogcHJpdmlsZWdlZCBhY2NvdW50IGFsbG93ZWQgdG8gdXBncmFkZSB0aGUgY29udHJhY3QuCi0gYFRyZWFzdXJ5YDogcHJvdG9jb2wgdG9sbCByZWNpcGllbnQuCi0gYFRva2VuYDogb2ZmaWNpYWwgYWNjZXB0ZWQgYXNzZXQgY29udHJhY3QuCgpQZXJzaXN0ZW50IHN0b3JhZ2U6Ci0gYFZhdWx0KEFkZHJlc3MsIEFkZHJlc3MpYDogdXNlciBsb2NrZWQgYmFsYW5jZSBieSB0b2tlbi4KLSBgTm9uY2UoQnl0ZXNOPDMyPilgOiByZXBsYXkgcHJvdGVjdGlvbiBmb3Igc2V0dGxlZCB2b3VjaGVycy4KLSBgVGltZWxvY2soQWRkcmVzcylgOiB1c2VyIHdpdGhkcmF3YWwgZGVsYXkuCi0gYFJlZ2lzdGVyZWRLZXkoQWRkcmVzcylgOiB1c2VyJ3Mgb2ZmbGluZSBFZDI1NTE5IGtleS4AAAAAAAAAAAAAB0RhdGFLZXkAAAAACAAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAAIVHJlYXN1cnkAAAAAAAAAAAAAAAVUb2tlbgAAAAAAAAEAAAAAAAAABVZhdWx0AAAAAAAAAgAAABMAAAATAAAAAQAAAAAAAAAFTm9uY2UAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAAhUaW1lbG9jawAAAAEAAAATAAAAAQAAAAAAAAANUmVnaXN0ZXJlZEtleQAAAAAAAAEAAAATAAAAAQAAAAAAAAAHR2F0ZXdheQAAAAABAAAAEw==",
         "AAAAAQAAAAAAAAAAAAAAClNwZW5kRXZlbnQAAAAAAAoAAAAAAAAABmFtb3VudAAAAAAACwAAAAAAAAAHYmFsYW5jZQAAAAALAAAAAAAAAApib3VudHlfZmVlAAAAAAALAAAAAAAAAA5ib3VudHlfcmVsYXllcgAAAAAD6AAAABMAAAAAAAAAB2dhdGV3YXkAAAAAEwAAAAAAAAAFbm9uY2UAAAAAAAPuAAAAIAAAAAAAAAANcHJvdG9jb2xfdG9sbAAAAAAAAAsAAAAAAAAACHJlY2VpdmVyAAAAEwAAAAAAAAAGc2VuZGVyAAAAAAATAAAAAAAAAAV0b2tlbgAAAAAAABM=",
         "AAAAAAAAAAAAAAANc3BlbmRfb2ZmbGluZQAAAAAAAAkAAAAAAAAAB2dhdGV3YXkAAAAAEwAAAAAAAAAGc2VuZGVyAAAAAAATAAAAAAAAAAV0b2tlbgAAAAAAABMAAAAAAAAACHJlY2VpdmVyAAAAEwAAAAAAAAAOYm91bnR5X3JlbGF5ZXIAAAAAA+gAAAATAAAAAAAAAAZhbW91bnQAAAAAAAsAAAAAAAAADXByb3RvY29sX3RvbGwAAAAAAAALAAAAAAAAAAVub25jZQAAAAAAA+4AAAAgAAAAAAAAAAlzaWduYXR1cmUAAAAAAAPuAAAAQAAAAAEAAAPpAAAD7QAAAAAAAAfQAAAADUNvbnRyYWN0RXJyb3IAAAA=",
         "AAAAAAAAAK5Qcm90b2NvbCAyMiBjb25zdHJ1Y3Rvci4KCkNvbnN0cnVjdG9yIGV4ZWN1dGlvbiBpcyBleHBlY3RlZCBvbmx5IG9uY2UsIGJ1dCB0aGUgZ3VhcmQga2VlcHMgdGVzdHMgYW5kCmFueSBmdXR1cmUgY29tcGF0aWJpbGl0eSBwYXRoIGZyb20gc2lsZW50bHkgb3ZlcndyaXRpbmcgcHJpdmlsZWdlZCBzdGF0ZS4AAAAAAA1fX2NvbnN0cnVjdG9yAAAAAAAAAwAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAh0cmVhc3VyeQAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAA=",
+        "AAAAAAAAAFZSZW1vdmUgYSBwcmV2aW91c2x5IHdoaXRlbGlzdGVkIGdhdGV3YXkgcmVsYXllci4KCk9ubHkgdGhlIHN0b3JlZCBhZG1pbiBtYXkgY2FsbCB0aGlzLgAAAAAADnJlbW92ZV9nYXRld2F5AAAAAAACAAAAAAAAAAVhZG1pbgAAAAAAABMAAAAAAAAAB2dhdGV3YXkAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAfQAAAADUNvbnRyYWN0RXJyb3IAAAA=",
         "AAAAAQAAAAAAAAAAAAAADERlcG9zaXRFdmVudAAAAAUAAAAAAAAABmFtb3VudAAAAAAACwAAAAAAAAAHYmFsYW5jZQAAAAALAAAAAAAAAAZzZW5kZXIAAAAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAAAAAALdW5sb2NrX3RpbWUAAAAABg==",
-        "AAAABAAAAChTdGFibGUsIGNsaWVudC1yZWFkYWJsZSBjb250cmFjdCBlcnJvcnMuAAAAAAAAAA1Db250cmFjdEVycm9yAAAAAAAACAAAAAAAAAASQWxyZWFkeUluaXRpYWxpemVkAAAAAAABAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAACAAAAAAAAAA1JbnZhbGlkQW1vdW50AAAAAAAAAwAAAAAAAAAORXhwaXJlZFZvdWNoZXIAAAAAAAQAAAAAAAAADU5vbmNlUmVwbGF5ZWQAAAAAAAAFAAAAAAAAABNJbnN1ZmZpY2llbnRCYWxhbmNlAAAAAAYAAAAAAAAADlRpbWVsb2NrQWN0aXZlAAAAAAAHAAAAAAAAAAxNYXRoT3ZlcmZsb3cAAAAI",
-        "AAAAAQAAAAAAAAAAAAAADVdpdGhkcmF3RXZlbnQAAAAAAAADAAAAAAAAAAZhbW91bnQAAAAAAAsAAAAAAAAABnNlbmRlcgAAAAAAEwAAAAAAAAAFdG9rZW4AAAAAAAAT" ]),
+        "AAAABAAAAChTdGFibGUsIGNsaWVudC1yZWFkYWJsZSBjb250cmFjdCBlcnJvcnMuAAAAAAAAAA1Db250cmFjdEVycm9yAAAAAAAACQAAAAAAAAASQWxyZWFkeUluaXRpYWxpemVkAAAAAAABAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAACAAAAAAAAAA1JbnZhbGlkQW1vdW50AAAAAAAAAwAAAAAAAAAORXhwaXJlZFZvdWNoZXIAAAAAAAQAAAAAAAAADU5vbmNlUmVwbGF5ZWQAAAAAAAAFAAAAAAAAABNJbnN1ZmZpY2llbnRCYWxhbmNlAAAAAAYAAAAAAAAADlRpbWVsb2NrQWN0aXZlAAAAAAAHAAAAAAAAAAxNYXRoT3ZlcmZsb3cAAAAIAAAAAAAAABVOb3RXaGl0ZWxpc3RlZEdhdGV3YXkAAAAAAAAJ",
+        "AAAAAQAAAAAAAAAAAAAADVdpdGhkcmF3RXZlbnQAAAAAAAADAAAAAAAAAAZhbW91bnQAAAAAAAsAAAAAAAAABnNlbmRlcgAAAAAAEwAAAAAAAAAFdG9rZW4AAAAAAAAT",
+        "AAAAAAAAAJlXaGl0ZWxpc3QgYSBnYXRld2F5IHJlbGF5ZXIgYWRkcmVzcy4KCk9ubHkgdGhlIHN0b3JlZCBhZG1pbiBtYXkgY2FsbCB0aGlzLiBUaGUgdmFsdWUgd3JpdHRlbiBpcyBhIGNvbXBhY3QKYm9vbGVhbiAoYHRydWVgKSB0byBtaW5pbWlzZSBsZWRnZXIgZW50cnkgc2l6ZS4AAAAAAAAQcmVnaXN0ZXJfZ2F0ZXdheQAAAAIAAAAAAAAABWFkbWluAAAAAAAAEwAAAAAAAAAHZ2F0ZXdheQAAAAATAAAAAQAAA+kAAAPtAAAAAAAAB9AAAAANQ29udHJhY3RFcnJvcgAAAA==" ]),
       options
     )
   }
@@ -164,6 +184,8 @@ export class Client extends ContractClient {
         upgrade: this.txFromJSON<Result<void>>,
         withdraw: this.txFromJSON<Result<void>>,
         get_vault: this.txFromJSON<i128>,
-        spend_offline: this.txFromJSON<Result<void>>
+        spend_offline: this.txFromJSON<Result<void>>,
+        remove_gateway: this.txFromJSON<Result<void>>,
+        register_gateway: this.txFromJSON<Result<void>>
   }
 }
