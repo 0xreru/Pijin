@@ -38,11 +38,11 @@
       ],
       "expo-secure-store"
     ],
+    "owner": "senec4",
     "extra": {
       "eas": {
-        "projectId": "6d512230-7299-4baf-a7a1-0107cd5e0fbf"
+        "projectId": "4534ff86-8f8a-4743-b363-5cb145f34626"
       }
-    },
-    "owner": "0xreru"
+    }
   }
 }

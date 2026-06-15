@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#635BFF',
+    color: '#04295A',
   },
 });
 

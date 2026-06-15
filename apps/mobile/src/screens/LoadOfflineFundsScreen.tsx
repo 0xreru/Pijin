@@ -17,6 +17,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
+import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 52;
@@ -172,8 +173,31 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
     setInputText(digitsOnly);
   };
 
-  const handleBackToHome = () => {
+  const handleBackToHome = async () => {
     setModalVisible(false);
+    
+    try {
+      const { addTransaction } = require('../services/storage/transactionStorage');
+      await addTransaction({
+        title: 'Online to Offline Transfer',
+        subtitle: 'Today',
+        amount: -numericVal,
+        type: 'transfer',
+        tag: 'WALLET',
+        description: `Moved ₱${numericVal.toFixed(2)} from online wallet to offline vault.`,
+      });
+      await addTransaction({
+        title: 'Received from Online Wallet',
+        subtitle: 'Today',
+        amount: numericVal,
+        type: 'transfer',
+        tag: 'OFFLINE',
+        description: `Received ₱${numericVal.toFixed(2)} from online wallet.`,
+      });
+    } catch (err) {
+      console.error('Failed to log load offline funds transaction:', err);
+    }
+
     // Emit event to deduct online balance and add to offline balance
     DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     navigation.goBack();
@@ -184,6 +208,8 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
   return (
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
       <StatusBar barStyle="dark-content" />
+
+      <ConnectionWatcher navigation={navigation} currentMode="online" />
 
       {/* Header Row */}
       <View style={styles.headerRow}>

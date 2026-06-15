@@ -27,7 +27,8 @@ interface HomeTabProps {
   syncing: boolean;
   slideAnim: Animated.Value;
   isTransitioning: boolean;
-  mockTxs: any[];
+  onlineTxs: any[];
+  offlineTxs: any[];
   insets: { top: number; bottom: number; left: number; right: number };
   onLogoutPress: () => void;
   onManualToggle: (online: boolean) => void;
@@ -36,6 +37,8 @@ interface HomeTabProps {
   onLoadOfflineFundsPress: () => void;
   onSendPress: () => void;
   onReceivePress: () => void;
+  onViewAllTransactions: () => void;
+  isOnlineDisabled?: boolean;
 }
 
 export function HomeTab({
@@ -47,7 +50,8 @@ export function HomeTab({
   syncing,
   slideAnim,
   isTransitioning,
-  mockTxs,
+  onlineTxs,
+  offlineTxs,
   insets,
   onLogoutPress,
   onManualToggle,
@@ -56,6 +60,8 @@ export function HomeTab({
   onLoadOfflineFundsPress,
   onSendPress,
   onReceivePress,
+  onViewAllTransactions,
+  isOnlineDisabled = false,
 }: HomeTabProps) {
   return (
     <ScrollView
@@ -70,11 +76,19 @@ export function HomeTab({
         {/* Toggle Row (Left Aligned) */}
         <View style={styles.toggleRow}>
           <TouchableOpacity
-            style={[styles.toggleBtn, isOnline ? styles.toggleBtnActive : styles.toggleBtnInactive]}
-            onPress={() => onManualToggle(true)}
-            activeOpacity={0.85}
+            style={[
+              styles.toggleBtn,
+              isOnline ? styles.toggleBtnActive : styles.toggleBtnInactive,
+            ]}
+            onPress={() => !isOnlineDisabled && onManualToggle(true)}
+            activeOpacity={isOnlineDisabled ? 1.0 : 0.85}
+            disabled={isOnlineDisabled}
           >
-            <Text style={[styles.toggleBtnText, isOnline ? styles.toggleTextActive : styles.toggleTextInactive]}>
+            <Text style={[
+              styles.toggleBtnText,
+              isOnline ? styles.toggleTextActive : styles.toggleTextInactive,
+              isOnlineDisabled && styles.toggleTextDisabled,
+            ]}>
               Online
             </Text>
           </TouchableOpacity>
@@ -171,8 +185,8 @@ export function HomeTab({
 
             {/* Recent Activity List */}
             <TransactionList
-              transactions={mockTxs}
-              onViewAll={() => Alert.alert('View All', 'Show complete transaction history.')}
+              transactions={onlineTxs}
+              onViewAll={onViewAllTransactions}
             />
           </View>
 
@@ -230,8 +244,8 @@ export function HomeTab({
 
             {/* Recent Activity List */}
             <TransactionList
-              transactions={[]}
-              onViewAll={() => Alert.alert('View All', 'Show complete transaction history.')}
+              transactions={offlineTxs}
+              onViewAll={onViewAllTransactions}
             />
           </View>
         </Animated.View>
@@ -280,6 +294,9 @@ const styles = StyleSheet.create({
   },
   toggleTextInactive: {
     color: '#707984',
+  },
+  toggleTextDisabled: {
+    color: '#CBD5E1',
   },
   cardSection: {
     width: '100%',

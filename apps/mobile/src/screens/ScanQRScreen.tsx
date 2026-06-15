@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { loadStoredAccount } from '../services/storage/accountStorage';
 import { appendToOfflinePaymentsQueue } from '../services/storage/paymentQueueStorage';
 import { OfflinePaymentPayload } from '../types/payment';
@@ -27,6 +28,13 @@ const VIEWFINDER_SIZE = SCREEN_WIDTH * 0.82;
 export function ScanQRScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem('abotpera.is_online').then((val) => {
+      setIsOnline(val !== 'false');
+    });
+  }, []);
   
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -70,7 +78,19 @@ export function ScanQRScreen({ navigation }: any) {
       try {
         const { parseOfflinePaymentPayload } = require('../utils/offlinePaymentPayload');
         const parsed = parseOfflinePaymentPayload(data);
+        
+        const { addTransaction } = require('../services/storage/transactionStorage');
+        addTransaction({
+          title: `Scanned Payment from ${parsed.customerShortId}`,
+          subtitle: 'Today',
+          amount: parsed.amount,
+          type: 'incoming',
+          tag: 'OFFLINE',
+          description: `Scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. Awaiting sync to Stellar network.`,
+        }).catch((err: any) => console.error('Failed to log scanned transaction:', err));
+
         appendToOfflinePaymentsQueue(parsed).then(() => {
+          DeviceEventEmitter.emit('TRANSACTIONS_UPDATED');
           Alert.alert(
             'Relay Voucher Scanned',
             `Successfully scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. It has been added to your queue and will sync to the Stellar network.`,
@@ -84,9 +104,9 @@ export function ScanQRScreen({ navigation }: any) {
     } else {
       // Receiver Short ID or standard prefilled format
       if (data.includes(':')) {
-        navigation.navigate('SendMoney', { qrData: data });
+        navigation.navigate('SendMoney', { qrData: data, isScanned: true });
       } else {
-        navigation.navigate('SendMoney', { recipientShortId: data });
+        navigation.navigate('SendMoney', { recipientShortId: data, isScanned: true });
       }
     }
   };
@@ -139,6 +159,8 @@ export function ScanQRScreen({ navigation }: any) {
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 20) }]}>
       <StatusBar barStyle="dark-content" />
 
+      <ConnectionWatcher navigation={navigation} currentMode={isOnline ? 'online' : 'offline'} />
+
       {/* Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity
@@ -186,14 +208,14 @@ export function ScanQRScreen({ navigation }: any) {
         Point your camera at the QR code to scan.
       </Text>
 
-      {/* Simulate Scan Button for testing */}
+      {/* Generate QR Button */}
       <TouchableOpacity
-        style={styles.simulateButton}
-        onPress={handleSimulatorScanTap}
+        style={styles.generateQrButton}
+        onPress={() => navigation.navigate('GenerateQR', { mode: 'receiver' })}
         activeOpacity={0.8}
       >
-        <Ionicons name="construct-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-        <Text style={styles.simulateButtonText}>Simulate Scan</Text>
+        <Ionicons name="qr-code-outline" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+        <Text style={styles.generateQrButtonText}>Generate QR</Text>
       </TouchableOpacity>
 
       {/* Mascot Image */}
@@ -361,25 +383,25 @@ const styles = StyleSheet.create({
     color: '#04295A',
     textDecorationLine: 'underline',
   },
-  simulateButton: {
+  generateQrButton: {
     backgroundColor: '#04295A',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
     marginTop: 10,
     alignSelf: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: '#04295A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  simulateButtonText: {
+  generateQrButtonText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
   },
 });
