@@ -41,7 +41,8 @@
     "react-native-screens": "~4.4.0",
     "react-native-svg": "15.8.0",
     "react-native-url-polyfill": "^3.0.0",
-    "react-native-view-shot": "~4.0.3"
+    "react-native-view-shot": "~4.0.3",
+    "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@types/react": "~18.3.12",
