@@ -24,11 +24,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'abotpera.cached_balance';
 
 const MOCK_CONTACTS = [
-  { name: 'Donna Paulsen', phone: '09171234567', initials: 'DP' },
-  { name: 'Harvey Specter', phone: '09187654321', initials: 'HS' },
-  { name: 'Mike Ross', phone: '09998887777', initials: 'MR' },
-  { name: 'Rachel Zane', phone: '09223334444', initials: 'RZ' },
-  { name: 'Louis Litt', phone: '09277776666', initials: 'LL' },
+  { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP' },
+  { name: 'Harvey Specter', shortId: 'M-HRV1', initials: 'HS' },
+  { name: 'Mike Ross', shortId: 'M-MIK1', initials: 'MR' },
+  { name: 'Rachel Zane', shortId: 'M-RCH1', initials: 'RZ' },
+  { name: 'Louis Litt', shortId: 'M-LOU1', initials: 'LL' },
 ];
 
 export function SendMoneyScreen({ route, navigation }: any) {
@@ -40,12 +40,12 @@ export function SendMoneyScreen({ route, navigation }: any) {
   const [walletBalance, setWalletBalance] = useState<number>(25000.00);
 
   // Form states
-  const [phone, setPhone] = useState('');
+  const [recipientShortId, setRecipientShortId] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
   // Error states
-  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [recipientShortIdError, setRecipientShortIdError] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
 
   // Modal state
@@ -75,21 +75,28 @@ export function SendMoneyScreen({ route, navigation }: any) {
 
   // Prefill scanned QR data
   useEffect(() => {
-    const qrData = route?.params?.qrData;
-    if (qrData) {
-      const parts = qrData.split(':');
-      if (parts.length >= 2) {
-        setPhone(parts[0]);
-        const parsedAmount = parseFloat(parts[1]);
-        if (!isNaN(parsedAmount) && parsedAmount > 0) {
-          setAmount(parts[1]);
+    const rxShortId = route?.params?.recipientShortId;
+    if (rxShortId) {
+      setRecipientShortId(rxShortId);
+    } else {
+      const qrData = route?.params?.qrData;
+      if (qrData) {
+        const parts = qrData.split(':');
+        if (parts[0]) {
+          setRecipientShortId(parts[0]);
+        }
+        if (parts[1]) {
+          const parsedAmount = parseFloat(parts[1]);
+          if (!isNaN(parsedAmount) && parsedAmount > 0) {
+            setAmount(parts[1]);
+          }
         }
         if (parts[2]) {
           setNote(parts[2]);
         }
       }
     }
-  }, [route?.params?.qrData]);
+  }, [route?.params?.recipientShortId, route?.params?.qrData]);
 
   // Fetch live balance (only if online)
   const { balancePhp } = useVaultBalance(activeAccount?.shortId, activeAccount?.stellarPublicKey);
@@ -106,12 +113,12 @@ export function SendMoneyScreen({ route, navigation }: any) {
   const handleContinue = () => {
     let hasError = false;
 
-    // Validate phone number
-    if (!phone.trim()) {
-      setPhoneError('Recipient is required');
+    // Validate recipient short ID
+    if (!recipientShortId.trim()) {
+      setRecipientShortIdError('Recipient Short ID is required');
       hasError = true;
     } else {
-      setPhoneError(null);
+      setRecipientShortIdError(null);
     }
 
     // Validate amount
@@ -130,15 +137,15 @@ export function SendMoneyScreen({ route, navigation }: any) {
 
     // Navigate to confirmation page
     navigation.navigate('SendMoneyConfirm', {
-      phone: phone.trim(),
+      recipientShortId: recipientShortId.trim(),
       amount: numAmount,
       note: note.trim(),
     });
   };
 
-  const handleContactSelect = (selectedPhone: string) => {
-    setPhone(selectedPhone);
-    setPhoneError(null);
+  const handleContactSelect = (selectedShortId: string) => {
+    setRecipientShortId(selectedShortId);
+    setRecipientShortIdError(null);
     setContactsModalVisible(false);
   };
 
@@ -166,23 +173,23 @@ export function SendMoneyScreen({ route, navigation }: any) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* Phone No Input */}
+          {/* Short ID Input */}
           <View style={styles.fieldWrapper}>
             <View style={styles.inputContainer}>
               <View style={styles.badgeContainer}>
-                <Text style={styles.badgeText}>Phone No.</Text>
+                <Text style={styles.badgeText}>Short ID</Text>
               </View>
               <View style={styles.inputRow}>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="ex. 09987654321"
+                  placeholder="ex. M-1B44"
                   placeholderTextColor="#8C98A6"
-                  value={phone}
+                  value={recipientShortId}
                   onChangeText={(text) => {
-                    setPhone(text);
-                    if (phoneError) setPhoneError(null);
+                    setRecipientShortId(text);
+                    if (recipientShortIdError) setRecipientShortIdError(null);
                   }}
-                  keyboardType="phone-pad"
+                  autoCapitalize="characters"
                 />
                 <TouchableOpacity 
                   onPress={() => setContactsModalVisible(true)} 
@@ -193,8 +200,8 @@ export function SendMoneyScreen({ route, navigation }: any) {
                 </TouchableOpacity>
               </View>
             </View>
-            {phoneError && (
-              <Text style={styles.errorText}>{phoneError}</Text>
+            {recipientShortIdError && (
+              <Text style={styles.errorText}>{recipientShortIdError}</Text>
             )}
           </View>
 
@@ -252,6 +259,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
               </View>
             </View>
           </View>
+
 
           {/* Service Fee Info Banner */}
           <View style={styles.feeDisclaimer}>
@@ -316,7 +324,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
                   <TouchableOpacity
                     key={idx}
                     style={styles.contactItem}
-                    onPress={() => handleContactSelect(contact.phone)}
+                    onPress={() => handleContactSelect(contact.shortId)}
                     activeOpacity={0.7}
                   >
                     <View style={styles.avatar}>
@@ -324,7 +332,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
                     </View>
                     <View style={styles.contactInfo}>
                       <Text style={styles.contactName}>{contact.name}</Text>
-                      <Text style={styles.contactPhone}>{contact.phone}</Text>
+                      <Text style={styles.contactPhone}>ID: {contact.shortId}</Text>
                     </View>
                     <Ionicons name="chevron-forward-outline" size={20} color="#D1D5DB" />
                   </TouchableOpacity>

@@ -29,11 +29,11 @@ const TRACK_WIDTH = SCREEN_WIDTH - 40;
 const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
 
 const MOCK_CONTACTS = [
-  { name: 'Donna Paulsen', phone: '09171234567', initials: 'DP' },
-  { name: 'Harvey Specter', phone: '09187654321', initials: 'HS' },
-  { name: 'Mike Ross', phone: '09998887777', initials: 'MR' },
-  { name: 'Rachel Zane', phone: '09223334444', initials: 'RZ' },
-  { name: 'Louis Litt', phone: '09277776666', initials: 'LL' },
+  { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP' },
+  { name: 'Harvey Specter', shortId: 'M-HRV1', initials: 'HS' },
+  { name: 'Mike Ross', shortId: 'M-MIK1', initials: 'MR' },
+  { name: 'Rachel Zane', shortId: 'M-RCH1', initials: 'RZ' },
+  { name: 'Louis Litt', shortId: 'M-LOU1', initials: 'LL' },
 ];
 
 export function SendMoneyConfirmScreen({ route, navigation }: any) {
@@ -41,14 +41,14 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const { activeAccount } = useAuth();
   
   // Extract params
-  const { phone, amount, note = '' } = route.params || { phone: '09171234567', amount: 0, note: '' };
+  const { recipientShortId, amount, note = '' } = route.params || { recipientShortId: 'M-1B44', amount: 0, note: '' };
   
   const fee = 0.50;
   const total = amount + fee;
   const senderShortId = activeAccount?.shortId || '0000';
 
   // Resolve Recipient Name
-  const matchedContact = MOCK_CONTACTS.find(c => c.phone === phone);
+  const matchedContact = MOCK_CONTACTS.find(c => c.shortId === recipientShortId);
   const recipientName = matchedContact ? matchedContact.name : 'Unknown Recipient';
   const recipientInitials = matchedContact ? matchedContact.initials : 'UR';
 
@@ -170,12 +170,20 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
     
     if (isOnlineMode) {
       DeviceEventEmitter.emit('ON_SEND_MONEY_ONLINE', total);
+      navigation.navigate('Dashboard');
     } else {
       // Build and queue offline payment payload
       try {
         const account = await loadStoredAccount();
         const customerId = account?.shortId || '1234';
-        const merchantId = phone.replace(/[^0-9]/g, '').slice(-4) || '9999';
+        const merchantId = recipientShortId;
+
+        const { buildOfflineSmsVoucher } = require('../services/offline/buildSmsPayload');
+        const voucher = await buildOfflineSmsVoucher({
+          customerShortId: customerId,
+          merchantShortId: merchantId,
+          amountPhp: amount,
+        });
 
         const payload: OfflinePaymentPayload = {
           type: 'ABOTPERA_OFFLINE_PAYMENT',
@@ -184,7 +192,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
           currency: 'PHP',
           customerShortId: customerId,
           merchantShortId: merchantId,
-          smsBody: `${customerId}:${merchantId}:${amount}:MOCK_NONCE_${Date.now()}`,
+          smsBody: voucher.smsBody,
           createdAt: new Date().toISOString(),
           expiresInMinutes: 10,
         };
@@ -192,18 +200,12 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         await appendToOfflinePaymentsQueue(payload);
         DeviceEventEmitter.emit('ON_SEND_MONEY_OFFLINE', total);
         
-        Alert.alert(
-          'Offline Payment Signed',
-          `₱${amount.toFixed(2)} (total ₱${total.toFixed(2)} with fee) signed offline and queued. It will sync automatically when online.`,
-          [{ text: 'OK' }]
-        );
+        navigation.navigate('TransportChoice', { qrData: voucher.smsBody });
       } catch (err) {
         console.error('Failed to queue offline payment:', err);
+        navigation.navigate('Dashboard');
       }
     }
-
-    // Return to dashboard
-    navigation.navigate('Dashboard');
   };
 
   const formatCurrency = (val: number) => {
@@ -276,7 +278,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
           <View style={styles.partyDetails}>
             <Text style={styles.partyLabel}>Recipient Account</Text>
             <Text style={styles.partyName}>{recipientName}</Text>
-            <Text style={styles.partySub}>{phone}</Text>
+            <Text style={styles.partySub}>Short ID: {recipientShortId}</Text>
           </View>
         </View>
 
@@ -453,8 +455,8 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
                 <Text style={styles.ticketValue}>{recipientName}</Text>
               </View>
               <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Phone No.</Text>
-                <Text style={styles.ticketValue}>{phone}</Text>
+                <Text style={styles.ticketLabel}>Short ID</Text>
+                <Text style={styles.ticketValue}>{recipientShortId}</Text>
               </View>
               <View style={styles.ticketRow}>
                 <Text style={styles.ticketLabel}>Amount sent</Text>
