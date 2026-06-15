@@ -9,9 +9,12 @@ import {
   ScrollView,
   StatusBar,
   Alert,
+  Linking,
+  Platform,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SMS_GATEWAY_NUMBER } from '../constants/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -21,7 +24,22 @@ export function TransportChoiceScreen({ route, navigation }: any) {
 
   const handleChoicePress = (choice: 'send_phone' | 'scan_me' | 'relay') => {
     if (choice === 'send_phone') {
-      navigation.navigate('SendMoney');
+      if (!qrData) {
+        Alert.alert('Error', 'No payload found to send via SMS.');
+        return;
+      }
+      const url = Platform.OS === 'android'
+        ? `sms:${SMS_GATEWAY_NUMBER}?body=${encodeURIComponent(qrData)}`
+        : `sms:${SMS_GATEWAY_NUMBER}&body=${encodeURIComponent(qrData)}`;
+      
+      Linking.openURL(url)
+        .then(() => {
+          navigation.navigate('Dashboard');
+        })
+        .catch((err) => {
+          Alert.alert('Error', 'Could not open native messaging app.');
+          console.error(err);
+        });
     } else if (choice === 'scan_me') {
       navigation.navigate('GenerateQR', { mode: 'receiver', qrData });
     } else if (choice === 'relay') {
