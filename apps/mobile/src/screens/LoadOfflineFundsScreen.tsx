@@ -174,8 +174,8 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
 
   const handleBackToHome = () => {
     setModalVisible(false);
-    // Emit event to update online balance without warning
-    DeviceEventEmitter.emit('ON_FUND_SUCCESS', numericVal);
+    // Emit event to deduct online balance and add to offline balance
+    DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     navigation.goBack();
   };
 

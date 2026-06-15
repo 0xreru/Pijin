@@ -8,7 +8,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen } from './src/screens';
+import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen, ScanQRScreen, TransportChoiceScreen, SendMoneyScreen, SendMoneyConfirmScreen, GenerateQRScreen } from './src/screens';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 
 type RootStackParamList = {
@@ -17,6 +17,11 @@ type RootStackParamList = {
   Dashboard: undefined;
   TransactionReceipt: { transaction: any };
   LoadOfflineFunds: { balance: number };
+  ScanQR: undefined;
+  TransportChoice: { qrData: string };
+  SendMoney: undefined;
+  SendMoneyConfirm: { phone: string; amount: number; note?: string };
+  GenerateQR: { mode: 'receiver' | 'relay'; qrData: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -37,6 +42,11 @@ function RootNavigator({ initialRoute }: { initialRoute: keyof RootStackParamLis
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
           <Stack.Screen name="TransactionReceipt" component={TransactionReceiptScreen} />
           <Stack.Screen name="LoadOfflineFunds" component={LoadOfflineFundsScreen} />
+          <Stack.Screen name="ScanQR" component={ScanQRScreen} />
+          <Stack.Screen name="TransportChoice" component={TransportChoiceScreen} />
+          <Stack.Screen name="SendMoney" component={SendMoneyScreen} />
+          <Stack.Screen name="SendMoneyConfirm" component={SendMoneyConfirmScreen} />
+          <Stack.Screen name="GenerateQR" component={GenerateQRScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </View>

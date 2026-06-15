@@ -27,6 +27,7 @@ import { ProfileTab } from './dashboard/ProfileTab';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'abotpera.cached_balance';
+const OFFLINE_BALANCE_KEY = 'abotpera.offline_balance';
 const TABS: TabType[] = ['home', 'notifications', 'scan', 'transactions', 'profile'];
 
 export function DashboardScreen({ navigation }: any) {
@@ -42,6 +43,7 @@ export function DashboardScreen({ navigation }: any) {
   const [isOnline, setIsOnline] = useState(true);
   const isManualOverrideRef = useRef(false);
   const [cachedBalance, setCachedBalance] = useState<number>(0.00); // Start at 0 like screenshot
+  const [offlineBalance, setOfflineBalance] = useState<number>(0.00);
   const [queueCount, setQueueCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -66,11 +68,28 @@ export function DashboardScreen({ navigation }: any) {
   useEffect(() => {
     const initData = async () => {
       try {
-        const storedBalance = await AsyncStorage.getItem(CACHED_BALANCE_KEY);
-        if (storedBalance) {
-          setCachedBalance(parseFloat(storedBalance));
+        const hasReset = await AsyncStorage.getItem('abotpera.initial_reset_v2');
+        if (!hasReset) {
+          setCachedBalance(25000.00);
+          await AsyncStorage.setItem(CACHED_BALANCE_KEY, '25000.00');
+          setOfflineBalance(0.00);
+          await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
+          await AsyncStorage.setItem('abotpera.initial_reset_v2', 'true');
         } else {
-          setCachedBalance(0.00);
+          const storedBalance = await AsyncStorage.getItem(CACHED_BALANCE_KEY);
+          if (storedBalance) {
+            setCachedBalance(parseFloat(storedBalance));
+          } else {
+            setCachedBalance(25000.00);
+            await AsyncStorage.setItem(CACHED_BALANCE_KEY, '25000.00');
+          }
+          const storedOffline = await AsyncStorage.getItem(OFFLINE_BALANCE_KEY);
+          if (storedOffline) {
+            setOfflineBalance(parseFloat(storedOffline));
+          } else {
+            setOfflineBalance(0.00);
+            await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
+          }
         }
         await updateQueueCount();
 
@@ -78,8 +97,10 @@ export function DashboardScreen({ navigation }: any) {
         const state = await NetInfo.fetch();
         if (state.isConnected === false) {
           setIsOnline(false);
-          setCachedBalance(20000.00);
+          await AsyncStorage.setItem('abotpera.is_online', 'false');
           slideAnim.setValue(-SCREEN_WIDTH);
+        } else {
+          await AsyncStorage.setItem('abotpera.is_online', 'true');
         }
       } catch (err) {
         console.error('Failed to init dashboard cached data:', err);
@@ -88,16 +109,42 @@ export function DashboardScreen({ navigation }: any) {
     initData();
   }, []);
 
-  // Listen for simulated offline loading success events
+  // Listen for simulated offline loading success events and transaction events
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('ON_FUND_SUCCESS', (amount: number) => {
-      setCachedBalance((prev) => {
-        const newBalance = Math.max(0, prev - amount);
-        AsyncStorage.setItem(CACHED_BALANCE_KEY, newBalance.toString());
-        return newBalance;
+    const subLoad = DeviceEventEmitter.addListener('ON_LOAD_OFFLINE_FUNDS', (amount: number) => {
+      setCachedBalance((prevOnline) => {
+        const newOnline = Math.max(0, prevOnline - amount);
+        AsyncStorage.setItem(CACHED_BALANCE_KEY, newOnline.toString());
+        return newOnline;
+      });
+      setOfflineBalance((prevOffline) => {
+        const newOffline = prevOffline + amount;
+        AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
+        return newOffline;
       });
     });
-    return () => sub.remove();
+
+    const subSendOnline = DeviceEventEmitter.addListener('ON_SEND_MONEY_ONLINE', (amount: number) => {
+      setCachedBalance((prevOnline) => {
+        const newOnline = Math.max(0, prevOnline - amount);
+        AsyncStorage.setItem(CACHED_BALANCE_KEY, newOnline.toString());
+        return newOnline;
+      });
+    });
+
+    const subSendOffline = DeviceEventEmitter.addListener('ON_SEND_MONEY_OFFLINE', (amount: number) => {
+      setOfflineBalance((prevOffline) => {
+        const newOffline = Math.max(0, prevOffline - amount);
+        AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
+        return newOffline;
+      });
+    });
+
+    return () => {
+      subLoad.remove();
+      subSendOnline.remove();
+      subSendOffline.remove();
+    };
   }, []);
 
   // Update cached balance whenever live balance is fetched successfully
@@ -129,11 +176,14 @@ export function DashboardScreen({ navigation }: any) {
   const handleStateTransition = (targetOnline: boolean) => {
     setIsTransitioning(true);
     setIsOnline(targetOnline);
-    if (targetOnline) {
-      setCachedBalance(0.00);
-    } else {
-      setCachedBalance(20000.00);
-    }
+    AsyncStorage.setItem('abotpera.is_online', targetOnline ? 'true' : 'false');
+    
+    // Retain existing balance when toggling modes
+    setCachedBalance((prev) => {
+      const balanceToSet = prev === 0 ? 25000.00 : prev;
+      AsyncStorage.setItem(CACHED_BALANCE_KEY, balanceToSet.toString());
+      return balanceToSet;
+    });
 
     Animated.spring(slideAnim, {
       toValue: targetOnline ? 0 : -SCREEN_WIDTH,
@@ -213,6 +263,7 @@ export function DashboardScreen({ navigation }: any) {
               shortId={shortId}
               isOnline={isOnline}
               cachedBalance={cachedBalance}
+              offlineBalance={offlineBalance}
               queueCount={queueCount}
               syncing={syncing}
               slideAnim={slideAnim}
@@ -227,6 +278,12 @@ export function DashboardScreen({ navigation }: any) {
                 navigation.navigate('LoadOfflineFunds', {
                   balance: cachedBalance,
                 });
+              }}
+              onSendPress={() => {
+                navigation.navigate('SendMoney');
+              }}
+              onReceivePress={() => {
+                navigation.navigate('GenerateQR', { mode: 'receiver' });
               }}
             />
           </View>
@@ -268,7 +325,16 @@ export function DashboardScreen({ navigation }: any) {
       {renderActiveTabContent()}
 
       {/* Bottom Navigation Bar */}
-      <BottomNavBar activeTab={activeTab} onChangeTab={setActiveTab} />
+      <BottomNavBar
+        activeTab={activeTab}
+        onChangeTab={(tab) => {
+          if (tab === 'scan') {
+            navigation.navigate('ScanQR');
+          } else {
+            setActiveTab(tab);
+          }
+        }}
+      />
 
       {/* Logout Modal */}
       <LogoutConfirmationModal

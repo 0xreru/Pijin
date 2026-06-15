@@ -22,6 +22,7 @@ interface HomeTabProps {
   shortId: string;
   isOnline: boolean;
   cachedBalance: number;
+  offlineBalance: number;
   queueCount: number;
   syncing: boolean;
   slideAnim: Animated.Value;
@@ -33,12 +34,15 @@ interface HomeTabProps {
   onSyncQueue: () => void;
   onAddMockQueueItem: () => void;
   onLoadOfflineFundsPress: () => void;
+  onSendPress: () => void;
+  onReceivePress: () => void;
 }
 
 export function HomeTab({
   shortId,
   isOnline,
   cachedBalance,
+  offlineBalance,
   queueCount,
   syncing,
   slideAnim,
@@ -50,6 +54,8 @@ export function HomeTab({
   onSyncQueue,
   onAddMockQueueItem,
   onLoadOfflineFundsPress,
+  onSendPress,
+  onReceivePress,
 }: HomeTabProps) {
   return (
     <ScrollView
@@ -110,7 +116,7 @@ export function HomeTab({
               <View style={styles.actionItem}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={() => Alert.alert('Send', 'Navigate to send transaction screen.')}
+                  onPress={onSendPress}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="paper-plane" size={20} color="#FFFFFF" />
@@ -121,7 +127,7 @@ export function HomeTab({
               <View style={styles.actionItem}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={() => Alert.alert('Receive', 'Show wallet public QR code.')}
+                  onPress={onReceivePress}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="arrow-down" size={20} color="#FFFFFF" style={styles.rotatedIcon} />
@@ -132,12 +138,23 @@ export function HomeTab({
               <View style={styles.actionItem}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={() => Alert.alert('Cash-In', 'Open payment gateways to add funds.')}
+                  onPress={() => Alert.alert('Top-Up', 'Open payment gateways to add funds.')}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="card" size={20} color="#FFFFFF" />
                 </TouchableOpacity>
-                <Text style={styles.actionLabel}>Cash-In</Text>
+                <Text style={styles.actionLabel}>Top-Up</Text>
+              </View>
+
+              <View style={styles.actionItem}>
+                <TouchableOpacity
+                  style={styles.actionCircle}
+                  onPress={() => Alert.alert('Transfer', 'Transfer funds to other bank accounts or wallets.')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="swap-horizontal" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+                <Text style={styles.actionLabel}>Transfer</Text>
               </View>
 
               <View style={styles.actionItem}>
@@ -171,7 +188,7 @@ export function HomeTab({
                 />
               </View>
               <BalanceCard
-                balance={cachedBalance}
+                balance={offlineBalance}
                 isOnline={false}
                 shortId={shortId}
               />
@@ -191,7 +208,7 @@ export function HomeTab({
               <View style={styles.actionItemOffline}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={onAddMockQueueItem}
+                  onPress={onSendPress}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="paper-plane" size={20} color="#FFFFFF" />
@@ -202,7 +219,7 @@ export function HomeTab({
               <View style={styles.actionItemOffline}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={() => Alert.alert('Receive', 'Show offline payment receive voucher.')}
+                  onPress={onReceivePress}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="arrow-down" size={20} color="#FFFFFF" style={styles.rotatedIcon} />
@@ -315,12 +332,12 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
   },
   actionLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     color: '#001E42',
     marginTop: 8,
     textAlign: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   },
   actionsContainerOffline: {
     flexDirection: 'row',
