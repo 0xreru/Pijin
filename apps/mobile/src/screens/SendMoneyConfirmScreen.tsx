@@ -13,6 +13,7 @@ import {
   DeviceEventEmitter,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
 import { appendToOfflinePaymentsQueue } from '../services/storage/paymentQueueStorage';
 import { OfflinePaymentPayload } from '../types/payment';
+import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 56;
@@ -168,7 +170,20 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const handleBackToHome = async () => {
     setSuccessVisible(false);
     
+    const { addTransaction } = require('../services/storage/transactionStorage');
     if (isOnlineMode) {
+      try {
+        await addTransaction({
+          title: `Paid to ${recipientName}`,
+          subtitle: 'Today',
+          amount: -total,
+          type: 'outgoing',
+          tag: 'WALLET',
+          description: `You paid ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} service fee via Pijin.`,
+        });
+      } catch (err) {
+        console.error('Failed to log online transaction:', err);
+      }
       DeviceEventEmitter.emit('ON_SEND_MONEY_ONLINE', total);
       navigation.navigate('Dashboard');
     } else {
@@ -198,6 +213,20 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         };
 
         await appendToOfflinePaymentsQueue(payload);
+
+        try {
+          await addTransaction({
+            title: `Paid to ${recipientName} (Offline)`,
+            subtitle: 'Today',
+            amount: -total,
+            type: 'outgoing',
+            tag: 'OFFLINE',
+            description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
+          });
+        } catch (err) {
+          console.error('Failed to log offline transaction:', err);
+        }
+
         DeviceEventEmitter.emit('ON_SEND_MONEY_OFFLINE', total);
         
         navigation.navigate('TransportChoice', { qrData: voucher.smsBody });
@@ -238,8 +267,10 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   );
 
   return (
-    <View style={[styles.container, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
+    <View style={[styles.container, { paddingTop: Math.max(insets.top, 20) }]}>
       <StatusBar barStyle="dark-content" />
+
+      <ConnectionWatcher navigation={navigation} currentMode={isOnlineMode ? 'online' : 'offline'} />
 
       {/* Header */}
       <View style={styles.headerRow}>
@@ -253,162 +284,167 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         <Text style={styles.headerTitle}>Verification</Text>
       </View>
 
-      {/* Hero Send Amount display */}
-      <View style={styles.amountHeroContainer}>
-        <Text style={styles.amountLabel}>Total Transfer Amount</Text>
-        <View style={styles.amountDisplayRow}>
-          <Text style={styles.amountSymbol}>₱</Text>
-          <Text style={styles.amountValue}>{formatCurrency(amount)}</Text>
-        </View>
-        <View style={styles.networkBadge}>
-          <View style={[styles.greenPulseDot, !isOnlineMode && { backgroundColor: '#F59E0B' }]} />
-          <Text style={styles.networkBadgeText}>
-            {isOnlineMode ? 'Stellar Network Escrow (PHP Vault)' : 'Offline Local Escrow'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Detailed Info Card */}
-      <View style={styles.infoCard}>
-        {/* Recipient Row */}
-        <View style={styles.partyRow}>
-          <View style={styles.partyAvatar}>
-            <Text style={styles.partyAvatarText}>{recipientInitials}</Text>
-          </View>
-          <View style={styles.partyDetails}>
-            <Text style={styles.partyLabel}>Recipient Account</Text>
-            <Text style={styles.partyName}>{recipientName}</Text>
-            <Text style={styles.partySub}>Short ID: {recipientShortId}</Text>
-          </View>
-        </View>
-
-        <View style={styles.cardSeparator} />
-
-        {/* Sender Row */}
-        <View style={styles.partyRow}>
-          <View style={[styles.partyAvatar, { backgroundColor: '#E0F2FE' }]}>
-            <Ionicons name="wallet-outline" size={20} color="#0284C7" />
-          </View>
-          <View style={styles.partyDetails}>
-            <Text style={styles.partyLabel}>Sender Account</Text>
-            <Text style={styles.partyName}>My Vault Wallet</Text>
-            <Text style={styles.partySub}>Short ID: {senderShortId}</Text>
-          </View>
-        </View>
-
-        {/* Note Box */}
-        {note.trim().length > 0 && (
-          <View style={styles.memoContainer}>
-            <Text style={styles.memoTitle}>Note/Memo:</Text>
-            <Text style={styles.memoText}>{note}</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Breakdown Details */}
-      <View style={styles.detailsCard}>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Subtotal</Text>
-          <Text style={styles.detailValue}>₱{formatCurrency(amount)}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>
-            {isOnlineMode ? 'Stellar Network Fee' : 'Offline Processing'}
-          </Text>
-          <Text style={[styles.detailValue, { color: '#10B981' }]}>₱0.00 (Waived)</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>OmniFi Service Fee</Text>
-          <Text style={styles.detailValue}>₱{formatCurrency(fee)}</Text>
-        </View>
-        <View style={styles.cardSeparator} />
-        <View style={styles.totalItem}>
-          <Text style={styles.totalLabel}>Total Deducted</Text>
-          <Text style={styles.totalValue}>₱{formatCurrency(total)}</Text>
-        </View>
-      </View>
-
-      {/* Verification Checkbox Row */}
-      <TouchableOpacity 
-        style={styles.checkboxRow} 
-        onPress={handleToggleCheckbox}
-        activeOpacity={0.8}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 24) }]}
       >
-        <Ionicons 
-          name={isChecked ? "checkbox" : "square-outline"} 
-          size={22} 
-          color={isChecked ? "#04295A" : "#64748B"} 
-        />
-        <Text style={[styles.checkboxText, isChecked && styles.checkboxTextChecked]}>
-          I confirm that the recipient details and amount are correct
-        </Text>
-      </TouchableOpacity>
+        {/* Hero Send Amount display */}
+        <View style={styles.amountHeroContainer}>
+          <Text style={styles.amountLabel}>Total Transfer Amount</Text>
+          <View style={styles.amountDisplayRow}>
+            <Text style={styles.amountSymbol}>₱</Text>
+            <Text style={styles.amountValue}>{formatCurrency(amount)}</Text>
+          </View>
+          <View style={styles.networkBadge}>
+            <View style={[styles.greenPulseDot, !isOnlineMode && { backgroundColor: '#F59E0B' }]} />
+            <Text style={styles.networkBadgeText}>
+              {isOnlineMode ? 'Stellar Network Escrow (PHP Vault)' : 'Offline Local Escrow'}
+            </Text>
+          </View>
+        </View>
 
-      {/* Swipe Slider */}
-      <View style={[styles.sliderContainer, !isChecked && styles.sliderContainerDisabled]}>
-        <View style={[styles.sliderTrack, !isChecked && styles.sliderTrackDisabled]}>
+        {/* Detailed Info Card */}
+        <View style={styles.infoCard}>
+          {/* Recipient Row */}
+          <View style={styles.partyRow}>
+            <View style={styles.partyAvatar}>
+              <Text style={styles.partyAvatarText}>{recipientInitials}</Text>
+            </View>
+            <View style={styles.partyDetails}>
+              <Text style={styles.partyLabel}>Recipient Account</Text>
+              <Text style={styles.partyName}>{recipientName}</Text>
+              <Text style={styles.partySub}>Short ID: {recipientShortId}</Text>
+            </View>
+          </View>
+
+          <View style={styles.cardSeparator} />
+
+          {/* Sender Row */}
+          <View style={styles.partyRow}>
+            <View style={[styles.partyAvatar, { backgroundColor: '#E0F2FE' }]}>
+              <Ionicons name="wallet-outline" size={20} color="#0284C7" />
+            </View>
+            <View style={styles.partyDetails}>
+              <Text style={styles.partyLabel}>Sender Account</Text>
+              <Text style={styles.partyName}>My Vault Wallet</Text>
+              <Text style={styles.partySub}>Short ID: {senderShortId}</Text>
+            </View>
+          </View>
+
+          {/* Note Box */}
+          {note.trim().length > 0 && (
+            <View style={styles.memoContainer}>
+              <Text style={styles.memoTitle}>Note/Memo:</Text>
+              <Text style={styles.memoText}>{note}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Breakdown Details */}
+        <View style={styles.detailsCard}>
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>Subtotal</Text>
+            <Text style={styles.detailValue}>₱{formatCurrency(amount)}</Text>
+          </View>
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>
+              {isOnlineMode ? 'Stellar Network Fee' : 'Offline Processing'}
+            </Text>
+            <Text style={[styles.detailValue, { color: '#10B981' }]}>₱0.00 (Waived)</Text>
+          </View>
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>OmniFi Service Fee</Text>
+            <Text style={styles.detailValue}>₱{formatCurrency(fee)}</Text>
+          </View>
+          <View style={styles.cardSeparator} />
+          <View style={styles.totalItem}>
+            <Text style={styles.totalLabel}>Total Deducted</Text>
+            <Text style={styles.totalValue}>₱{formatCurrency(total)}</Text>
+          </View>
+        </View>
+
+        {/* Verification Checkbox Row */}
+        <TouchableOpacity 
+          style={styles.checkboxRow} 
+          onPress={handleToggleCheckbox}
+          activeOpacity={0.8}
+        >
+          <Ionicons 
+            name={isChecked ? "checkbox" : "square-outline"} 
+            size={22} 
+            color={isChecked ? "#04295A" : "#64748B"} 
+          />
+          <Text style={[styles.checkboxText, isChecked && styles.checkboxTextChecked]}>
+            I confirm that the recipient details and amount are correct
+          </Text>
+        </TouchableOpacity>
+
+        {/* Swipe Slider */}
+        <View style={[styles.sliderContainer, !isChecked && styles.sliderContainerDisabled]}>
+          <View style={[styles.sliderTrack, !isChecked && styles.sliderTrackDisabled]}>
+            {isChecked && (
+              <Animated.View
+                style={[
+                  styles.progressTrail,
+                  {
+                    width: Animated.add(swipeAnim, BUTTON_WIDTH + 8),
+                  },
+                ]}
+              />
+            )}
+
+            <Animated.Text style={[styles.swipeText, { color: textColor }]}>
+              {isChecked ? "SWIPE TO AUTHORIZE" : "CONFIRM DETAILS TO SWIPE"}
+            </Animated.Text>
+
+            {isChecked && (
+              <Animated.View style={[styles.chevronIconContainer, { opacity: chevronOpacity }]}>
+                <Ionicons name="chevron-forward" size={20} color="#7B889B" />
+              </Animated.View>
+            )}
+            
+            {/* Animated Swipe Padlock Button */}
+            <Animated.View
+              style={[
+                styles.sliderButton,
+                !isChecked && styles.sliderButtonDisabled,
+                isChecked && { transform: [{ translateX: swipeAnim }] },
+              ]}
+              {...panResponder.panHandlers}
+            >
+              <Ionicons 
+                name={isChecked ? "paper-plane-outline" : "lock-closed-outline"} 
+                size={22} 
+                color="#FFFFFF" 
+              />
+            </Animated.View>
+          </View>
+
+          {/* Ripples on completion */}
           {isChecked && (
             <Animated.View
               style={[
-                styles.progressTrail,
+                styles.rippleCircle,
                 {
-                  width: Animated.add(swipeAnim, BUTTON_WIDTH + 8),
+                  transform: [{ scale: rippleScale }],
+                  opacity: rippleOpacity,
                 },
               ]}
             />
           )}
-
-          <Animated.Text style={[styles.swipeText, { color: textColor }]}>
-            {isChecked ? "SWIPE TO AUTHORIZE" : "CONFIRM DETAILS TO SWIPE"}
-          </Animated.Text>
-
-          {isChecked && (
-            <Animated.View style={[styles.chevronIconContainer, { opacity: chevronOpacity }]}>
-              <Ionicons name="chevron-forward" size={20} color="#7B889B" />
-            </Animated.View>
-          )}
-          
-          {/* Animated Swipe Padlock Button */}
-          <Animated.View
-            style={[
-              styles.sliderButton,
-              !isChecked && styles.sliderButtonDisabled,
-              isChecked && { transform: [{ translateX: swipeAnim }] },
-            ]}
-            {...panResponder.panHandlers}
-          >
-            <Ionicons 
-              name={isChecked ? "paper-plane-outline" : "lock-closed-outline"} 
-              size={22} 
-              color="#FFFFFF" 
-            />
-          </Animated.View>
         </View>
 
-        {/* Ripples on completion */}
-        {isChecked && (
-          <Animated.View
-            style={[
-              styles.rippleCircle,
-              {
-                transform: [{ scale: rippleScale }],
-                opacity: rippleOpacity,
-              },
-            ]}
-          />
-        )}
-      </View>
-
-      {/* Footer Branding */}
-      <View style={styles.footerBranding}>
-        <Text style={styles.pijinLogo}>p i j i n</Text>
-        <TouchableOpacity 
-          onPress={() => Alert.alert('Get help', 'Support channels and FAQs are coming soon!')} 
-          activeOpacity={0.7}
-        >
-          <Text style={styles.getHelpLink}>Get help</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Footer Branding */}
+        <View style={styles.footerBranding}>
+          <Text style={styles.pijinLogo}>p i j i n</Text>
+          <TouchableOpacity 
+            onPress={() => Alert.alert('Get help', 'Support channels and FAQs are coming soon!')} 
+            activeOpacity={0.7}
+          >
+            <Text style={styles.getHelpLink}>Get help</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
 
       {/* Loading Overlay */}
       {isLoading && (
@@ -514,6 +550,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#EFF1F5',
+  },
+  scrollContent: {
+    paddingBottom: 24,
   },
   headerRow: {
     flexDirection: 'row',

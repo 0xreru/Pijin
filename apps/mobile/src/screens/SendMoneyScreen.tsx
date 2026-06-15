@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { useVaultBalance } from '../hooks/useVaultBalance';
+import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'abotpera.cached_balance';
@@ -98,6 +99,8 @@ export function SendMoneyScreen({ route, navigation }: any) {
     }
   }, [route?.params?.recipientShortId, route?.params?.qrData]);
 
+  const isPrefilledFromQR = !!(route?.params?.isScanned || route?.params?.recipientShortId || route?.params?.qrData);
+
   // Fetch live balance (only if online)
   const { balancePhp } = useVaultBalance(activeAccount?.shortId, activeAccount?.stellarPublicKey);
   const currentBalance = (isOnline && balancePhp !== null) ? balancePhp : walletBalance;
@@ -157,6 +160,8 @@ export function SendMoneyScreen({ route, navigation }: any) {
       <View style={[styles.container, { paddingTop: Math.max(insets.top, 20) }]}>
         <StatusBar barStyle="dark-content" />
         
+        <ConnectionWatcher navigation={navigation} currentMode={isOnline ? 'online' : 'offline'} />
+        
         {/* Header */}
         <View style={styles.headerRow}>
           <TouchableOpacity 
@@ -175,29 +180,45 @@ export function SendMoneyScreen({ route, navigation }: any) {
         >
           {/* Short ID Input */}
           <View style={styles.fieldWrapper}>
-            <View style={styles.inputContainer}>
+            <View style={[
+              styles.inputContainer,
+              isPrefilledFromQR && styles.disabledInputContainer
+            ]}>
               <View style={styles.badgeContainer}>
                 <Text style={styles.badgeText}>Short ID</Text>
               </View>
               <View style={styles.inputRow}>
                 <TextInput
-                  style={styles.textInput}
+                  style={[
+                    styles.textInput,
+                    isPrefilledFromQR && styles.disabledTextInput
+                  ]}
                   placeholder="ex. M-1B44"
                   placeholderTextColor="#8C98A6"
                   value={recipientShortId}
                   onChangeText={(text) => {
-                    setRecipientShortId(text);
-                    if (recipientShortIdError) setRecipientShortIdError(null);
+                    if (!isPrefilledFromQR) {
+                      setRecipientShortId(text);
+                      if (recipientShortIdError) setRecipientShortIdError(null);
+                    }
                   }}
                   autoCapitalize="characters"
+                  editable={!isPrefilledFromQR}
+                  selectTextOnFocus={!isPrefilledFromQR}
                 />
-                <TouchableOpacity 
-                  onPress={() => setContactsModalVisible(true)} 
-                  style={styles.iconButton}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="book-outline" size={22} color="#04295A" />
-                </TouchableOpacity>
+                {isPrefilledFromQR ? (
+                  <View style={styles.iconContainer}>
+                    <Ionicons name="lock-closed-outline" size={20} color="#8C98A6" />
+                  </View>
+                ) : (
+                  <TouchableOpacity 
+                    onPress={() => setContactsModalVisible(true)} 
+                    style={styles.iconButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="book-outline" size={22} color="#04295A" />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
             {recipientShortIdError && (
@@ -388,6 +409,13 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 2,
   },
+  disabledInputContainer: {
+    backgroundColor: '#EFF1F5',
+    shadowOpacity: 0,
+    elevation: 0,
+    borderWidth: 1,
+    borderColor: '#E6E9EE',
+  },
   badgeContainer: {
     position: 'absolute',
     top: -10,
@@ -415,6 +443,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#04295A',
     paddingVertical: 8,
+  },
+  disabledTextInput: {
+    color: '#707984',
   },
   iconButton: {
     padding: 6,

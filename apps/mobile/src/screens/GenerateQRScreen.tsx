@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import QRCode from 'react-native-qrcode-svg';
+import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 
@@ -79,6 +80,8 @@ export function GenerateQRScreen({ route, navigation }: any) {
   return (
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
       <StatusBar barStyle="dark-content" />
+      
+      <ConnectionWatcher navigation={navigation} currentMode={mode === 'receiver' ? 'online' : 'offline'} />
       
       {/* Header */}
       <View style={styles.headerRow}>
@@ -178,13 +181,13 @@ export function GenerateQRScreen({ route, navigation }: any) {
         </Text>
 
         {/* Mascot Image */}
-        <View style={styles.mascotContainer}>
+        {/* <View style={styles.mascotContainer}>
           <Image
             source={require('../../assets/qr generation/pijin-qr.png')}
             style={styles.mascotImage}
             resizeMode="contain"
           />
-        </View>
+        </View> */}
 
         {/* Pijin Branding */}
         <View style={styles.footerBranding}>
