@@ -16,6 +16,13 @@ soroban-sdk = { version = "22.0.0", features = ["testutils"] }
 ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
 rand = "0.8.5"
 
+# Windows linker (ld) caps DLL export ordinals at 65535. The soroban testutils
+# pull in enough symbols to exceed that limit in the default debug build.
+# opt-level = 1 provides enough inlining/dead-code elimination to stay under
+# the cap without meaningfully slowing down the test cycle.
+[profile.test]
+opt-level = 1
+
 [profile.release]
 opt-level = "z"
 overflow-checks = true
