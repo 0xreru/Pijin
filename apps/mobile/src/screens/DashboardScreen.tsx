@@ -280,11 +280,10 @@ export function DashboardScreen({ navigation }: any) {
                 });
               }}
               onSendPress={() => {
-                if (isOnline) {
-                  navigation.navigate('SendMoney');
-                } else {
-                  navigation.navigate('TransportChoice');
-                }
+                navigation.navigate('SendMoney');
+              }}
+              onReceivePress={() => {
+                navigation.navigate('GenerateQR', { mode: 'receiver' });
               }}
             />
           </View>

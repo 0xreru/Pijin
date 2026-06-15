@@ -35,6 +35,7 @@ interface HomeTabProps {
   onAddMockQueueItem: () => void;
   onLoadOfflineFundsPress: () => void;
   onSendPress: () => void;
+  onReceivePress: () => void;
 }
 
 export function HomeTab({
@@ -54,6 +55,7 @@ export function HomeTab({
   onAddMockQueueItem,
   onLoadOfflineFundsPress,
   onSendPress,
+  onReceivePress,
 }: HomeTabProps) {
   return (
     <ScrollView
@@ -125,7 +127,7 @@ export function HomeTab({
               <View style={styles.actionItem}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={() => Alert.alert('Receive', 'Show wallet public QR code.')}
+                  onPress={onReceivePress}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="arrow-down" size={20} color="#FFFFFF" style={styles.rotatedIcon} />
@@ -217,7 +219,7 @@ export function HomeTab({
               <View style={styles.actionItemOffline}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={() => Alert.alert('Receive', 'Show offline payment receive voucher.')}
+                  onPress={onReceivePress}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="arrow-down" size={20} color="#FFFFFF" style={styles.rotatedIcon} />
