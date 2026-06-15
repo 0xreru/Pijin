@@ -8,9 +8,6 @@ use soroban_sdk::{
 pub const DAY_IN_LEDGERS: u32 = 17_280;
 pub const THIRTY_DAYS_IN_LEDGERS: u32 = 518_400;
 
-const DAY_IN_SECONDS: u64 = 86_400;
-const BOUNTY_FEE: i128 = 10_000_000;
-
 /// Stable, client-readable contract errors.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -22,7 +19,6 @@ pub enum ContractError {
     ExpiredVoucher = 4,
     NonceReplayed = 5,
     InsufficientBalance = 6,
-    TimelockActive = 7,
     MathOverflow = 8,
     NotWhitelistedGateway = 9,
 }
@@ -32,24 +28,23 @@ pub enum ContractError {
 /// Instance storage:
 /// - `Admin`: privileged account allowed to upgrade the contract.
 /// - `Treasury`: protocol toll recipient.
-/// - `Token`: official accepted asset contract.
 ///
 /// Persistent storage:
-/// - `Vault(Address, Address)`: user locked balance by token.
+/// - `Vault(Address, Address)`: per-user, per-token locked balance.
+///   The tuple is `(UserAddress, TokenAddress)`, enabling the Omni-Vault
+///   to hold and route any number of Stellar tokens simultaneously.
 /// - `Nonce(BytesN<32>)`: replay protection for settled vouchers.
-/// - `Timelock(Address)`: user withdrawal delay.
 /// - `RegisteredKey(Address)`: user's offline Ed25519 key.
+/// - `Gateway(Address)`: whitelisted relayer entry.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
     Treasury,
-    Token,
     Vault(Address, Address),
     Nonce(BytesN<32>),
-    Timelock(Address),
     RegisteredKey(Address),
-    Gateway(Address)
+    Gateway(Address),
 }
 
 #[contracttype]
@@ -59,7 +54,6 @@ pub struct DepositEvent {
     pub token: Address,
     pub amount: i128,
     pub balance: i128,
-    pub unlock_time: u64,
 }
 
 #[contracttype]
@@ -69,10 +63,8 @@ pub struct SpendEvent {
     pub gateway: Address,
     pub token: Address,
     pub receiver: Address,
-    pub bounty_relayer: Option<Address>,
     pub amount: i128,
     pub protocol_toll: i128,
-    pub bounty_fee: i128,
     pub nonce: BytesN<32>,
     pub balance: i128,
 }
@@ -93,16 +85,19 @@ pub struct PijinContract;
 impl PijinContract {
     /// Protocol 22 constructor.
     ///
-    /// Constructor execution is expected only once, but the guard keeps tests and
-    /// any future compatibility path from silently overwriting privileged state.
-    pub fn __constructor(env: Env, admin: Address, treasury: Address, token: Address) {
+    /// Initialises the Omni-Vault with only the `Admin` and `Treasury`
+    /// addresses. No token is locked at the contract level — supported assets
+    /// are determined dynamically per vault entry (`DataKey::Vault(user, token)`).
+    ///
+    /// Constructor execution is expected only once, but the guard keeps tests
+    /// and any future compatibility path from silently overwriting privileged state.
+    pub fn __constructor(env: Env, admin: Address, treasury: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic_with_error!(&env, ContractError::AlreadyInitialized);
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Treasury, &treasury);
-        env.storage().instance().set(&DataKey::Token, &token);
     }
 
     /// Upgrade the current contract WASM.
@@ -133,26 +128,18 @@ impl PijinContract {
         sender.require_auth();
 
         let vault_key = DataKey::Vault(sender.clone(), token.clone());
-        let timelock_key = DataKey::Timelock(sender.clone());
         let registered_key = DataKey::RegisteredKey(sender.clone());
         let current_balance = get_persistent_i128(&env, &vault_key);
         let new_balance = current_balance
             .checked_add(amount)
-            .ok_or(ContractError::MathOverflow)?;
-        let unlock_time = env
-            .ledger()
-            .timestamp()
-            .checked_add(DAY_IN_SECONDS)
             .ok_or(ContractError::MathOverflow)?;
 
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&sender, &env.current_contract_address(), &amount);
 
         env.storage().persistent().set(&vault_key, &new_balance);
-        env.storage().persistent().set(&timelock_key, &unlock_time);
         env.storage().persistent().set(&registered_key, &pubkey);
         extend_persistent_ttl(&env, &vault_key);
-        extend_persistent_ttl(&env, &timelock_key);
         extend_persistent_ttl(&env, &registered_key);
 
         let event = DepositEvent {
@@ -160,7 +147,6 @@ impl PijinContract {
             token: token.clone(),
             amount,
             balance: new_balance,
-            unlock_time,
         };
         env.events()
             .publish((symbol_short!("deposit"), sender, token), event);
@@ -175,7 +161,6 @@ impl PijinContract {
         sender: Address,
         token: Address,
         receiver: Address,
-        bounty_relayer: Option<Address>,
         amount: i128,
         protocol_toll: i128,
         nonce: BytesN<32>,
@@ -197,7 +182,6 @@ impl PijinContract {
         extend_persistent_ttl(&env, &gateway_key);
         // ─────────────────────────────────────────────────────────────────────
 
-
         let registered_key = DataKey::RegisteredKey(sender.clone());
         let sender_pubkey: BytesN<32> = env
             .storage()
@@ -206,13 +190,13 @@ impl PijinContract {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::Unauthorized));
         extend_persistent_ttl(&env, &registered_key);
 
+        // Signature payload: (amount, protocol_toll, nonce, receiver, gateway, token)
         let payload = (
             amount,
             protocol_toll,
             nonce.clone(),
             receiver.clone(),
             gateway.clone(),
-            bounty_relayer.clone(),
             token.clone(),
         )
             .to_xdr(&env);
@@ -225,12 +209,10 @@ impl PijinContract {
             return Err(ContractError::NonceReplayed);
         }
 
-        let bounty_fee = if bounty_relayer.is_some() {
-            BOUNTY_FEE
-        } else {
-            0
-        };
-        let total_deduction = checked_sum3(amount, protocol_toll, bounty_fee)?;
+        let total_deduction = amount
+            .checked_add(protocol_toll)
+            .ok_or(ContractError::MathOverflow)?;
+
         let vault_key = DataKey::Vault(sender.clone(), token.clone());
         let current_balance: i128 = env
             .storage()
@@ -263,19 +245,14 @@ impl PijinContract {
         if protocol_toll > 0 {
             token_client.transfer(&contract, &treasury, &protocol_toll);
         }
-        if let Some(relayer) = bounty_relayer.clone() {
-            token_client.transfer(&contract, &relayer, &bounty_fee);
-        }
 
         let event = SpendEvent {
             sender: sender.clone(),
             gateway: gateway.clone(),
             token: token.clone(),
             receiver: receiver.clone(),
-            bounty_relayer,
             amount,
             protocol_toll,
-            bounty_fee,
             nonce,
             balance: new_balance,
         };
@@ -287,18 +264,6 @@ impl PijinContract {
 
     pub fn withdraw(env: Env, sender: Address, token: Address) -> Result<(), ContractError> {
         sender.require_auth();
-
-        let timelock_key = DataKey::Timelock(sender.clone());
-        let unlock_time: u64 = env
-            .storage()
-            .persistent()
-            .get(&timelock_key)
-            .ok_or(ContractError::TimelockActive)?;
-        extend_persistent_ttl(&env, &timelock_key);
-
-        if env.ledger().timestamp() <= unlock_time {
-            return Err(ContractError::TimelockActive);
-        }
 
         let vault_key = DataKey::Vault(sender.clone(), token.clone());
         let balance: i128 = env
@@ -316,7 +281,6 @@ impl PijinContract {
         token_client.transfer(&env.current_contract_address(), &sender, &balance);
 
         env.storage().persistent().remove(&vault_key);
-        env.storage().persistent().remove(&timelock_key);
 
         let event = WithdrawEvent {
             sender: sender.clone(),
@@ -399,12 +363,6 @@ fn extend_persistent_ttl(env: &Env, key: &DataKey) {
     env.storage()
         .persistent()
         .extend_ttl(key, DAY_IN_LEDGERS, THIRTY_DAYS_IN_LEDGERS);
-}
-
-fn checked_sum3(a: i128, b: i128, c: i128) -> Result<i128, ContractError> {
-    a.checked_add(b)
-        .and_then(|v| v.checked_add(c))
-        .ok_or(ContractError::MathOverflow)
 }
 
 #[cfg(test)]
