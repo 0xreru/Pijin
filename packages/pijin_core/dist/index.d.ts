@@ -1,13 +1,13 @@
 import { Buffer } from "buffer";
 import { AssembledTransaction, Client as ContractClient, ClientOptions as ContractClientOptions, MethodOptions, Result } from "@stellar/stellar-sdk/contract";
-import type { u64, i128, Option } from "@stellar/stellar-sdk/contract";
+import type { i128 } from "@stellar/stellar-sdk/contract";
 export * from "@stellar/stellar-sdk";
 export * as contract from "@stellar/stellar-sdk/contract";
 export * as rpc from "@stellar/stellar-sdk/rpc";
 export declare const networks: {
     readonly testnet: {
         readonly networkPassphrase: "Test SDF Network ; September 2015";
-        readonly contractId: "CCIYHL76UBBEOO3QNH775POWFQKYQ5U6IZEMZFHBSNYAU73EE64IXQZF";
+        readonly contractId: "CDDKYJFFAKTXDZ7ZDGHFNG6M4FB2WLYD6DRRPJ5W5LKNQ64LVMYNI6K4";
     };
 };
 /**
@@ -16,13 +16,14 @@ export declare const networks: {
  * Instance storage:
  * - `Admin`: privileged account allowed to upgrade the contract.
  * - `Treasury`: protocol toll recipient.
- * - `Token`: official accepted asset contract.
  *
  * Persistent storage:
- * - `Vault(Address, Address)`: user locked balance by token.
+ * - `Vault(Address, Address)`: per-user, per-token locked balance.
+ * The tuple is `(UserAddress, TokenAddress)`, enabling the Omni-Vault
+ * to hold and route any number of Stellar tokens simultaneously.
  * - `Nonce(BytesN<32>)`: replay protection for settled vouchers.
- * - `Timelock(Address)`: user withdrawal delay.
  * - `RegisteredKey(Address)`: user's offline Ed25519 key.
+ * - `Gateway(Address)`: whitelisted relayer entry.
  */
 export type DataKey = {
     tag: "Admin";
@@ -31,17 +32,11 @@ export type DataKey = {
     tag: "Treasury";
     values: void;
 } | {
-    tag: "Token";
-    values: void;
-} | {
     tag: "Vault";
     values: readonly [string, string];
 } | {
     tag: "Nonce";
     values: readonly [Buffer];
-} | {
-    tag: "Timelock";
-    values: readonly [string];
 } | {
     tag: "RegisteredKey";
     values: readonly [string];
@@ -52,8 +47,6 @@ export type DataKey = {
 export interface SpendEvent {
     amount: i128;
     balance: i128;
-    bounty_fee: i128;
-    bounty_relayer: Option<string>;
     gateway: string;
     nonce: Buffer;
     protocol_toll: i128;
@@ -66,7 +59,6 @@ export interface DepositEvent {
     balance: i128;
     sender: string;
     token: string;
-    unlock_time: u64;
 }
 /**
  * Stable, client-readable contract errors.
@@ -88,9 +80,6 @@ export declare const ContractError: {
         message: string;
     };
     6: {
-        message: string;
-    };
-    7: {
         message: string;
     };
     8: {
@@ -139,12 +128,11 @@ export interface Client {
     /**
      * Construct and simulate a spend_offline transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
      */
-    spend_offline: ({ gateway, sender, token, receiver, bounty_relayer, amount, protocol_toll, nonce, signature }: {
+    spend_offline: ({ gateway, sender, token, receiver, amount, protocol_toll, nonce, signature }: {
         gateway: string;
         sender: string;
         token: string;
         receiver: string;
-        bounty_relayer: Option<string>;
         amount: i128;
         protocol_toll: i128;
         nonce: Buffer;
@@ -176,10 +164,9 @@ export declare class Client extends ContractClient {
     readonly options: ContractClientOptions;
     static deploy<T = Client>(
     /** Constructor/Initialization Args for the contract's `__constructor` method */
-    { admin, treasury, token }: {
+    { admin, treasury }: {
         admin: string;
         treasury: string;
-        token: string;
     }, 
     /** Options for initializing a Client as well as for calling a method, with extras specific to deploying. */
     options: MethodOptions & Omit<ContractClientOptions, "contractId"> & {
