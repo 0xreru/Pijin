@@ -27,7 +27,7 @@ export function TransactionItem({
       style: 'currency',
       currency: 'PHP',
       minimumFractionDigits: 2,
-    }).format(val);
+    }).format(Math.abs(val));
     return isIncoming ? `+ ${formatted}` : `- ${formatted}`;
   };
 
@@ -55,6 +55,11 @@ export function TransactionItem({
           </Text>
         </View>
       </View>
+      <View style={styles.rightSection}>
+        <Text style={[styles.amountText, { color: isIncoming ? '#10B981' : '#001E42' }]}>
+          {formatAmount(amount)}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -66,6 +71,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderColor: '#E6E9EE',
+    justifyContent: 'space-between',
   },
   leftSection: {
     flexDirection: 'row',
@@ -96,6 +102,15 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 12,
     color: '#707984',
+  },
+  rightSection: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingLeft: 10,
+  },
+  amountText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
 
