@@ -28,6 +28,12 @@ const stellarAliases = {
   '@stellar/stellar-sdk/contract': path.join(stellarFull, 'contract/index.js'),
   '@stellar/stellar-sdk/rpc': path.join(stellarFull, 'rpc/index.js'),
   'eventsource': path.join(__dirname, 'empty-module.js'),
+  // Force Metro to use the compiled CommonJS build of react-native-svg instead of
+  // the TypeScript source. The TS source (src/index.ts) eagerly imports
+  // NativeSvgViewModule.ts which calls TurboModuleRegistry.getEnforcing() at module
+  // load time — crashing Expo Go before any screen renders. The compiled build uses
+  // lazy Object.defineProperty getters that are safe to load without a native binary.
+  'react-native-svg': path.join(__dirname, 'node_modules', 'react-native-svg', 'lib', 'commonjs', 'index.js'),
 };
 
 const defaultResolveRequest = config.resolver.resolveRequest;
