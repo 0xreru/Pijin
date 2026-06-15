@@ -63,7 +63,32 @@ export function ScanQRScreen({ navigation }: any) {
   const handleBarCodeScanned = ({ data }: { data: string }) => {
     if (scanned || !isFocused) return;
     setScanned(true);
-    navigation.navigate('TransportChoice', { qrData: data });
+
+    const parts = data.split(':');
+    if (parts.length === 5) {
+      // Signed offline voucher (customerShortId:merchantShortId:amountPhp:nonceB64:signatureB64)
+      try {
+        const { parseOfflinePaymentPayload } = require('../utils/offlinePaymentPayload');
+        const parsed = parseOfflinePaymentPayload(data);
+        appendToOfflinePaymentsQueue(parsed).then(() => {
+          Alert.alert(
+            'Relay Voucher Scanned',
+            `Successfully scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. It has been added to your queue and will sync to the Stellar network.`,
+            [{ text: 'OK', onPress: () => navigation.navigate('Dashboard') }]
+          );
+        });
+      } catch (err: any) {
+        Alert.alert('Scan Error', err.message || 'Invalid signed voucher scanned.');
+        setScanned(false);
+      }
+    } else {
+      // Receiver Short ID or standard prefilled format
+      if (data.includes(':')) {
+        navigation.navigate('SendMoney', { qrData: data });
+      } else {
+        navigation.navigate('SendMoney', { recipientShortId: data });
+      }
+    }
   };
 
   const handleSimulatorScanTap = async () => {
