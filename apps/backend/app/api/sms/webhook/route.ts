@@ -104,11 +104,11 @@ export async function POST(req: Request) {
     // Expected SMS format: sender:receiver:amount:nonce:signature
     const parts = message.split(':');
 
-    if (parts.length < 5) {
+    if (parts.length < 6) {
         return NextResponse.json({ error: 'Malformed payload' }, { status: 400 });
     }
 
-    const [sender, , , nonce] = parts;
+    const [tokenId, sender, receiver, amount, nonce, signature] = parts;
 
     if (!sender || !nonce) {
         return NextResponse.json({ error: 'Malformed payload' }, { status: 400 });
