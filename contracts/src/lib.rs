@@ -262,7 +262,17 @@ impl PijinContract {
         Ok(())
     }
 
-    pub fn withdraw(env: Env, sender: Address, token: Address) -> Result<(), ContractError> {
+    pub fn withdraw(
+        env: Env,
+        sender: Address,
+        token: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        // Cheapest guard first — no storage reads or auth required.
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
         sender.require_auth();
 
         let vault_key = DataKey::Vault(sender.clone(), token.clone());
@@ -271,21 +281,31 @@ impl PijinContract {
             .persistent()
             .get(&vault_key)
             .ok_or(ContractError::InsufficientBalance)?;
-        extend_persistent_ttl(&env, &vault_key);
 
-        if balance <= 0 {
+        if balance < amount {
             return Err(ContractError::InsufficientBalance);
         }
 
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &sender, &balance);
+        token_client.transfer(&env.current_contract_address(), &sender, &amount);
 
-        env.storage().persistent().remove(&vault_key);
+        if balance == amount {
+            // Full withdrawal — remove the entry to refund storage rent.
+            env.storage().persistent().remove(&vault_key);
+        } else {
+            // Partial withdrawal — persist the residual balance and keep the
+            // entry alive so the Sender can withdraw the rest later.
+            let new_balance = balance
+                .checked_sub(amount)
+                .ok_or(ContractError::MathOverflow)?;
+            env.storage().persistent().set(&vault_key, &new_balance);
+            extend_persistent_ttl(&env, &vault_key);
+        }
 
         let event = WithdrawEvent {
             sender: sender.clone(),
             token: token.clone(),
-            amount: balance,
+            amount,
         };
         env.events()
             .publish((symbol_short!("withdraw"), sender, token), event);
