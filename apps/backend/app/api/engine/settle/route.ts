@@ -7,7 +7,7 @@ import { pijinContract } from '@/lib/pijin-contract';
 // Runtime
 // ---------------------------------------------------------------------------
 export const runtime = 'nodejs';
-
+export const dynamic = 'force-dynamic';
 // ---------------------------------------------------------------------------
 // POST /api/engine/settle
 //

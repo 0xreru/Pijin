@@ -8,7 +8,7 @@ import { Client } from '@upstash/qstash';
 // Runtime
 // ─────────────────────────────────────────────────────────────────────────────
 export const runtime = 'nodejs';
-
+export const dynamic = 'force-dynamic';
 // ─────────────────────────────────────────────────────────────────────────────
 // Tier 2 – Rate Limiter (Sliding Window: 20 req / 60 s per IP)
 // Initialized once at module level to reuse the Redis connection.
@@ -24,7 +24,7 @@ const ratelimit = new Ratelimit({
 // QStash Publisher
 // ─────────────────────────────────────────────────────────────────────────────
 const qstash = new Client({
-    token: process.env.QSTASH_TOKEN!,
+    token: process.env.QSTASH_TOKEN || 'dummy_token_to_bypass_build',
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
