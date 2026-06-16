@@ -184,7 +184,6 @@ async function handler(req: Request): Promise<Response> {
                 sender:         senderPublicKey,
                 token:          tokenContractId,          // Soroban SAC / contract address
                 receiver:       receiverPublicKey,
-                bounty_relayer: null,
                 amount:         amountStroops,            // i128 - SDK accepts bigint natively
                 protocol_toll:  0n,                       // no toll for now
                 nonce:          nonce32,
