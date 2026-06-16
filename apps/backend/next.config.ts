@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["omnifi-sdk"],
+  transpilePackages: ['pijin_core'],
 };
 
 export default nextConfig;
