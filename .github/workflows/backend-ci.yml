@@ -36,9 +36,6 @@ jobs:
 
       - name: Install Monorepo Dependencies
         run: |
-          cd packages/pijin_core
-          npm ci
-          cd ../../apps/backend
           npm ci --ignore-scripts
 
       - name: Build Pijin SDK
