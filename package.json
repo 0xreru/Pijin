@@ -8,7 +8,7 @@
     "lint-staged": "^16.4.0"
   },
   "scripts": {
-    "prepare": "husky",
+    "prepare": "node -e \"if (process.env.CI !== 'true') { require('child_process').execSync('husky', {stdio: 'inherit'}) }\"",
     "lint-staged": "lint-staged",
     "build:sdk": "npm install && npm run build --workspace=pijin_core && npm install --workspace=backend",
     "typecheck": "npm run typecheck --workspace=backend --workspace=pijin_core"
