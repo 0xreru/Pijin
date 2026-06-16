@@ -4,24 +4,44 @@ import { prisma } from "@/lib/prisma";
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const merchantShortId = searchParams.get("merchantShortId")?.trim();
+    
+    const shortId = searchParams.get("shortId")?.trim();
 
-    if (!merchantShortId) {
+    if (!shortId) {
       return NextResponse.json(
-        { error: "merchantShortId query parameter is required" },
+        { error: "shortId query parameter is required" },
         { status: 400 }
       );
     }
 
     const settlements = await prisma.settlement.findMany({
-      where: { merchantShortId, status: "SETTLED" },
+      where: { 
+        OR: [
+          { senderShortId: shortId },
+          { receiverShortId: shortId }
+        ],
+        status: "SETTLED" 
+      },
+      include: {
+        
+        // frontend knows exactly what symbol to display (e.g., "PHPC")
+        token: {
+            select: { symbol: true, decimals: true }
+        }
+      },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
 
+    // We must serialize BigInt (amountStroops) to strings so JSON.stringify doesn't crash
+    const serializedSettlements = settlements.map(settlement => ({
+        ...settlement,
+        amountStroops: settlement.amountStroops.toString(),
+    }));
+
     return NextResponse.json({
       success: true,
-      data: settlements,
+      data: serializedSettlements,
     });
   } catch (error) {
     console.error("[Transactions API]", error);
