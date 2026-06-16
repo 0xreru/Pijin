@@ -17,7 +17,6 @@ export const dynamic = 'force-dynamic';
 //
 // Payload format (v2 - Omni-Vault multi-token):
 //   tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
-//   Example: 1:aB3x9Q:K7mP2z:1kxPxc:XYZ123:Base64Sig
 //
 // Happy-path status machine:
 //   PENDING -> SETTLED   (Soroban tx confirmed)
