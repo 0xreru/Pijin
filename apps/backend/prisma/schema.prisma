@@ -4,58 +4,9 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url = env("DATABASE_URL")
 }
 
-<<<<<<< HEAD
-// ---------------------------------------------------------------------------
-// Enums
-// ---------------------------------------------------------------------------
-
-enum Role {
-  USER
-  ADMIN
-}
-
-enum SettlementStatus {
-  PENDING
-  SETTLED
-  FAILED
-}
-
-// ---------------------------------------------------------------------------
-// Models
-// ---------------------------------------------------------------------------
-
-model Account {
-  id               Int      @id @default(autoincrement())
-  shortId          String   @unique
-  role             String   @default("USER")
-  stellarPublicKey String   @unique
-  offlineDeviceKey String?
-  pin              String?
-  phoneNumber      String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime
-}
-
-model Settlement {
-  id              Int      @id @default(autoincrement())
-  senderShortId   String
-  receiverShortId String
-  relayerAddress  String?
-  amountToken     String
-  txHash          String?
-  status          String
-  createdAt       DateTime @default(now())
-}
-
-model GatewayNode {
-  id               Int      @id @default(autoincrement())
-  name             String
-  stellarPublicKey String   @unique
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-=======
 model account {
   id                 Int      @id @default(autoincrement())
   short_id           String   @unique
@@ -85,5 +36,4 @@ model settlement {
   tx_hash           String?
   status            String
   created_at        DateTime @default(now())
->>>>>>> 0b0e4d6604b7518648fcc17918f9254fe8de6a28
 }
