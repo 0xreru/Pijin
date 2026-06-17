@@ -4,8 +4,7 @@ import { rpc } from "@stellar/stellar-sdk";
 const sorobanRpcUrl =
   process.env.SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
 
-const contractId =
-  process.env.CONTRACT_ID ?? PijinClient.networks.testnet.contractId;
+const contractId = process.env.CONTRACT_ID || 'CBSGTQCZKOLRCIPG4LQVZOAC2ITBM5UNH7J4XRXCFGGPUI45AQYILVIB'; 
 
 const networkPassphrase =
   process.env.STELLAR_NETWORK_PASSPHRASE ??

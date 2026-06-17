@@ -7,7 +7,7 @@ export * as rpc from "@stellar/stellar-sdk/rpc";
 export declare const networks: {
     readonly testnet: {
         readonly networkPassphrase: "Test SDF Network ; September 2015";
-        readonly contractId: "CDDKYJFFAKTXDZ7ZDGHFNG6M4FB2WLYD6DRRPJ5W5LKNQ64LVMYNI6K4";
+        readonly contractId: "CBSGTQCZKOLRCIPG4LQVZOAC2ITBM5UNH7J4XRXCFGGPUI45AQYILVIB";
     };
 };
 /**
@@ -114,9 +114,10 @@ export interface Client {
     /**
      * Construct and simulate a withdraw transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
      */
-    withdraw: ({ sender, token }: {
+    withdraw: ({ sender, token, amount }: {
         sender: string;
         token: string;
+        amount: i128;
     }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
     /**
      * Construct and simulate a get_vault transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.

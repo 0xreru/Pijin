@@ -34,7 +34,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CDDKYJFFAKTXDZ7ZDGHFNG6M4FB2WLYD6DRRPJ5W5LKNQ64LVMYNI6K4",
+    contractId: "CBSGTQCZKOLRCIPG4LQVZOAC2ITBM5UNH7J4XRXCFGGPUI45AQYILVIB",
   }
 } as const
 
@@ -111,7 +111,7 @@ export interface Client {
   /**
    * Construct and simulate a withdraw transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  withdraw: ({sender, token}: {sender: string, token: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+  withdraw: ({sender, token, amount}: {sender: string, token: string, amount: i128}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a get_vault transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -162,7 +162,7 @@ export class Client extends ContractClient {
     super(
       new ContractSpec([ "AAAAAAAAAAAAAAAHZGVwb3NpdAAAAAAEAAAAAAAAAAZzZW5kZXIAAAAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAAAAAAGcHVia2V5AAAAAAPuAAAAIAAAAAAAAAAGYW1vdW50AAAAAAALAAAAAQAAA+kAAAPtAAAAAAAAB9AAAAANQ29udHJhY3RFcnJvcgAAAA==",
         "AAAAAAAAACJVcGdyYWRlIHRoZSBjdXJyZW50IGNvbnRyYWN0IFdBU00uAAAAAAAHdXBncmFkZQAAAAABAAAAAAAAAA1uZXdfd2FzbV9oYXNoAAAAAAAD7gAAACAAAAABAAAD6QAAA+0AAAAAAAAH0AAAAA1Db250cmFjdEVycm9yAAAA",
-        "AAAAAAAAAAAAAAAId2l0aGRyYXcAAAACAAAAAAAAAAZzZW5kZXIAAAAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAfQAAAADUNvbnRyYWN0RXJyb3IAAAA=",
+        "AAAAAAAAAAAAAAAId2l0aGRyYXcAAAADAAAAAAAAAAZzZW5kZXIAAAAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAAAAAAGYW1vdW50AAAAAAALAAAAAQAAA+kAAAPtAAAAAAAAB9AAAAANQ29udHJhY3RFcnJvcgAAAA==",
         "AAAAAAAAAAAAAAAJZ2V0X3ZhdWx0AAAAAAAAAgAAAAAAAAAEdXNlcgAAABMAAAAAAAAABXRva2VuAAAAAAAAEwAAAAEAAAAL",
         "AAAAAgAAAiRUeXBlZCBzdG9yYWdlIGtleXMgZm9yIGFsbCBjb250cmFjdCBzdGF0ZS4KCkluc3RhbmNlIHN0b3JhZ2U6Ci0gYEFkbWluYDogcHJpdmlsZWdlZCBhY2NvdW50IGFsbG93ZWQgdG8gdXBncmFkZSB0aGUgY29udHJhY3QuCi0gYFRyZWFzdXJ5YDogcHJvdG9jb2wgdG9sbCByZWNpcGllbnQuCgpQZXJzaXN0ZW50IHN0b3JhZ2U6Ci0gYFZhdWx0KEFkZHJlc3MsIEFkZHJlc3MpYDogcGVyLXVzZXIsIHBlci10b2tlbiBsb2NrZWQgYmFsYW5jZS4KVGhlIHR1cGxlIGlzIGAoVXNlckFkZHJlc3MsIFRva2VuQWRkcmVzcylgLCBlbmFibGluZyB0aGUgT21uaS1WYXVsdAp0byBob2xkIGFuZCByb3V0ZSBhbnkgbnVtYmVyIG9mIFN0ZWxsYXIgdG9rZW5zIHNpbXVsdGFuZW91c2x5LgotIGBOb25jZShCeXRlc048MzI+KWA6IHJlcGxheSBwcm90ZWN0aW9uIGZvciBzZXR0bGVkIHZvdWNoZXJzLgotIGBSZWdpc3RlcmVkS2V5KEFkZHJlc3MpYDogdXNlcidzIG9mZmxpbmUgRWQyNTUxOSBrZXkuCi0gYEdhdGV3YXkoQWRkcmVzcylgOiB3aGl0ZWxpc3RlZCByZWxheWVyIGVudHJ5LgAAAAAAAAAHRGF0YUtleQAAAAAGAAAAAAAAAAAAAAAFQWRtaW4AAAAAAAAAAAAAAAAAAAhUcmVhc3VyeQAAAAEAAAAAAAAABVZhdWx0AAAAAAAAAgAAABMAAAATAAAAAQAAAAAAAAAFTm9uY2UAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAA1SZWdpc3RlcmVkS2V5AAAAAAAAAQAAABMAAAABAAAAAAAAAAdHYXRld2F5AAAAAAEAAAAT",
         "AAAAAQAAAAAAAAAAAAAAClNwZW5kRXZlbnQAAAAAAAgAAAAAAAAABmFtb3VudAAAAAAACwAAAAAAAAAHYmFsYW5jZQAAAAALAAAAAAAAAAdnYXRld2F5AAAAABMAAAAAAAAABW5vbmNlAAAAAAAD7gAAACAAAAAAAAAADXByb3RvY29sX3RvbGwAAAAAAAALAAAAAAAAAAhyZWNlaXZlcgAAABMAAAAAAAAABnNlbmRlcgAAAAAAEwAAAAAAAAAFdG9rZW4AAAAAAAAT",

@@ -175,7 +175,8 @@ fn test_deposit_and_withdraw_success() {
     assert_eq!(token_client.balance(&ctx.contract_id), DEPOSIT_AMOUNT);
 
     // Withdraw is now instant — no timelock to advance past.
-    ctx.client().withdraw(&ctx.sender, &ctx.token_a);
+    // Pass the full deposited amount for a complete withdrawal.
+    ctx.client().withdraw(&ctx.sender, &ctx.token_a, &DEPOSIT_AMOUNT);
 
     assert_eq!(token_client.balance(&ctx.sender), INITIAL_BALANCE);
     assert_eq!(token_client.balance(&ctx.contract_id), 0);
@@ -473,5 +474,84 @@ fn test_insufficient_funds_cross_asset() {
         ),
         Err(Ok(ContractError::InsufficientBalance)),
         "spend_offline must fail with InsufficientBalance when the Token B vault is empty"
+    );
+}
+
+// ─── Withdraw tests ───────────────────────────────────────────────────────────
+
+/// Partial withdrawal:
+/// - Deposit 500 stroops of Token A.
+/// - Withdraw 200 stroops.
+/// - Assert the vault balance is exactly 300 stroops.
+#[test]
+fn test_withdraw_partial() {
+    let ctx = setup_test();
+    let deposit: i128 = 500;
+    let withdraw: i128 = 200;
+    let expected_residual: i128 = 300;
+
+    ctx.deposit(deposit);
+
+    // Pre-condition: full deposit is recorded.
+    assert_eq!(ctx.client().get_vault(&ctx.sender, &ctx.token_a), deposit);
+
+    ctx.client().withdraw(&ctx.sender, &ctx.token_a, &withdraw);
+
+    // Vault must hold exactly the residual balance.
+    assert_eq!(
+        ctx.client().get_vault(&ctx.sender, &ctx.token_a),
+        expected_residual,
+        "Partial withdrawal must leave the residual balance in the vault"
+    );
+}
+
+/// Full withdrawal:
+/// - Deposit 500 stroops of Token A.
+/// - Withdraw 500 stroops (the entire balance).
+/// - Assert the vault balance is exactly 0 (storage key removed).
+#[test]
+fn test_withdraw_full() {
+    let ctx = setup_test();
+    let deposit: i128 = 500;
+
+    ctx.deposit(deposit);
+
+    // Pre-condition: full deposit is recorded.
+    assert_eq!(ctx.client().get_vault(&ctx.sender, &ctx.token_a), deposit);
+
+    ctx.client().withdraw(&ctx.sender, &ctx.token_a, &deposit);
+
+    // After a full withdrawal the key is removed; get_vault unwraps to 0.
+    assert_eq!(
+        ctx.client().get_vault(&ctx.sender, &ctx.token_a),
+        0,
+        "Full withdrawal must remove the vault entry (reads back as 0)"
+    );
+}
+
+/// Over-balance withdrawal:
+/// - Deposit 500 stroops of Token A.
+/// - Attempt to withdraw 600 stroops.
+/// - Must fail strictly with `ContractError::InsufficientBalance`.
+#[test]
+fn test_withdraw_insufficient_balance() {
+    let ctx = setup_test();
+    let deposit: i128 = 500;
+    let overdraw: i128 = 600;
+
+    ctx.deposit(deposit);
+
+    assert_eq!(
+        ctx.client()
+            .try_withdraw(&ctx.sender, &ctx.token_a, &overdraw),
+        Err(Ok(ContractError::InsufficientBalance)),
+        "Withdrawing more than the vault balance must return InsufficientBalance"
+    );
+
+    // Vault must be untouched after the failed attempt.
+    assert_eq!(
+        ctx.client().get_vault(&ctx.sender, &ctx.token_a),
+        deposit,
+        "Vault balance must be unchanged after a failed over-draw"
     );
 }

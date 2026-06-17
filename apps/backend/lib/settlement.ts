@@ -14,7 +14,7 @@ export type SettlementInput = {
 };
 
 export type SettlementResult =
-  | { ok: true; txHash?: string; amountXlm: string; merchantShortId: string }
+  | { ok: true; txHash?: string; amountStroops: string; receiverShortId: string }
   | { ok: false; status: number; error: string };
 
 function normalizePhone(value?: string | null): string | null {
@@ -50,28 +50,42 @@ export async function processOfflineSettlement(
   input: SettlementInput
 ): Promise<SettlementResult> {
   const { smsContent } = input;
-  const [custId, merchId, amountStr, nonceB64, sigB64] = smsContent.split(":");
+  // Payload: tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
+  const [tokenIdStr, senderShortId, receiverShortId, amountBase62, nonceB64, sigB64] =
+    smsContent.split(":");
 
-  if (!custId || !merchId || !amountStr || !nonceB64 || !sigB64) {
+  if (!tokenIdStr || !senderShortId || !receiverShortId || !amountBase62 || !nonceB64 || !sigB64) {
     return { ok: false, status: 400, error: "Malformed Payload" };
   }
 
-  const customerAccount = await prisma.account.findUnique({
-    where: { shortId: custId },
-  });
-  const merchantAccount = await prisma.account.findUnique({
-    where: { shortId: merchId },
-  });
+  const tokenId = parseInt(tokenIdStr, 10);
+  if (isNaN(tokenId) || tokenId <= 0) {
+    return { ok: false, status: 400, error: "Invalid tokenId" };
+  }
 
-  if (!customerAccount || !merchantAccount) {
+  const [senderAccount, receiverAccount, token] = await Promise.all([
+    prisma.account.findUnique({ where: { shortId: senderShortId } }),
+    prisma.account.findUnique({ where: { shortId: receiverShortId } }),
+    prisma.token.findUnique({ where: { id: tokenId } }),
+  ]);
+
+  if (!senderAccount || !receiverAccount) {
     return { ok: false, status: 404, error: "Account Not Found" };
   }
 
+  if (!token) {
+    return { ok: false, status: 404, error: "Token Not Found" };
+  }
+
+  if (!token.isActive) {
+    return { ok: false, status: 400, error: "Token is inactive" };
+  }
+
   const fullNonce32 = expandNonce(nonceB64);
-  const expectedSignedData = `${merchId}:${amountStr}:${fullNonce32.toString("hex")}`;
+  const expectedSignedData = `${receiverShortId}:${amountBase62}:${fullNonce32.toString("hex")}`;
 
   const verificationKey =
-    customerAccount.offlineDeviceKey ?? customerAccount.stellarPublicKey;
+    senderAccount.offlineDeviceKey ?? senderAccount.stellarPublicKey;
   const isValid = verifySignatureLocally(
     verificationKey,
     expectedSignedData,
@@ -86,53 +100,56 @@ export async function processOfflineSettlement(
     return { ok: false, status: 500, error: "Relayer not configured" };
   }
 
-  if (!contractConfig.tokenId) {
-    return { ok: false, status: 500, error: "TOKEN_ID not configured" };
-  }
+  // Decode Base62 amount -> stroops BigInt
+  const amountStroops = decodeBase62(amountBase62);
 
-  const amountStroops = BigInt(Math.round(parseFloat(amountStr) * 10_000_000));
+  const nonce32 = Buffer.alloc(32);
+  fullNonce32.copy(nonce32);
+
+  const sigBuffer = Buffer.from(
+    restoreBase64Padding(sigB64),
+    "base64"
+  );
 
   const tx = await pijinContract.spend_offline(
     {
-      gateway: process.env.RELAYER_PUBLIC_KEY,
-      customer: customerAccount.stellarPublicKey,
-      merchant: merchantAccount.stellarPublicKey,
-      token: contractConfig.tokenId,
-      amount: amountStroops,
-      nonce: fullNonce32,
-      expiry_ledger: await getExpiryLedger(),
+      gateway:       process.env.RELAYER_PUBLIC_KEY,
+      sender:        senderAccount.stellarPublicKey,
+      token:         token.contractId,
+      receiver:      receiverAccount.stellarPublicKey,
+      amount:        amountStroops,
+      protocol_toll: 0n,
+      nonce:         nonce32,
+      signature:     sigBuffer,
     },
     {
       publicKey: process.env.RELAYER_PUBLIC_KEY,
     }
   );
 
-  const { result, sendTransactionResponse } = await tx.signAndSend({
+  const { sendTransactionResponse } = await tx.signAndSend({
     signTransaction: signWithRelayer,
   });
 
-  try {
-    await result;
-  } catch {
-    return {
-      ok: false,
-      status: 400,
-      error: "Transaction reverted on-chain. Check Nonce or Vault Balance.",
-    };
-  }
+  const txHash = sendTransactionResponse?.hash;
 
   await prisma.settlement.create({
     data: {
-      customerShortId: custId,
-      merchantShortId: merchId,
-      amountXlm: amountStr,
-      txHash: sendTransactionResponse?.hash ?? null,
-      status: "SETTLED",
+      qstashMessageId: `lib-${Date.now()}`,
+      nonce:           nonceB64,
+      senderShortId,
+      receiverShortId,
+      tokenId,
+      amountStroops,
+      relayerAddress:  process.env.RELAYER_PUBLIC_KEY ?? null,
+      txHash:          txHash ?? null,
+      status:          "SETTLED",
     },
   });
 
-  const receiptMsg = `SUCCESS: XLM${amountStr} Paid. PIN:${merchantAccount.merchantPin ?? "0000"}`;
-  const receiptPhone = normalizePhone(merchantAccount.merchantPhone);
+  // Send SMS receipt to receiver (merchant) using pin/phoneNumber fields
+  const receiptMsg = `SUCCESS: Received ${amountStroops} stroops. PIN:${receiverAccount.pin ?? "0000"}`;
+  const receiptPhone = normalizePhone(receiverAccount.phoneNumber);
   if (receiptPhone) {
     void sendSmsReceipt(receiptPhone, receiptMsg).then((result) => {
       if (!result.success) {
@@ -143,8 +160,38 @@ export async function processOfflineSettlement(
 
   return {
     ok: true,
-    txHash: sendTransactionResponse?.hash,
-    amountXlm: amountStr,
-    merchantShortId: merchId,
+    txHash,
+    amountStroops: amountStroops.toString(),
+    receiverShortId,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Decodes a Base62-encoded string into a BigInt.
+ * Alphabet: 0-9A-Za-z (standard Base62, 62 characters).
+ */
+function decodeBase62(str: string): bigint {
+  const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const BASE = BigInt(62);
+  let result = 0n;
+  for (const char of str) {
+    const idx = ALPHABET.indexOf(char);
+    if (idx === -1) {
+      throw new Error(`Invalid Base62 character: '${char}'`);
+    }
+    result = result * BASE + BigInt(idx);
+  }
+  return result;
+}
+
+/**
+ * Restores '=' padding stripped on the mobile side to save SMS characters.
+ */
+function restoreBase64Padding(base64Str: string): string {
+  const paddingNeeded = (4 - (base64Str.length % 4)) % 4;
+  return base64Str + "=".repeat(paddingNeeded);
 }

@@ -7,7 +7,7 @@ import { pijinContract } from '@/lib/pijin-contract';
 // Runtime
 // ---------------------------------------------------------------------------
 export const runtime = 'nodejs';
-
+export const dynamic = 'force-dynamic';
 // ---------------------------------------------------------------------------
 // POST /api/engine/settle
 //
@@ -17,7 +17,6 @@ export const runtime = 'nodejs';
 //
 // Payload format (v2 - Omni-Vault multi-token):
 //   tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
-//   Example: 1:aB3x9Q:K7mP2z:1kxPxc:XYZ123:Base64Sig
 //
 // Happy-path status machine:
 //   PENDING -> SETTLED   (Soroban tx confirmed)
@@ -184,7 +183,6 @@ async function handler(req: Request): Promise<Response> {
                 sender:         senderPublicKey,
                 token:          tokenContractId,          // Soroban SAC / contract address
                 receiver:       receiverPublicKey,
-                bounty_relayer: null,
                 amount:         amountStroops,            // i128 - SDK accepts bigint natively
                 protocol_toll:  0n,                       // no toll for now
                 nonce:          nonce32,
