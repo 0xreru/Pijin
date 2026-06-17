@@ -6,6 +6,7 @@ datasource db {
   provider = "postgresql"
 }
 
+<<<<<<< HEAD
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
@@ -54,4 +55,35 @@ model GatewayNode {
   stellarPublicKey String   @unique
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
+=======
+model account {
+  id                 Int      @id @default(autoincrement())
+  short_id           String   @unique
+  role               String   @default("USER")
+  stellar_public_key String   @unique
+  offline_device_key String?
+  pin                String?
+  phone_number       String?
+  created_at         DateTime @default(now())
+  updated_at         DateTime
+}
+
+model gateway_node {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  stellar_public_key String   @unique
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now())
+}
+
+model settlement {
+  id                Int      @id @default(autoincrement())
+  sender_short_id   String
+  receiver_short_id String
+  relayer_address   String?
+  amount_token      String
+  tx_hash           String?
+  status            String
+  created_at        DateTime @default(now())
+>>>>>>> 0b0e4d6604b7518648fcc17918f9254fe8de6a28
 }
