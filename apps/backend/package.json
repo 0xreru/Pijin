@@ -4,18 +4,24 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "ci:verify": "npm run typecheck && npx expo-doctor && npx expo export --platform android --output-dir /tmp/mobile-export"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@stellar/stellar-sdk": "^15.1.0",
+    "@upstash/qstash": "^2.11.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "dotenv": "^17.4.2",
     "next": "16.2.6",
     "pg": "^8.21.0",
+    "pijin_core": "*",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
