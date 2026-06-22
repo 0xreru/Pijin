@@ -274,7 +274,7 @@ async function handler(req: Request): Promise<Response> {
         await prisma.settlement.update({
             where: { id: settlementId },
             data: { status: 'FAILED', failReason: failReason.slice(0, 500) },
-        }).catch((dbErr) => {
+        }).catch((dbErr: unknown) => {
             console.error('[Settle] Failed to update settlement to FAILED:', dbErr);
         });
 
