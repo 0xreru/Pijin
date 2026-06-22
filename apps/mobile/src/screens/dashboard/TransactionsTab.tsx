@@ -16,11 +16,11 @@ import { Transaction } from '../../types/transaction';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface TransactionsTabProps {
-  mockTxs: Transaction[];
+  mockTxs: any[];
   insets: { top: number; bottom: number; left: number; right: number };
 }
 
-export function TransactionsTab({ insets }: TransactionsTabProps) {
+export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
   const navigation = useNavigation<any>();
   const TRANS_SCREEN_WIDTH = SCREEN_WIDTH - 40;
   const [activeFilter, setActiveFilter] = useState<'all' | 'wallet' | 'offline'>('all');
@@ -35,45 +35,6 @@ export function TransactionsTab({ insets }: TransactionsTabProps) {
       friction: 8.5,
     }).start();
   }, [activeFilter]);
-
-  const mockWalletTxs = [
-    {
-      id: '1',
-      dateGroup: 'June 03, 2026',
-      tag: 'WALLET',
-      timeAgo: '1 day ago',
-      title: 'Deposited from G-Xchange Inc. / Gcash',
-      amountPhp: '₱25,000.00',
-      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
-    },
-    {
-      id: '2',
-      dateGroup: 'June 03, 2026',
-      tag: 'WALLET',
-      timeAgo: '1 day ago',
-      title: 'Deposited from G-Xchange Inc. / Gcash',
-      amountPhp: '₱25,000.00',
-      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
-    },
-    {
-      id: '3',
-      dateGroup: 'May 20, 2026',
-      tag: 'WALLET',
-      timeAgo: '14 days ago',
-      title: 'Deposited from G-Xchange Inc. / Gcash',
-      amountPhp: '₱25,000.00',
-      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
-    },
-    {
-      id: '4',
-      dateGroup: 'May 14, 2026',
-      tag: 'WALLET',
-      timeAgo: '22 days ago',
-      title: 'Deposited from G-Xchange Inc. / Gcash',
-      amountPhp: '₱25,000.00',
-      description: 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.',
-    },
-  ];
 
   const handleFilterChange = (filter: 'all' | 'wallet' | 'offline') => {
     setActiveFilter(filter);
@@ -95,9 +56,24 @@ export function TransactionsTab({ insets }: TransactionsTabProps) {
     );
   };
 
-  const renderTransactionList = (items: typeof mockWalletTxs) => {
+  const formatPhp = (val: number, type: string) => {
+    const isIncoming = type === 'incoming' || type === 'settlement';
+    const formatted = new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency: 'PHP',
+      minimumFractionDigits: 2,
+    }).format(Math.abs(val));
+    return isIncoming ? `+ ${formatted}` : `- ${formatted}`;
+  };
+
+  const mappedTxs = (mockTxs || []).map(tx => ({
+    ...tx,
+    amountPhp: formatPhp(tx.amount, tx.type),
+  }));
+
+  const renderTransactionList = (items: typeof mappedTxs) => {
     // Group items by dateGroup
-    const groups: { [key: string]: typeof mockWalletTxs } = {};
+    const groups: { [key: string]: typeof mappedTxs } = {};
     items.forEach(item => {
       if (!groups[item.dateGroup]) {
         groups[item.dateGroup] = [];
@@ -133,7 +109,10 @@ export function TransactionsTab({ insets }: TransactionsTabProps) {
               >
                 {/* Header Row */}
                 <View style={styles.cardHeader}>
-                  <View style={styles.walletTag}>
+                  <View style={[
+                    styles.walletTag,
+                    tx.tag === 'OFFLINE' && { backgroundColor: '#F59E0B' }
+                  ]}>
                     <Text style={styles.walletTagText}>{tx.tag}</Text>
                   </View>
                   <Text style={styles.timeAgoText}>{tx.timeAgo}</Text>
@@ -141,7 +120,10 @@ export function TransactionsTab({ insets }: TransactionsTabProps) {
 
                 {/* Info Column */}
                 <Text style={styles.txTitle}>{tx.title}</Text>
-                <Text style={styles.txAmount}>{tx.amountPhp}</Text>
+                <Text style={[
+                  styles.txAmount,
+                  (tx.type === 'incoming' || tx.type === 'settlement') && { color: '#10B981' }
+                ]}>{tx.amountPhp}</Text>
                 <Text style={styles.txDesc}>{tx.description}</Text>
               </TouchableOpacity>
             ))}
@@ -163,6 +145,17 @@ export function TransactionsTab({ insets }: TransactionsTabProps) {
       </View>
     );
   };
+
+  const renderPanel = (items: typeof mappedTxs) => {
+    if (items.length === 0) {
+      return renderEmptyState();
+    }
+    return renderTransactionList(items);
+  };
+
+  const allTxs = mappedTxs;
+  const walletTxs = mappedTxs.filter(tx => tx.tag === 'WALLET');
+  const offlineTxs = mappedTxs.filter(tx => tx.tag === 'OFFLINE');
 
   return (
     <View style={[styles.tabContentContainer, { paddingTop: Math.max(insets.top, 20), flex: 1 }]}>
@@ -198,17 +191,17 @@ export function TransactionsTab({ insets }: TransactionsTabProps) {
         >
           {/* Panel 0: All */}
           <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
-            {renderTransactionList(mockWalletTxs)}
+            {renderPanel(allTxs)}
           </View>
 
           {/* Panel 1: Wallet */}
           <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
-            {renderTransactionList(mockWalletTxs)}
+            {renderPanel(walletTxs)}
           </View>
 
-          {/* Panel 2: Offline Funds (Empty) */}
+          {/* Panel 2: Offline Funds */}
           <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
-            {renderEmptyState()}
+            {renderPanel(offlineTxs)}
           </View>
         </Animated.View>
       </View>

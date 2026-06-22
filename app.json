@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "d520cbf6-4e13-4bb7-87e4-a48ca8e4c08a"
+      }
+    },
+    "android": {
+      "package": "com.senec4.omnifi"
+    }
+  }
+}
