@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
 import { pijinContract } from '@/lib/pijin-contract';
-
+import { sendSmsNotification } from '@/lib/sms';
+import { Keypair, Address, xdr, nativeToScVal } from '@stellar/stellar-sdk';
 // ---------------------------------------------------------------------------
 // Runtime
 // ---------------------------------------------------------------------------
@@ -31,7 +32,7 @@ async function handler(req: Request): Promise<Response> {
     const qstashMessageId = req.headers.get('upstash-message-id') ?? 'unknown';
 
     // Parse body
-    let body: { smsPayload?: string };
+    let body: { smsPayload?: string; senderPhone?: string };
     try {
         body = await req.json();
     } catch {
@@ -40,6 +41,7 @@ async function handler(req: Request): Promise<Response> {
     }
 
     const smsPayload = body?.smsPayload ?? '';
+    const senderPhone = body?.senderPhone ?? '';
 
     const parts = smsPayload.split(':');
 
@@ -122,7 +124,7 @@ async function handler(req: Request): Promise<Response> {
     }) as [
         { stellarPublicKey: string } | null,
         { stellarPublicKey: string } | null,
-        { contractId: string; isActive: boolean } | null,
+        { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
 
     // If all three are null, DB failed mid-flight -> bubble up for QStash retry.
@@ -177,6 +179,46 @@ async function handler(req: Request): Promise<Response> {
         const nonce32 = Buffer.alloc(32);
         nonceBuffer.copy(nonce32);
 
+        // ─── PRE-FLIGHT LOCAL FIREWALL (Anti Gas-Drain) ──────────────────────────
+        const amountScVal = nativeToScVal(amountStroops, { type: 'i128' });
+        const tollScVal = nativeToScVal(0n, { type: 'i128' });
+        const nonceScVal = xdr.ScVal.scvBytes(nonce32);
+        const receiverScVal = Address.fromString(receiverPublicKey).toScVal();
+        const gatewayScVal = Address.fromString(process.env.RELAYER_PUBLIC_KEY!).toScVal();
+        const tokenScVal = Address.fromString(tokenContractId).toScVal();
+
+        const xdrTuple = xdr.ScVal.scvVec([
+            amountScVal,
+            tollScVal,
+            nonceScVal,
+            receiverScVal,
+            gatewayScVal,
+            tokenScVal,
+        ]);
+
+        const xdrBytes = xdrTuple.toXDR();
+        const senderKeypair = Keypair.fromPublicKey(senderPublicKey);
+        
+        if (!senderKeypair.verify(xdrBytes, signatureBuffer)) {
+            const failReason = 'Local Firewall Rejected: Invalid Ed25519 signature. Dropped to save gas.';
+            console.warn(`[Settle] ${failReason}`);
+            
+            await prisma.settlement.update({
+                where: { id: settlementId },
+                data: { status: 'FAILED', failReason },
+            });
+
+            if (senderPhone) {
+                sendSmsNotification(
+                    senderPhone,
+                    `Transaction failed: Invalid cryptographic signature.`
+                ).catch(console.error);
+            }
+
+            return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
         const assembledTx = await pijinContract.spend_offline(
             {
                 gateway:        process.env.RELAYER_PUBLIC_KEY!,
@@ -204,6 +246,16 @@ async function handler(req: Request): Promise<Response> {
 
         console.log(`[Settle] SETTLED | settlementId=${settlementId} | txHash=${txHash ?? 'n/a'}`);
 
+        // Send final SMS receipt to the originating sender.
+        if (senderPhone) {
+            const humanAmount = Number(amountStroops) / 10_000_000;
+            const tokenSymbol = token.symbol;
+            sendSmsNotification(
+                senderPhone,
+                `Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
+            ).catch(console.error);
+        }
+
         // Serialize amountStroops as string to avoid BigInt JSON serialization error.
         return NextResponse.json(
             { status: 'SETTLED', txHash, amountStroops: amountStroops.toString() },
@@ -228,6 +280,14 @@ async function handler(req: Request): Promise<Response> {
 
         if (isInfraError) {
             return NextResponse.json({ error: 'RPC unavailable' }, { status: 500 });
+        }
+
+        // Notify sender of permanent business-logic failure (e.g. insufficient balance).
+        if (senderPhone) {
+            sendSmsNotification(
+                senderPhone,
+                `Transaction failed: ${failReason.slice(0, 120)}`,
+            ).catch(console.error);
         }
 
         return NextResponse.json(
