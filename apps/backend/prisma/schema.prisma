@@ -1,29 +1,57 @@
-// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url = env("DATABASE_URL")
 }
 
 model Account {
-  id               Int      @id @default(autoincrement())
-  shortId          String   @unique // e.g., "C-8A92" or "M-1B44"
-  role             String   // "CUSTOMER" or "MERCHANT"
-  stellarPublicKey String   @unique // e.g., "GC333QNW..."
-  offlineDeviceKey String?
-  merchantPin      String?  // e.g., "8492" (Used for SMS confirmation spoof-protection)
-  merchantPhone    String?
-  createdAt        DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  shortId            String   @unique @map("short_id")
+  role               String   @default("USER")
+  stellarPublicKey   String   @unique @map("stellar_public_key")
+  offlineDeviceKey   String?  @map("offline_device_key")
+  pin                String?
+  phoneNumber        String?  @map("phone_number")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @map("updated_at")
+
+  @@map("account")
+}
+
+model GatewayNode {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  stellarPublicKey   String   @unique @map("stellar_public_key")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("gateway_node")
 }
 
 model Settlement {
-  id               Int      @id @default(autoincrement())
-  customerShortId  String
-  merchantShortId  String
-  amountXlm        String
-  txHash           String?
-  status           String   // SETTLED | FAILED
-  createdAt        DateTime @default(now())
+  id                Int      @id @default(autoincrement())
+  senderShortId     String   @map("sender_short_id")
+  receiverShortId   String   @map("receiver_short_id")
+  relayerAddress    String?  @map("relayer_address")
+  amountToken       String   @map("amount_token")
+  txHash            String?  @map("tx_hash")
+  status            String
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("settlement")
+}
+
+model Token {
+  id         Int      @id @default(autoincrement())
+  symbol     String
+  contractId String   @map("contract_id")
+  decimals   Int      @default(7)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("token")
 }
