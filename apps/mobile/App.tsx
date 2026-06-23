@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { runMigrations } from './src/db/migrations';
+import { syncService } from './src/services/syncService';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -101,6 +103,22 @@ function AppContent({
 export default function App() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   const [fontLoadTimedOut, setFontLoadTimedOut] = useState(false);
+
+  // Initialize the SQLite database and start the RxJS sync service.
+  // runMigrations() is idempotent — safe to run on every app launch.
+  useEffect(() => {
+    runMigrations()
+      .then(() => {
+        syncService.start();
+      })
+      .catch(err => {
+        console.error('[App] DB initialization failed:', err);
+      });
+
+    return () => {
+      syncService.stop();
+    };
+  }, []);
 
   useEffect(() => {
     if (fontError) {
