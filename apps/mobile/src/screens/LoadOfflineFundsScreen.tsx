@@ -177,10 +177,9 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
     setModalVisible(false);
     
     try {
-      const { addTransaction } = require('../services/storage/transactionStorage');
+      const { addTransaction } = require('../db/services/transactionDb');
       await addTransaction({
         title: 'Online to Offline Transfer',
-        subtitle: 'Today',
         amount: -numericVal,
         type: 'transfer',
         tag: 'WALLET',
@@ -188,7 +187,6 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
       });
       await addTransaction({
         title: 'Received from Online Wallet',
-        subtitle: 'Today',
         amount: numericVal,
         type: 'transfer',
         tag: 'OFFLINE',
