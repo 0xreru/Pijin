@@ -21,7 +21,7 @@ import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
-import { appendToOfflinePaymentsQueue } from '../services/storage/paymentQueueStorage';
+import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 
@@ -170,12 +170,11 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const handleBackToHome = async () => {
     setSuccessVisible(false);
     
-    const { addTransaction } = require('../services/storage/transactionStorage');
+    const { addTransaction } = require('../db/services/transactionDb');
     if (isOnlineMode) {
       try {
         await addTransaction({
           title: `Paid to ${recipientName}`,
-          subtitle: 'Today',
           amount: -total,
           type: 'outgoing',
           tag: 'WALLET',
@@ -187,7 +186,8 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
       DeviceEventEmitter.emit('ON_SEND_MONEY_ONLINE', total);
       navigation.navigate('Dashboard');
     } else {
-      // Build and queue offline payment payload
+      // Build offline payment payload and navigate to TransportChoice.
+      // We do NOT write to database or deduct balance here. We defer it until the user selects a transport option on the TransportChoiceScreen.
       try {
         const account = await loadStoredAccount();
         const customerId = account?.shortId || '1234';
@@ -212,26 +212,17 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
           expiresInMinutes: 10,
         };
 
-        await appendToOfflinePaymentsQueue(payload);
-
-        try {
-          await addTransaction({
-            title: `Paid to ${recipientName} (Offline)`,
-            subtitle: 'Today',
-            amount: -total,
-            type: 'outgoing',
-            tag: 'OFFLINE',
-            description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
-          });
-        } catch (err) {
-          console.error('Failed to log offline transaction:', err);
-        }
-
-        DeviceEventEmitter.emit('ON_SEND_MONEY_OFFLINE', total);
-        
-        navigation.navigate('TransportChoice', { qrData: voucher.smsBody });
+        navigation.navigate('TransportChoice', {
+          qrData: voucher.smsBody,
+          payload,
+          amount,
+          total,
+          recipientName,
+          recipientShortId,
+          fee
+        });
       } catch (err) {
-        console.error('Failed to queue offline payment:', err);
+        console.error('Failed to build offline voucher:', err);
         navigation.navigate('Dashboard');
       }
     }
@@ -479,9 +470,13 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
             />
 
             {/* Success Info */}
-            <Text style={styles.successTitle}>Transaction Success</Text>
+            <Text style={styles.successTitle}>
+              {isOnlineMode ? 'Transaction Success' : 'Offline Voucher Created'}
+            </Text>
             <Text style={styles.successDesc}>
-              Funds have been transferred and settled{'\n'}instantly via Stellar.
+              {isOnlineMode
+                ? 'Funds have been transferred and settled\ninstantly via Stellar.'
+                : 'Your offline payment voucher is ready.\nSelect your dispatch method to proceed.'}
             </Text>
 
             {/* Receipt Ticket Box */}
@@ -534,10 +529,12 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
               </View>
             </View>
 
-            {/* Back to Dashboard Button */}
+            {/* Back to Dashboard / Dispatch Button */}
             <TouchableOpacity onPress={handleBackToHome} style={styles.backHomeButton} activeOpacity={0.9}>
               <Ionicons name="arrow-undo-outline" size={18} color="#FFFFFF" style={styles.backHomeIcon} />
-              <Text style={styles.backHomeButtonText}>Back to Dashboard</Text>
+              <Text style={styles.backHomeButtonText}>
+                {isOnlineMode ? 'Back to Dashboard' : 'Select Dispatch Method'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

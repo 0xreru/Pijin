@@ -11,18 +11,92 @@ import {
   Alert,
   Linking,
   Platform,
+  DeviceEventEmitter,
+  AppState,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SMS_GATEWAY_NUMBER } from '../constants/api';
+import { enqueuePayment } from '../db/services/paymentQueueDb';
+import { addTransaction } from '../db/services/transactionDb';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export function TransportChoiceScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
   const qrData = route.params?.qrData || '';
+  const hasCommittedRef = React.useRef(false);
+  const [isWaitingForSmsReturn, setIsWaitingForSmsReturn] = React.useState(false);
 
-  const handleChoicePress = (choice: 'send_phone' | 'scan_me' | 'relay') => {
+  const commitOfflineTransaction = async () => {
+    if (hasCommittedRef.current) return;
+    hasCommittedRef.current = true;
+
+    const payload = route.params?.payload;
+    const amount = route.params?.amount ?? 0;
+    const total = route.params?.total ?? 0;
+    const recipientName = route.params?.recipientName ?? '';
+    const recipientShortId = route.params?.recipientShortId ?? '';
+    const fee = route.params?.fee ?? 0;
+
+    if (!payload) {
+      console.warn('[TransportChoice] No offline payload provided to commit.');
+      return;
+    }
+
+    try {
+      await enqueuePayment(payload);
+      
+      await addTransaction({
+        title: `Paid to ${recipientName} (Offline)`,
+        amount: -total,
+        type: 'outgoing',
+        tag: 'OFFLINE',
+        description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
+      });
+
+      DeviceEventEmitter.emit('ON_SEND_MONEY_OFFLINE', total);
+    } catch (err) {
+      console.error('[TransportChoice] Failed to commit offline payment:', err);
+    }
+  };
+
+  React.useEffect(() => {
+    const handleAppStateChange = (nextAppState: any) => {
+      // When the user returns to the app from the native SMS composer
+      if (nextAppState === 'active' && isWaitingForSmsReturn) {
+        setIsWaitingForSmsReturn(false);
+
+        Alert.alert(
+          'Confirm SMS Dispatch',
+          'Did you successfully send the text message containing your offline payment voucher?',
+          [
+            {
+              text: 'No, Cancelled',
+              style: 'cancel',
+              onPress: () => {
+                // Reset commitment ref so they can try again if they want
+                hasCommittedRef.current = false;
+              }
+            },
+            {
+              text: 'Yes, I Sent It',
+              onPress: async () => {
+                await commitOfflineTransaction();
+                navigation.navigate('Dashboard');
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+      }
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [isWaitingForSmsReturn]);
+
+  const handleChoicePress = async (choice: 'send_phone' | 'scan_me' | 'relay') => {
     if (choice === 'send_phone') {
       if (!qrData) {
         Alert.alert('Error', 'No payload found to send via SMS.');
@@ -32,18 +106,24 @@ export function TransportChoiceScreen({ route, navigation }: any) {
         ? `sms:${SMS_GATEWAY_NUMBER}?body=${encodeURIComponent(qrData)}`
         : `sms:${SMS_GATEWAY_NUMBER}&body=${encodeURIComponent(qrData)}`;
       
+      // Set waiting flag before opening native SMS app
+      setIsWaitingForSmsReturn(true);
+
       Linking.openURL(url)
-        .then(() => {
-          navigation.navigate('Dashboard');
-        })
         .catch((err) => {
+          setIsWaitingForSmsReturn(false);
           Alert.alert('Error', 'Could not open native messaging app.');
           console.error(err);
         });
-    } else if (choice === 'scan_me') {
-      navigation.navigate('GenerateQR', { mode: 'receiver', qrData });
-    } else if (choice === 'relay') {
-      navigation.navigate('GenerateQR', { mode: 'relay', qrData });
+    } else {
+      // For QR-based choices (scan_me, relay), we commit immediately as the voucher is generated and shown
+      await commitOfflineTransaction();
+
+      if (choice === 'scan_me') {
+        navigation.navigate('GenerateQR', { mode: 'receiver', qrData });
+      } else if (choice === 'relay') {
+        navigation.navigate('GenerateQR', { mode: 'relay', qrData });
+      }
     }
   };
 
