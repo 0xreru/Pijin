@@ -21,6 +21,7 @@
     "@walletconnect/react-native-compat": "^2.23.9",
     "@walletconnect/sign-client": "^2.23.9",
     "buffer": "^6.0.3",
+    "drizzle-orm": "^0.45.2",
     "expo": "~52.0.0",
     "expo-application": "~6.0.2",
     "expo-asset": "~11.0.5",
@@ -29,9 +30,10 @@
     "expo-file-system": "~18.0.12",
     "expo-font": "~13.0.4",
     "expo-linear-gradient": "~14.0.2",
-    "expo-media-library": "~17.0.6",
+    "expo-media-library": "~16.0.5",
     "expo-secure-store": "~14.0.1",
     "expo-sharing": "~13.0.1",
+    "expo-sqlite": "~15.1.4",
     "expo-status-bar": "~2.0.1",
     "react": "18.3.1",
     "react-native": "0.76.9",
@@ -46,6 +48,7 @@
   },
   "devDependencies": {
     "@types/react": "~18.3.12",
+    "drizzle-kit": "^0.31.10",
     "typescript": "~5.9.2"
   },
   "private": true

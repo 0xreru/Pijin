@@ -36,7 +36,8 @@
           "cameraPermission": "Allow camera access to scan customer payment QR codes."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-sqlite"
     ],
     "owner": "senec4",
     "extra": {
