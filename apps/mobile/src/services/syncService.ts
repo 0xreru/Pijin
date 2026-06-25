@@ -30,6 +30,8 @@ import {
 } from '../db/services/paymentQueueDb';
 import type { PaymentQueueRow } from '../db/schema';
 import { addTransaction } from '../db/services/transactionDb';
+import { loadStoredAccount } from './storage/accountStorage';
+import { getUserSettlements } from './api/transactions';
 
 // ---------------------------------------------------------------------------
 // Backend integration point
@@ -133,6 +135,16 @@ class SyncService {
    * Called automatically on online transition, but can also be invoked
    * from the "Sync Now" button in DashboardScreen as a manual override.
    */
+  private extractShortNonce(smsBody: string): string | null {
+    const parts = smsBody.split(':');
+    return parts.length >= 4 ? parts[3] : null;
+  }
+
+  /**
+   * Manually trigger a sync flush.
+   * Called automatically on online transition, but can also be invoked
+   * from the "Sync Now" button in DashboardScreen as a manual override.
+   */
   async flush(): Promise<void> {
     const pending = await loadPendingQueue();
 
@@ -143,11 +155,35 @@ class SyncService {
 
     console.log(`[SyncService] Flushing ${pending.length} pending item(s)...`);
 
+    // Fetch user settlements from backend for comparison
+    let settledNonces = new Set<string>();
+    try {
+      const account = await loadStoredAccount();
+      if (account?.shortId) {
+        const serverSettlements = await getUserSettlements(account.shortId);
+        settledNonces = new Set(serverSettlements.map(s => s.nonce).filter(Boolean));
+        console.log(`[SyncService] Reconciling with ${settledNonces.size} server settlements.`);
+      }
+    } catch (err) {
+      console.warn('[SyncService] Could not fetch server settlements. Defaulting to direct sync.', err);
+    }
+
     let successCount = 0;
     let totalAmount = 0;
 
     for (const item of pending) {
       try {
+        const shortNonce = this.extractShortNonce(item.smsBody);
+
+        // If already settled, update local status only
+        if (shortNonce && settledNonces.has(shortNonce)) {
+          console.log(`[SyncService] Item ${item.id} already settled on backend (Nonce: ${shortNonce}). Marking synced.`);
+          await markSynced(item.id, item.txHash, 'SETTLED');
+          successCount++;
+          totalAmount += item.amount;
+          continue;
+        }
+
         const result = await postToBackend(item);
 
         await markSynced(item.id, result.txHash, result.status);
