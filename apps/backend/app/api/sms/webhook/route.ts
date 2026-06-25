@@ -3,19 +3,22 @@ import crypto from 'node:crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Client } from '@upstash/qstash';
+import { sendSmsNotification } from '@/lib/sms';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Runtime
 // ─────────────────────────────────────────────────────────────────────────────
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Tier 2 – Rate Limiter (Sliding Window: 20 req / 60 s per IP)
+// Tier 2 – Rate Limiter (Sliding Window: 3 req / 60 s per sender phone)
+// Strict limit to prevent SMS Pumping attacks draining Textbee credits.
 // Initialized once at module level to reuse the Redis connection.
 // ─────────────────────────────────────────────────────────────────────────────
 const ratelimit = new Ratelimit({
     redis: Redis.fromEnv(),
-    limiter: Ratelimit.slidingWindow(20, '60 s'),
+    limiter: Ratelimit.slidingWindow(3, '60 s'),
     analytics: false,
     prefix: 'omnifi:sms:webhook',
 });
@@ -65,17 +68,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // ── Tier 2: Rate Limiting ─────────────────────────────────────────────────
-    const ip =
-        req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? '127.0.0.1';
-
-    const { success: withinLimit } = await ratelimit.limit(ip);
-    if (!withinLimit) {
-        console.warn(`[SMS Webhook] Tier 2 FAIL – rate limit exceeded for IP ${ip}`);
-        return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
-    }
-
     // ── Parse Body ────────────────────────────────────────────────────────────
+    // Parsed BEFORE rate-limiting so we can key the limiter on the sender phone.
     let body: unknown;
     try {
         body = JSON.parse(rawBody);
@@ -88,6 +82,25 @@ export async function POST(req: Request) {
     }
 
     const parsed = body as { text?: unknown; message?: unknown; sender?: unknown };
+
+    // Extract the sender's phone number for rate-limiting.
+    const senderPhone =
+        typeof parsed.sender === 'string' ? parsed.sender.trim() : '';
+
+    if (!senderPhone) {
+        return NextResponse.json({ error: 'Missing sender field' }, { status: 400 });
+    }
+
+    // ── Tier 2: Rate Limiting (keyed on sender phone, not IP) ─────────────────
+    // Silent-drop on exceed: return 200 so Textbee does NOT retry, but we
+    // waste zero SMS credits replying to the spammer.
+    const { success: withinLimit } = await ratelimit.limit(senderPhone);
+    if (!withinLimit) {
+        console.warn(`[SMS Webhook] Tier 2 FAIL – rate limit exceeded for sender ${senderPhone}`);
+        return NextResponse.json({ success: true, status: 'Rate Limited' });
+    }
+
+    // ── Extract SMS content ───────────────────────────────────────────────────
     const rawSmsContent =
         typeof parsed.text === 'string' ? parsed.text : parsed.message;
     const message =
@@ -101,14 +114,14 @@ export async function POST(req: Request) {
     }
 
     // ── Deduplication via Nonce ────────────────────────────────────────────────
-    // Expected SMS format: sender:receiver:amount:nonce:signature
+    // Expected SMS format: tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
     const parts = message.split(':');
 
     if (parts.length < 6) {
         return NextResponse.json({ error: 'Malformed payload' }, { status: 400 });
     }
 
-    const [tokenId, sender, receiver, amount, nonce, signature] = parts;
+    const [, sender, , , nonce] = parts;
 
     if (!sender || !nonce) {
         return NextResponse.json({ error: 'Malformed payload' }, { status: 400 });
@@ -116,17 +129,24 @@ export async function POST(req: Request) {
 
     const deduplicationId = `${sender}_${nonce}`;
 
+    // ── Fast Acknowledgement SMS ──────────────────────────────────────────────
+    // Fire-and-forget: do NOT await so the 200 fast-ack is not delayed.
+    sendSmsNotification(
+        senderPhone,
+        'Payload received. Processing transaction... Please wait'
+    ).catch(console.error);
+
     // ── QStash Publish ────────────────────────────────────────────────────────
     const settleUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/engine/settle`;
 
     await qstash.publishJSON({
         url: settleUrl,
-        body: { smsPayload: message },
+        body: { smsPayload: message, senderPhone },
         deduplicationId,
     });
 
     console.log(
-        `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | target=${settleUrl}`
+        `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | sender=${senderPhone} | target=${settleUrl}`
     );
 
     // ── Fast Ack ──────────────────────────────────────────────────────────────
