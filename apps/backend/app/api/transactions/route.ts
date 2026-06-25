@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     });
 
     // We must serialize BigInt (amountStroops) to strings so JSON.stringify doesn't crash
-    const serializedSettlements = settlements.map(settlement => ({
+    const serializedSettlements = settlements.map((settlement: typeof settlements[number]) => ({
         ...settlement,
         amountStroops: settlement.amountStroops.toString(),
     }));
