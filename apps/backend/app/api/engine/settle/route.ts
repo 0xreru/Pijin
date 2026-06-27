@@ -248,12 +248,15 @@ async function handler(req: Request): Promise<Response> {
 
         const humanAmount = Number(amountStroops) / 10_000_000;
         const tokenSymbol = token.symbol;
+        // Use the first 8 characters of the transaction hash as a concise, verifiable reference number
+        const shortRef = txHash ? txHash.substring(0, 8) : settlementId.toString();
+
         // Send final SMS receipt to the originating sender.
         const senderRegisteredNumber = senderAccount.phoneNumber;
         if (senderRegisteredNumber) {
             await sendSmsNotification(
                 senderRegisteredNumber,
-                `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
+                `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
             ).catch(console.error);
         }
 
@@ -262,7 +265,7 @@ async function handler(req: Request): Promise<Response> {
         if (receiverRegisteredNumber) {
             await sendSmsNotification(
                 receiverRegisteredNumber,
-                `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}`,
+                `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
             ).catch(console.error);
         }
 
