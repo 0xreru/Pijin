@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 // verifySignatureAppRouter so any request that doesn't carry a valid QStash
 // HMAC signature is rejected before execution.
 //
-// Payload format (v2 - Omni-Vault multi-token):
+// Payload format (v2 - Pijin-Vault multi-token):
 //   tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
 //
 // Happy-path status machine:
@@ -253,7 +253,7 @@ async function handler(req: Request): Promise<Response> {
         if (senderRegisteredNumber) {
             await sendSmsNotification(
                 senderRegisteredNumber,
-                `OmniFi: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
+                `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
             ).catch(console.error);
         }
 
@@ -262,7 +262,7 @@ async function handler(req: Request): Promise<Response> {
         if (receiverRegisteredNumber) {
             await sendSmsNotification(
                 receiverRegisteredNumber,
-                `OmniFi: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}`,
+                `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}`,
             ).catch(console.error);
         }
 
