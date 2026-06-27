@@ -137,21 +137,25 @@ export async function POST(req: Request) {
 
     const deduplicationId = `${senderShortId}_${nonce}`;
 
-    // ── Fast Acknowledgement SMS ──────────────────────────────────────────────
-    // 🔥 ARCHITECT FIX: Added `await` to guarantee Vercel does not kill this fetch request
-    await sendSmsNotification(
-        senderPhone,
-        'Payload received. Processing transaction... Please wait'
-    ).catch(console.error);
-
-    // ── QStash Publish ────────────────────────────────────────────────────────
+    // ── QStash Publish & Fast Ack (Parallel Execution) ────────────────────────
+    // 🔥 ARCHITECT FIX: Run QStash and SMS concurrently using Promise.allSettled.
+    // This keeps Vercel alive just long enough, but cuts the response time in half
+    // to prevent Textbee 502 Timeout errors.
     const settleUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/engine/settle`;
 
-    await qstash.publishJSON({
+    const qstashPromise = qstash.publishJSON({
         url: settleUrl,
         body: { smsPayload: message, senderPhone },
         deduplicationId,
     });
+
+    const smsPromise = sendSmsNotification(
+        senderPhone,
+        'Pijin: Payload received. Processing transaction... Please wait'
+    );
+
+    // Wait for both network requests to leave the server simultaneously
+    await Promise.allSettled([qstashPromise, smsPromise]);
 
     console.log(
         `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | target=${settleUrl}`
