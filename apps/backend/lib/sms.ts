@@ -20,13 +20,16 @@ export async function sendSmsNotification(to: string, message: string): Promise<
     // Clean any weird characters from the incoming number
     let formattedTo = to.trim().replace(/[^0-9+]/g, '');
     
-    // 🔥 ARCHITECT FIX: Local Philippine Android phones / Telcos (Globe/Smart) 
-    // often silently drop programmatic SMS sent to "+63". 
-    // We must convert it back to the local "09" format for standard GSM delivery.
-    if (formattedTo.startsWith('+63')) {
-        formattedTo = '0' + formattedTo.substring(3);
+    // Textbee strictly requires E.164 format (+639...) to deliver via local cell towers.
+    // If the number starts with '09' (local PH format), convert it to '+639'.
+    // If it starts with '63' (missing the '+'), prepend the '+'.
+    if (formattedTo.startsWith('09') && formattedTo.length === 11) {
+        formattedTo = '+63' + formattedTo.substring(1);
     } else if (formattedTo.startsWith('63') && formattedTo.length === 12) {
-        formattedTo = '0' + formattedTo.substring(2);
+        formattedTo = '+' + formattedTo;
+    } else if (!formattedTo.startsWith('+')) {
+         // Fallback just in case
+         formattedTo = '+' + formattedTo;
     }
 
     const response = await fetch(gatewayUrl, {
