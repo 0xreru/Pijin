@@ -250,7 +250,8 @@ async function handler(req: Request): Promise<Response> {
         if (senderPhone) {
             const humanAmount = Number(amountStroops) / 10_000_000;
             const tokenSymbol = token.symbol;
-            sendSmsNotification(
+            
+            await sendSmsNotification(
                 senderPhone,
                 `Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
             ).catch(console.error);

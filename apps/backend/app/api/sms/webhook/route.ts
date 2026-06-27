@@ -82,12 +82,13 @@ export async function POST(req: Request) {
     } 
     // Shield Layer B: Fallback to HTTPS URL Secret
     else if (incomingSecretUrl && incomingSecretUrl === expectedSecret) {
-        console.log('[SMS Webhook] HMAC mismatched (Android encoding drift), but URL Secret matched perfectly. Fallback Authorized.');
+        // Reduced to a standard info log to prevent "Error" fatigue in Vercel
+        console.log('[SMS Webhook] Android encoding drift caught. URL Secret fallback authorized.');
         isAuthorized = true;
     }
 
     if (!isAuthorized) {
-        console.warn(`[SMS Webhook] Tier 1 FAIL – Invalid HMAC and missing/invalid URL secret.`);
+        console.warn(`[SMS Webhook] Blocked: Invalid HMAC and missing URL secret.`);
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -102,7 +103,6 @@ export async function POST(req: Request) {
     // ── Event Filtering ───────────────────────────────────────────────────────
     // We only care about incoming text messages
     if (body.event && body.event !== 'MESSAGE_RECEIVED') {
-        console.log(`[SMS Webhook] Ignoring non-inbound event: ${body.event}`);
         return NextResponse.json({ success: true, status: 'Ignored' });
     }
 
@@ -120,7 +120,7 @@ export async function POST(req: Request) {
     // ── Tier 2: Rate Limiting (keyed on sender phone) ─────────────────────────
     const { success: withinLimit } = await ratelimit.limit(senderPhone);
     if (!withinLimit) {
-        console.warn(`[SMS Webhook] Tier 2 FAIL – rate limit exceeded for sender ${senderPhone}`);
+        console.warn(`[SMS Webhook] Rate limit exceeded for sender ${senderPhone}`);
         return NextResponse.json({ success: true, status: 'Rate Limited' });
     }
 
@@ -138,7 +138,8 @@ export async function POST(req: Request) {
     const deduplicationId = `${senderShortId}_${nonce}`;
 
     // ── Fast Acknowledgement SMS ──────────────────────────────────────────────
-    sendSmsNotification(
+    // 🔥 ARCHITECT FIX: Added `await` to guarantee Vercel does not kill this fetch request
+    await sendSmsNotification(
         senderPhone,
         'Payload received. Processing transaction... Please wait'
     ).catch(console.error);
@@ -153,7 +154,7 @@ export async function POST(req: Request) {
     });
 
     console.log(
-        `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | sender=${senderPhone} | target=${settleUrl}`
+        `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | target=${settleUrl}`
     );
 
     return NextResponse.json({ success: true, status: 'Buffered' });
