@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 // verifySignatureAppRouter so any request that doesn't carry a valid QStash
 // HMAC signature is rejected before execution.
 //
-// Payload format (v2 - Omni-Vault multi-token):
+// Payload format (v2 - Pijin-Vault multi-token):
 //   tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
 //
 // Happy-path status machine:
@@ -122,8 +122,8 @@ async function handler(req: Request): Promise<Response> {
         });
         return [null, null, null] as const;
     }) as [
-        { stellarPublicKey: string } | null,
-        { stellarPublicKey: string } | null,
+        { stellarPublicKey: string; phoneNumber: string | null } | null,
+        { stellarPublicKey: string; phoneNumber: string | null } | null,
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
 
@@ -246,14 +246,23 @@ async function handler(req: Request): Promise<Response> {
 
         console.log(`[Settle] SETTLED | settlementId=${settlementId} | txHash=${txHash ?? 'n/a'}`);
 
+        const humanAmount = Number(amountStroops) / 10_000_000;
+        const tokenSymbol = token.symbol;
         // Send final SMS receipt to the originating sender.
-        if (senderPhone) {
-            const humanAmount = Number(amountStroops) / 10_000_000;
-            const tokenSymbol = token.symbol;
-            
+        const senderRegisteredNumber = senderAccount.phoneNumber;
+        if (senderRegisteredNumber) {
             await sendSmsNotification(
-                senderPhone,
-                `Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
+                senderRegisteredNumber,
+                `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
+            ).catch(console.error);
+        }
+
+        // 2. Send receipt to the Registered Receiver
+        const receiverRegisteredNumber = receiverAccount.phoneNumber;
+        if (receiverRegisteredNumber) {
+            await sendSmsNotification(
+                receiverRegisteredNumber,
+                `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}`,
             ).catch(console.error);
         }
 
