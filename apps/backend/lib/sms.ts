@@ -17,13 +17,16 @@ export async function sendSmsNotification(to: string, message: string): Promise<
         return;
     }
 
-    // Robust E.164 formatting: remove spaces and normalize PH 09 prefix
-    let formattedTo = to.trim().replace(/\s+/g, '');
-    if (formattedTo.startsWith('09') && formattedTo.length === 11) {
-        formattedTo = '+63' + formattedTo.substring(1);
-    } else if (!formattedTo.startsWith('+')) {
-        // Fallback: forcefully prepend + if missing to satisfy strict gateway regex
-        formattedTo = '+' + formattedTo;
+    // Clean any weird characters from the incoming number
+    let formattedTo = to.trim().replace(/[^0-9+]/g, '');
+    
+    // 🔥 ARCHITECT FIX: Local Philippine Android phones / Telcos (Globe/Smart) 
+    // often silently drop programmatic SMS sent to "+63". 
+    // We must convert it back to the local "09" format for standard GSM delivery.
+    if (formattedTo.startsWith('+63')) {
+        formattedTo = '0' + formattedTo.substring(3);
+    } else if (formattedTo.startsWith('63') && formattedTo.length === 12) {
+        formattedTo = '0' + formattedTo.substring(2);
     }
 
     const response = await fetch(gatewayUrl, {
@@ -32,8 +35,6 @@ export async function sendSmsNotification(to: string, message: string): Promise<
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
         },
-        // 🔥 ARCHITECT FIX: Textbee requires EXACTLY 'recipients' and 'message' in the body.
-        // deviceId is omitted because it is already embedded in the REST URL.
         body: JSON.stringify({ 
             recipients: [formattedTo], 
             message 
