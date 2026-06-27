@@ -30,36 +30,32 @@ const qstash = new Client({
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Tier 1 – HMAC-SHA256 Signature Verification (Matched to Textbee Docs)
+ * Tier 1 – HMAC-SHA256 Signature Verification
  */
 function verifyHmacSignature(rawBody: string, incomingSignature: string): boolean {
     const secret = process.env.TEXTBEE_WEBHOOK_SECRET;
-    if (!secret) {
-        console.error('[SMS Webhook] Missing TEXTBEE_WEBHOOK_SECRET env var!');
-        return false;
-    }
+    if (!secret) return false;
 
     try {
-        // Textbee docs suggest they might hash the stringified parsed payload
-        // We will try hashing the raw text first, and if that fails, try 
-        // hashing the re-stringified payload to be safe against formatting drift.
         const expectedRaw = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
         
+        // Strip any "sha256=" prefix if it exists to normalize the hex string
+        const cleanIncomingSig = incomingSignature.replace(/^sha256=/, '');
+        const incomingBuf = Buffer.from(cleanIncomingSig, 'hex');
+        const expectedRawBuf = Buffer.from(expectedRaw, 'hex');
+
+        if (incomingBuf.length === expectedRawBuf.length && crypto.timingSafeEqual(incomingBuf, expectedRawBuf)) return true;
+        
+        // Attempt parsing fallback just in case Android added invisible spaces
         let expectedParsed = '';
         try {
             expectedParsed = crypto.createHmac('sha256', secret).update(JSON.stringify(JSON.parse(rawBody)), 'utf8').digest('hex');
-        } catch { /* ignore parse error here */ }
-
-        const incomingBuf = Buffer.from(incomingSignature, 'hex');
-        const expectedRawBuf = Buffer.from(expectedRaw, 'hex');
-        const expectedParsedBuf = Buffer.from(expectedParsed, 'hex');
-
-        if (incomingBuf.length === expectedRawBuf.length && crypto.timingSafeEqual(incomingBuf, expectedRawBuf)) return true;
-        if (incomingBuf.length === expectedParsedBuf.length && crypto.timingSafeEqual(incomingBuf, expectedParsedBuf)) return true;
+            const expectedParsedBuf = Buffer.from(expectedParsed, 'hex');
+            if (incomingBuf.length === expectedParsedBuf.length && crypto.timingSafeEqual(incomingBuf, expectedParsedBuf)) return true;
+        } catch { }
 
         return false;
     } catch (err) {
-        console.error('[SMS Webhook] Crypto verification error:', err);
         return false;
     }
 }
@@ -70,11 +66,28 @@ function verifyHmacSignature(rawBody: string, incomingSignature: string): boolea
 export async function POST(req: Request) {
     const rawBody = await req.text();
 
-    // ── Tier 1: HMAC Signature Verification (Using Textbee's exact header) ────
-    const incomingSignature = req.headers.get('x-signature') ?? '';
+    // ── Tier 1: Dual-Layer Ingress Shield ─────────────────────────────────────
+    const incomingSignature = req.headers.get('x-signature') || req.headers.get('x-textbee-signature') || '';
     
-    if (!incomingSignature || !verifyHmacSignature(rawBody, incomingSignature)) {
-        console.warn('[SMS Webhook] Tier 1 FAIL – invalid HMAC signature');
+    // Extract the secret from the URL query params (e.g. ?secret=...)
+    const url = new URL(req.url);
+    const incomingSecretUrl = url.searchParams.get('secret');
+    const expectedSecret = process.env.TEXTBEE_WEBHOOK_SECRET;
+
+    let isAuthorized = false;
+
+    // Shield Layer A: Check HMAC Math
+    if (incomingSignature && verifyHmacSignature(rawBody, incomingSignature)) {
+        isAuthorized = true;
+    } 
+    // Shield Layer B: Fallback to HTTPS URL Secret
+    else if (incomingSecretUrl && incomingSecretUrl === expectedSecret) {
+        console.log('[SMS Webhook] HMAC mismatched (Android encoding drift), but URL Secret matched perfectly. Fallback Authorized.');
+        isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+        console.warn(`[SMS Webhook] Tier 1 FAIL – Invalid HMAC and missing/invalid URL secret.`);
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -87,15 +100,14 @@ export async function POST(req: Request) {
     }
 
     // ── Event Filtering ───────────────────────────────────────────────────────
-    // Textbee sends multiple events (MESSAGE_SENT, MESSAGE_DELIVERED). 
-    // We ONLY care about incoming texts!
+    // We only care about incoming text messages
     if (body.event && body.event !== 'MESSAGE_RECEIVED') {
         console.log(`[SMS Webhook] Ignoring non-inbound event: ${body.event}`);
         return NextResponse.json({ success: true, status: 'Ignored' });
     }
 
     // ── Extract Data Payload ──────────────────────────────────────────────────
-    // Textbee nests the actual SMS info inside the "data" object
+    // Textbee wraps the payload in "data"
     const data = body.data || body;
 
     const senderPhone = typeof data.sender === 'string' ? data.sender.trim() : '';
