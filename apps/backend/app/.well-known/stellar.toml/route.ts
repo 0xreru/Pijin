@@ -53,6 +53,19 @@ function requireEnv(name: string): string {
   return value;
 }
 
+// The Demo Wallet is a browser app. It sends an OPTIONS request first.
+// Without this, Next.js blocks it before the GET request can even be read!
+export async function OPTIONS(): Promise<Response> {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+    },
+  });
+}
+
 // ── GET /.well-known/stellar.toml ─────────────────────────────────────────────
 //
 // Returns a TOML-formatted document.  We build the TOML as a template literal
@@ -101,22 +114,29 @@ export async function GET(): Promise<Response> {
 # See: https://stellar.org/protocol/sep-1
 
 # ── Network ──────────────────────────────────────────────────────────────────
-# Indicates which Stellar network this anchor operates on.
-# Remove or change to "PUBLIC" when deploying to mainnet.
 NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 
 # ── SEP-10: Stellar Web Authentication ───────────────────────────────────────
-# Wallets use WEB_AUTH_ENDPOINT to initiate the challenge/response handshake.
-# SIGNING_KEY is the public key the anchor uses to sign SEP-10 challenges.
 WEB_AUTH_ENDPOINT="${webAuthEndpoint}"
 SIGNING_KEY="${signingPublicKey}"
 
 # ── SEP-24: Interactive Anchor (Deposit & Withdraw) ──────────────────────────
-# Uncomment and fill in when the interactive flow is live.
-# TRANSFER_SERVER_SEP0024="${appUrl}/api/sep24"
+TRANSFER_SERVER_SEP0024="${appUrl}/api/sep24"
+
+# ── Supported Assets ─────────────────────────────────────────────────────────
+[[CURRENCIES]]
+code="PHPC"
+status="testnet"
+is_asset_anchored=true
+anchor_asset_type="fiat"
+
+[[CURRENCIES]]
+code="USDC"
+status="testnet"
+is_asset_anchored=true
+anchor_asset_type="fiat"
 
 # ── Horizon ───────────────────────────────────────────────────────────────────
-# The Horizon server this anchor points clients to for transaction submission.
 HORIZON_URL="https://horizon-testnet.stellar.org"
 `;
 
