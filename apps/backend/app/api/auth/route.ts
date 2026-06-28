@@ -154,7 +154,6 @@ export async function GET(request: Request): Promise<Response> {
     //                  some wallets to support per-client WebAuth domain pinning.
     //                  When present the SDK will add a `client_domain` manage_data op.
     const memo: string | null = searchParams.get('memo');
-    const clientDomain: string | null = searchParams.get('client_domain');
 
     // ── 3. Load runtime config ──────────────────────────────────────────────
     const signingKeypair = Keypair.fromSecret(
@@ -201,7 +200,6 @@ export async function GET(request: Request): Promise<Response> {
       NETWORK_PASSPHRASE, // 5. networkPassphrase (string)
       homeDomain,         // 6. webAuthDomain (string)
       memo,               // 7. memo (string | null | undefined)
-      clientDomain,       // 8. clientDomain (string | null | undefined)
     );
 
     // ── 4. Return the challenge ─────────────────────────────────────────────
