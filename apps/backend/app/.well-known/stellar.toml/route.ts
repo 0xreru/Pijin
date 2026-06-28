@@ -109,6 +109,13 @@ export async function GET(): Promise<Response> {
     //   - DOCUMENTATION (KYC / AML policy links)
     //
     // TOML spec: https://toml.io/en/
+    // Fetch the Asset Issuers (Fallback to empty string if missing so the server doesn't crash, 
+    // but the wallet requires them to be populated in the .env)
+    const phpcIssuer = process.env.PHPC_ISSUER_PUBKEY || "";
+    const usdcIssuer = process.env.USDC_ISSUER_PUBKEY || "";
+
+    // ── 3. Compose the TOML document ───────────────────────────────────────
+    // 🔥 ARCHITECT FIX 2: Added the 'issuer' property to [[CURRENCIES]]
     const toml = `# Pijin Anchor — Stellar Info File (SEP-1)
 # Generated dynamically. Do not edit manually.
 # See: https://stellar.org/protocol/sep-1
@@ -126,12 +133,14 @@ TRANSFER_SERVER_SEP0024="${appUrl}/api/sep24"
 # ── Supported Assets ─────────────────────────────────────────────────────────
 [[CURRENCIES]]
 code="PHPC"
+issuer="${phpcIssuer}"
 status="testnet"
 is_asset_anchored=true
 anchor_asset_type="fiat"
 
 [[CURRENCIES]]
 code="USDC"
+issuer="${usdcIssuer}"
 status="testnet"
 is_asset_anchored=true
 anchor_asset_type="fiat"
