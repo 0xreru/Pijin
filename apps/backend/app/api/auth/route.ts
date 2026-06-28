@@ -145,7 +145,18 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // ── 2. Load runtime config ──────────────────────────────────────────────
+    // ── 2. Parse optional SEP-10 query parameters ───────────────────────────
+    //
+    // `memo`         — An optional plain-text memo to embed in the challenge.
+    //                  Wallets that use muxed accounts (e.g. exchange sub-accounts)
+    //                  supply this to distinguish per-user accounts under a shared G….
+    // `client_domain` — The domain of the client making the auth request.  Sent by
+    //                  some wallets to support per-client WebAuth domain pinning.
+    //                  When present the SDK will add a `client_domain` manage_data op.
+    const memo: string | null = searchParams.get('memo');
+    const clientDomain: string | null = searchParams.get('client_domain');
+
+    // ── 3. Load runtime config ──────────────────────────────────────────────
     const signingKeypair = Keypair.fromSecret(
       requireEnv('SECRET_SEP10_SIGNING_SEED'),
     );
@@ -156,7 +167,7 @@ export async function GET(request: Request): Promise<Response> {
 
     const authTimeout = optionalIntEnv('SEP10_AUTH_TIMEOUT', 900);
 
-    // ── 3. Build the SEP-10 challenge transaction ───────────────────────────
+    // ── 4. Build the SEP-10 challenge transaction ───────────────────────────
     //
     // WebAuth.buildChallengeTx produces a transaction with:
     //   - A `manage_data` operation whose key is "<home_domain> auth" and
@@ -166,17 +177,31 @@ export async function GET(request: Request): Promise<Response> {
     //
     // The client must add its own signature before sending the XDR back.
     //
-    // Signature: buildChallengeTx(
-    //   serverKeypair, clientAccountID, homeDomain, timeout,
-    //   networkPassphrase, webAuthDomain
-    // )
+    // Exact SDK type signature (must be followed precisely to avoid XDR errors):
+    //   buildChallengeTx(
+    //     serverKeypair    : Keypair,
+    //     clientAccountID  : string,
+    //     homeDomain       : string,
+    //     timeout          : number | undefined,   ← 4th
+    //     networkPassphrase: string,               ← 5th
+    //     webAuthDomain    : string,               ← 6th
+    //     memo?            : string | null,        ← 7th (optional)
+    //     clientDomain?    : string | null,        ← 8th (optional)
+    //     clientSigningKey?: string | null         ← 9th (optional, omitted)
+    //   ): string
+    //
+    // NOTE: Swapping `networkPassphrase` and `timeout` (positions 4 & 5) produces
+    // a structurally invalid transaction XDR that wallets cannot deserialize —
+    // the exact "unable to deserialize challengeTx" error seen during GET.
     const challengeXdr = WebAuth.buildChallengeTx(
-      signingKeypair,        // Server's signing keypair — server signs the challenge
-      account,               // Client's Stellar account ID (G…)
-      homeDomain,            // Anchor's home domain (must match stellar.toml)
-      authTimeout,           // Challenge validity window in seconds
-      NETWORK_PASSPHRASE,    // Network: TESTNET or PUBLIC
-      homeDomain,            // webAuthDomain — equals homeDomain for single-domain anchors
+      signingKeypair,     // 1. serverKeypair
+      account,            // 2. clientAccountID
+      homeDomain,         // 3. homeDomain
+      authTimeout,        // 4. timeout (number | undefined)
+      NETWORK_PASSPHRASE, // 5. networkPassphrase (string)
+      homeDomain,         // 6. webAuthDomain (string)
+      memo,               // 7. memo (string | null | undefined)
+      clientDomain,       // 8. clientDomain (string | null | undefined)
     );
 
     // ── 4. Return the challenge ─────────────────────────────────────────────
@@ -262,7 +287,7 @@ export async function POST(request: Request): Promise<Response> {
     //
     // Returns: { tx, clientAccountID, matchedHomeDomain, memo }
     // Throws a descriptive Error on any failure → caught below → 401.
-    const { clientAccountID } = WebAuth.readChallengeTx(
+    const { clientAccountID, memo } = WebAuth.readChallengeTx(
       signedChallengeXdr,
       serverPublicKey,
       NETWORK_PASSPHRASE,
@@ -343,17 +368,27 @@ export async function POST(request: Request): Promise<Response> {
     //   iat   — issued-at timestamp (Unix seconds)
     //   exp   — expiry timestamp, enforced by downstream SEP handlers
     //
+    // Optional:
+    //   memo  — injected when present, identifying the muxed sub-account.
+    //           Downstream SEP-24 / SEP-31 handlers MUST honour this claim
+    //           to route to the correct user record.
+    //
     // Algorithm: HS256 (symmetric — secret never leaves the backend).
     // The `exp` claim is set manually so that downstream middleware can read
     // expiry without re-verifying the full JWT on each call.
     const issuedAt = Math.floor(Date.now() / 1000);
     const expiresAt = issuedAt + jwtTimeout;
 
-    const jwtPayload = {
+    // Build the core payload first, then conditionally spread `memo` so that
+    // the claim is absent (not `null` or `undefined`) when there is no memo.
+    const jwtPayload: Record<string, unknown> = {
       sub: clientAccountID,   // Verified Stellar public key (G…)
       iss: primaryDomain,     // Issuing anchor domain
       iat: issuedAt,
       exp: expiresAt,
+      // Include the memo only when one was present in the verified challenge.
+      // This lets downstream SEP handlers identify muxed / exchange sub-accounts.
+      ...(memo != null ? { memo } : {}),
     };
 
     // jwt.sign with a pre-set `exp` in the payload; do NOT also pass
@@ -364,6 +399,7 @@ export async function POST(request: Request): Promise<Response> {
 
     console.info(
       `[SEP-10 POST] Token issued | account=${clientAccountID} | ` +
+        `memo=${memo ?? 'none'} | ` +
         `exp=${new Date(expiresAt * 1000).toISOString()}`,
     );
 
