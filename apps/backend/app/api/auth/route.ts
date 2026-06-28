@@ -193,13 +193,15 @@ export async function GET(request: Request): Promise<Response> {
     // a structurally invalid transaction XDR that wallets cannot deserialize —
     // the exact "unable to deserialize challengeTx" error seen during GET.
     const challengeXdr = WebAuth.buildChallengeTx(
-      signingKeypair,     // 1. serverKeypair
-      account,            // 2. clientAccountID
-      homeDomain,         // 3. homeDomain
-      authTimeout,        // 4. timeout (number | undefined)
-      NETWORK_PASSPHRASE, // 5. networkPassphrase (string)
-      homeDomain,         // 6. webAuthDomain (string)
-      memo,               // 7. memo (string | null | undefined)
+      signingKeypair,        // 1. serverKeypair
+      account,               // 2. clientAccountID
+      homeDomain,            // 3. homeDomain
+      authTimeout,           // 4. timeout (Now correctly receiving an integer!)
+      NETWORK_PASSPHRASE,    // 5. networkPassphrase
+      homeDomain,            // 6. webAuthDomain (Pass homeDomain here to satisfy V12 params)
+      undefined,             // 7. clientDomain (Omitted)
+      undefined,             // 8. clientSigningKey (Omitted)
+      memo                   // 9. memo (Optional)
     );
 
     // ── 4. Return the challenge ─────────────────────────────────────────────
