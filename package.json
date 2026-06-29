@@ -10,8 +10,7 @@
   "overrides": {
     "react-native": "0.76.9",
     "expo": "52.0.49",
-    "metro-cache": "0.81.5",
-    "expo-media-library": "16.0.5"
+    "expo-media-library": "17.0.5"
   },
   "scripts": {
     "prepare": "node -e \"if (process.env.CI !== 'true') { require('child_process').execSync('husky', {stdio: 'inherit'}) }\"",
