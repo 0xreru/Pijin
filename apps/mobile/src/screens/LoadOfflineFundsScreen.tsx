@@ -192,12 +192,13 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
         tag: 'OFFLINE',
         description: `Received ₱${numericVal.toFixed(2)} from online wallet.`,
       });
+      // Emit event to deduct online balance and add to offline balance
+      DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     } catch (err) {
       console.error('Failed to log load offline funds transaction:', err);
+      return;
     }
 
-    // Emit event to deduct online balance and add to offline balance
-    DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     navigation.goBack();
   };
 
