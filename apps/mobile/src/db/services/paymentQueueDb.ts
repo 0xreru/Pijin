@@ -177,6 +177,7 @@ export async function markSynced(
       .where(eq(paymentQueue.id, id));
   } catch (error) {
     console.error('[paymentQueueDb] Failed to mark item synced:', error);
+    throw error;
   }
 }
 
