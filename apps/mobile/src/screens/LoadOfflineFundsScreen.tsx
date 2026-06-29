@@ -180,21 +180,23 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
     setModalVisible(false);
     
     try {
-      const { addTransaction } = require('../db/services/transactionDb');
-      await addTransaction({
-        title: 'Online to Offline Transfer',
-        amount: -numericVal,
-        type: 'transfer',
-        tag: 'WALLET',
-        description: `Moved ₱${numericVal.toFixed(2)} from online wallet to offline vault.`,
-      });
-      await addTransaction({
-        title: 'Received from Online Wallet',
-        amount: numericVal,
-        type: 'transfer',
-        tag: 'OFFLINE',
-        description: `Received ₱${numericVal.toFixed(2)} from online wallet.`,
-      });
+      const { addTransactions } = require('../db/services/transactionDb');
+      await addTransactions([
+        {
+          title: 'Online to Offline Transfer',
+          amount: -numericVal,
+          type: 'transfer',
+          tag: 'WALLET',
+          description: `Moved ₱${numericVal.toFixed(2)} from online wallet to offline vault.`,
+        },
+        {
+          title: 'Received from Online Wallet',
+          amount: numericVal,
+          type: 'transfer',
+          tag: 'OFFLINE',
+          description: `Received ₱${numericVal.toFixed(2)} from online wallet.`,
+        },
+      ]);
       // Emit event to deduct online balance and add to offline balance
       DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     } catch (err) {

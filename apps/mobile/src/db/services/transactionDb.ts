@@ -88,6 +88,42 @@ export async function addTransaction(
 }
 
 /**
+ * Inserts multiple transaction rows atomically within a single database transaction.
+ * Automatically generates id, dateGroup, timeAgo, subtitle, and createdAt.
+ */
+export async function addTransactions(
+  txs: Omit<StoredTransaction, 'id' | 'createdAt' | 'dateGroup' | 'timeAgo' | 'subtitle'>[]
+): Promise<StoredTransaction[]> {
+  try {
+    const now = new Date();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateGroup = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2, '0')}, ${now.getFullYear()}`;
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    return await db.transaction(async (trx) => {
+      const insertedRows: StoredTransaction[] = [];
+      for (const tx of txs) {
+        const newRow: NewTransactionRow = {
+          ...tx,
+          id:        `TX-${Math.floor(100000000000 + Math.random() * 900000000000)}`,
+          dateGroup,
+          timeAgo:   'Just now',
+          subtitle:  `Today, ${timeStr}`,
+          createdAt: now.toISOString(),
+        };
+        await trx.insert(transactions).values(newRow);
+        insertedRows.push(newRow as StoredTransaction);
+      }
+      return insertedRows;
+    });
+  } catch (error) {
+    console.error('[transactionDb] Failed to add transactions atomically:', error);
+    throw error;
+  }
+}
+
+
+/**
  * Saves a full array of transactions, replacing whatever is currently stored.
  * Used for seeding default data on first launch.
  */
