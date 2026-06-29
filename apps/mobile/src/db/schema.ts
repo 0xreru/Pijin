@@ -60,7 +60,7 @@ export const paymentQueue = sqliteTable('payment_queue', {
    *
    * Rule: NEVER regenerate the nonce after initial creation.
    */
-  nonce: text('nonce').notNull(),
+  nonce: text('nonce').notNull().unique(),
 
   // ── Settlement payload (mirrors Prisma Settlement model) ────────────────
   /** PHP amount — backend converts to Stellar stroops (7-decimal BigInt) */
