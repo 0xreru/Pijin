@@ -60,6 +60,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const [isChecked, setIsChecked] = useState(false);
   const isCheckedRef = useRef(false);
   const [isOnlineMode, setIsOnlineMode] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     const checkState = async () => {
@@ -168,6 +169,8 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   };
 
   const handleBackToHome = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     setSuccessVisible(false);
     
     const { addTransaction } = require('../db/services/transactionDb');
@@ -182,6 +185,8 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         });
       } catch (err) {
         console.error('Failed to log online transaction:', err);
+      } finally {
+        setIsProcessing(false);
       }
       DeviceEventEmitter.emit('ON_SEND_MONEY_ONLINE', total);
       navigation.navigate('Dashboard');
@@ -224,6 +229,8 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
       } catch (err) {
         console.error('Failed to build offline voucher:', err);
         navigation.navigate('Dashboard');
+      } finally {
+        setIsProcessing(false);
       }
     }
   };

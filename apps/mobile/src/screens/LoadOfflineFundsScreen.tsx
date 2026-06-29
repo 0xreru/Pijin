@@ -35,6 +35,7 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
   const [formattedAmount, setFormattedAmount] = useState('0.00');
   const [isLoading, setIsLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [txId] = useState(() => {
     // Generate a random 16-digit transaction ID
     let id = '';
@@ -174,6 +175,8 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
   };
 
   const handleBackToHome = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     setModalVisible(false);
     
     try {
@@ -196,9 +199,11 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
       DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     } catch (err) {
       console.error('Failed to log load offline funds transaction:', err);
+      setIsProcessing(false);
       return;
     }
 
+    setIsProcessing(false);
     navigation.goBack();
   };
 
