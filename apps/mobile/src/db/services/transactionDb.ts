@@ -130,10 +130,12 @@ export async function addTransactions(
 export async function saveTransactions(txs: StoredTransaction[]): Promise<void> {
   try {
     // SQLite has no upsert-all shortcut; delete + re-insert is simplest for seeding.
-    await db.delete(transactions);
-    if (txs.length > 0) {
-      await db.insert(transactions).values(txs as NewTransactionRow[]);
-    }
+    await db.transaction(async (trx) => {
+      await trx.delete(transactions);
+      if (txs.length > 0) {
+        await trx.insert(transactions).values(txs as NewTransactionRow[]);
+      }
+    });
   } catch (error) {
     console.error('[transactionDb] Failed to save transactions:', error);
     throw error;
