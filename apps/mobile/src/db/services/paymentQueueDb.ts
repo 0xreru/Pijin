@@ -111,9 +111,11 @@ function generateUUID(): string {
  * Accepts the existing OfflinePaymentPayload type for backwards compatibility.
  */
 export async function enqueuePayment(
-  payload: OfflinePaymentPayload
+  payload: OfflinePaymentPayload,
+  trx?: any
 ): Promise<PaymentQueueRow> {
   try {
+    const client = trx || db;
     const nonce = generateUUID();
 
     const newRow: NewPaymentQueueRow = {
@@ -137,9 +139,9 @@ export async function enqueuePayment(
       txHash:          null,
     };
 
-    await db.insert(paymentQueue).values(newRow);
+    await client.insert(paymentQueue).values(newRow);
 
-    const inserted = await db
+    const inserted = await client
       .select()
       .from(paymentQueue)
       .where(eq(paymentQueue.id, newRow.id));

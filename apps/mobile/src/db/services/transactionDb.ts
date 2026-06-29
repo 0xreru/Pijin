@@ -62,9 +62,11 @@ export async function loadTransactions(): Promise<StoredTransaction[]> {
  * timeAgo, subtitle, and createdAt — same behaviour as the AsyncStorage version.
  */
 export async function addTransaction(
-  tx: Omit<StoredTransaction, 'id' | 'createdAt' | 'dateGroup' | 'timeAgo' | 'subtitle'>
+  tx: Omit<StoredTransaction, 'id' | 'createdAt' | 'dateGroup' | 'timeAgo' | 'subtitle'>,
+  trx?: any
 ): Promise<StoredTransaction> {
   try {
+    const client = trx || db;
     const now = new Date();
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const dateGroup = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2, '0')}, ${now.getFullYear()}`;
@@ -79,7 +81,7 @@ export async function addTransaction(
       createdAt: now.toISOString(),
     };
 
-    await db.insert(transactions).values(newRow);
+    await client.insert(transactions).values(newRow);
     return newRow as StoredTransaction;
   } catch (error) {
     console.error('[transactionDb] Failed to add transaction:', error);

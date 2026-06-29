@@ -17,6 +17,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SMS_GATEWAY_NUMBER } from '../constants/api';
+import { db } from '../db/client';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { addTransaction } from '../db/services/transactionDb';
 
@@ -28,9 +29,8 @@ export function TransportChoiceScreen({ route, navigation }: any) {
   const hasCommittedRef = React.useRef(false);
   const [isWaitingForSmsReturn, setIsWaitingForSmsReturn] = React.useState(false);
 
-  const commitOfflineTransaction = async () => {
-    if (hasCommittedRef.current) return;
-    hasCommittedRef.current = true;
+  const commitOfflineTransaction = async (): Promise<boolean> => {
+    if (hasCommittedRef.current) return true;
 
     const payload = route.params?.payload;
     const amount = route.params?.amount ?? 0;
@@ -41,23 +41,28 @@ export function TransportChoiceScreen({ route, navigation }: any) {
 
     if (!payload) {
       console.warn('[TransportChoice] No offline payload provided to commit.');
-      return;
+      return false;
     }
 
     try {
-      await enqueuePayment(payload);
-      
-      await addTransaction({
-        title: `Paid to ${recipientName} (Offline)`,
-        amount: -total,
-        type: 'outgoing',
-        tag: 'OFFLINE',
-        description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
+      await db.transaction(async (trx) => {
+        await enqueuePayment(payload, trx);
+        
+        await addTransaction({
+          title: `Paid to ${recipientName} (Offline)`,
+          amount: -total,
+          type: 'outgoing',
+          tag: 'OFFLINE',
+          description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
+        }, trx);
       });
 
+      hasCommittedRef.current = true;
       DeviceEventEmitter.emit('ON_SEND_MONEY_OFFLINE', total);
+      return true;
     } catch (err) {
       console.error('[TransportChoice] Failed to commit offline payment:', err);
+      return false;
     }
   };
 
@@ -82,8 +87,12 @@ export function TransportChoiceScreen({ route, navigation }: any) {
             {
               text: 'Yes, I Sent It',
               onPress: async () => {
-                await commitOfflineTransaction();
-                navigation.navigate('Dashboard');
+                const success = await commitOfflineTransaction();
+                if (success) {
+                  navigation.navigate('Dashboard');
+                } else {
+                  Alert.alert('Error', 'Failed to save the offline transaction locally. Please try again.');
+                }
               }
             }
           ],
@@ -117,12 +126,15 @@ export function TransportChoiceScreen({ route, navigation }: any) {
         });
     } else {
       // For QR-based choices (scan_me, relay), we commit immediately as the voucher is generated and shown
-      await commitOfflineTransaction();
-
-      if (choice === 'scan_me') {
-        navigation.navigate('GenerateQR', { mode: 'receiver', qrData });
-      } else if (choice === 'relay') {
-        navigation.navigate('GenerateQR', { mode: 'relay', qrData });
+      const success = await commitOfflineTransaction();
+      if (success) {
+        if (choice === 'scan_me') {
+          navigation.navigate('GenerateQR', { mode: 'receiver', qrData });
+        } else if (choice === 'relay') {
+          navigation.navigate('GenerateQR', { mode: 'relay', qrData });
+        }
+      } else {
+        Alert.alert('Error', 'Failed to save the offline transaction locally. Please try again.');
       }
     }
   };
