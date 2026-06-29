@@ -32,6 +32,7 @@ import type { PaymentQueueRow } from '../db/schema';
 import { addTransaction } from '../db/services/transactionDb';
 import { loadStoredAccount } from './storage/accountStorage';
 import { getUserSettlements } from './api/transactions';
+import { getApiBaseUrl } from '../constants/api';
 
 // ---------------------------------------------------------------------------
 // Backend integration point
@@ -39,48 +40,36 @@ import { getUserSettlements } from './api/transactions';
 
 /**
  * Sends a single queued payment to the backend Settlement endpoint.
- *
- * ── CURRENT STATE ──────────────────────────────────────────────────────────
- * The backend API endpoint is not yet implemented. This function throws
- * so that queue items remain in the local SQLite queue (synced = false)
- * and are retried automatically on the next online transition.
- *
- * ── WHEN BACKEND IS READY ──────────────────────────────────────────────────
- * Replace the throw below with the real fetch() call:
- *
- *   const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL;
- *
- *   const res = await fetch(`${API_BASE}/api/settlements`, {
- *     method: 'POST',
- *     headers: { 'Content-Type': 'application/json' },
- *     body: JSON.stringify({
- *       nonce:           item.nonce,           // dedup key — safe to retry
- *       senderShortId:   item.customerShortId,
- *       receiverShortId: item.merchantShortId,
- *       relayerAddress:  item.relayerAddress ?? null,
- *       tokenSymbol:     item.tokenSymbol,
- *       amountPhp:       item.amount,          // backend converts to stroops
- *       smsBody:         item.smsBody,
- *     }),
- *   });
- *
- *   if (res.status === 409) {
- *     // Nonce already processed — treat as success (idempotent)
- *     return { txHash: null, status: 'SETTLED' };
- *   }
- *
- *   if (!res.ok) {
- *     throw new Error(`Backend returned HTTP ${res.status}`);
- *   }
- *
- *   const data = await res.json();
- *   return { txHash: data.txHash ?? null, status: data.status ?? 'PENDING' };
  */
 async function postToBackend(
-  _item: PaymentQueueRow
+  item: PaymentQueueRow
 ): Promise<{ txHash: string | null; status: string }> {
-  // TODO: Implement when backend /api/settlements endpoint is available.
-  throw new Error('[SyncService] Backend settlement API not yet configured.');
+  const apiBase = getApiBaseUrl();
+  const res = await fetch(`${apiBase}/api/settlements`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      nonce:           item.nonce,           // dedup key — safe to retry
+      senderShortId:   item.customerShortId,
+      receiverShortId: item.merchantShortId,
+      relayerAddress:  item.relayerAddress ?? null,
+      tokenSymbol:     item.tokenSymbol,
+      amountPhp:       item.amount,          // backend converts to stroops
+      smsBody:         item.smsBody,
+    }),
+  });
+
+  if (res.status === 409) {
+    // Nonce already processed — treat as success (idempotent)
+    return { txHash: null, status: 'SETTLED' };
+  }
+
+  if (!res.ok) {
+    throw new Error(`Backend returned HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  return { txHash: data.txHash ?? null, status: data.status ?? 'PENDING' };
 }
 
 // ---------------------------------------------------------------------------
