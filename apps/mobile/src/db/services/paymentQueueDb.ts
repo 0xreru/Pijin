@@ -144,6 +144,10 @@ export async function enqueuePayment(
       .from(paymentQueue)
       .where(eq(paymentQueue.id, newRow.id));
 
+    if (!inserted || inserted.length === 0) {
+      throw new Error(`Failed to retrieve enqueued payment with ID: ${newRow.id}`);
+    }
+
     return inserted[0];
   } catch (error) {
     console.error('[paymentQueueDb] Failed to enqueue payment:', error);
