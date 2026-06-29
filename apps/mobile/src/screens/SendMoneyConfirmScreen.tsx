@@ -463,101 +463,107 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         onRequestClose={handleBackToHome}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { maxHeight: '90%' }]}>
             {/* Close Button */}
-            <TouchableOpacity onPress={handleBackToHome} style={styles.closeModalButton} activeOpacity={0.7}>
+            <TouchableOpacity onPress={handleBackToHome} style={[styles.closeModalButton, { zIndex: 10 }]} activeOpacity={0.7}>
               <Ionicons name="close-outline" size={24} color="#6B7280" />
             </TouchableOpacity>
 
-            {/* Mascot Image */}
-            <Image
-              source={require('../../assets/success/piji-success.png')}
-              style={styles.successImage}
-              resizeMode="contain"
-            />
+            <ScrollView 
+              style={{ width: '100%' }}
+              contentContainerStyle={{ alignItems: 'center', paddingTop: 12 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Mascot Image */}
+              <Image
+                source={require('../../assets/success/piji-success.png')}
+                style={styles.successImage}
+                resizeMode="contain"
+              />
 
-            {/* Success Info */}
-            <Text style={styles.successTitle}>
-              {isOnlineMode ? 'Transaction Success' : 'Offline Voucher Created'}
-            </Text>
-            <Text style={styles.successDesc}>
-              {isOnlineMode
-                ? 'Funds have been transferred and settled\ninstantly via Stellar.'
-                : 'Your offline payment voucher is ready.\nSelect your dispatch method to proceed.'}
-            </Text>
-
-            {/* Receipt Ticket Box */}
-            <View style={styles.receiptTicket}>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Recipient</Text>
-                <Text style={styles.ticketValue}>{recipientName}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Short ID</Text>
-                <Text style={styles.ticketValue}>{recipientShortId}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Amount sent</Text>
-                <Text style={styles.ticketValue}>₱{formatCurrency(amount)}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Service Fee</Text>
-                <Text style={styles.ticketValue}>₱{formatCurrency(fee)}</Text>
-              </View>
-              {isOnlineMode ? (
-                <>
-                  <View style={styles.ticketRow}>
-                    <Text style={styles.ticketLabel}>Ref. Number</Text>
-                    <Text style={styles.ticketIdValue}>{txId}</Text>
-                  </View>
-                  <View style={styles.ticketRow}>
-                    <Text style={styles.ticketLabel}>Stellar Ledger</Text>
-                    <Text style={styles.ticketValue}>#{ledgerNum}</Text>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <View style={styles.ticketRow}>
-                    <Text style={styles.ticketLabel}>Ref. Number</Text>
-                    <Text style={styles.ticketValue}>Pending Dispatch</Text>
-                  </View>
-                  <View style={styles.ticketRow}>
-                    <Text style={styles.ticketLabel}>Stellar Ledger</Text>
-                    <Text style={styles.ticketValue}>Pending Dispatch</Text>
-                  </View>
-                </>
-              )}
-
-              <View style={styles.ticketSeparator} />
-
-              {/* Barcode representation */}
-              <View style={styles.barcodeWrapper}>
-                <Barcode />
-                <Text style={styles.barcodeLabel}>{txId}</Text>
-              </View>
-
-              {/* Scalloped border decorations */}
-              <View style={styles.scallopsWrapper}>
-                {Array.from({ length: 22 }).map((_, i) => (
-                  <Svg key={i} width={18} height={10} viewBox="0 0 18 10" style={styles.scallopSvg}>
-                    <Path
-                      d="M 0 10 A 9 9 0 0 1 18 10"
-                      fill="#04295A"
-                      stroke="#04295A"
-                      strokeWidth={1.5}
-                    />
-                  </Svg>
-                ))}
-              </View>
-            </View>
-
-            {/* Back to Dashboard / Dispatch Button */}
-            <TouchableOpacity onPress={handleBackToHome} style={styles.backHomeButton} activeOpacity={0.9}>
-              <Ionicons name="arrow-undo-outline" size={18} color="#FFFFFF" style={styles.backHomeIcon} />
-              <Text style={styles.backHomeButtonText}>
-                {isOnlineMode ? 'Back to Dashboard' : 'Select Dispatch Method'}
+              {/* Success Info */}
+              <Text style={styles.successTitle}>
+                {isOnlineMode ? 'Transaction Success' : 'Offline Voucher Created'}
               </Text>
-            </TouchableOpacity>
+              <Text style={styles.successDesc}>
+                {isOnlineMode
+                  ? 'Funds have been transferred and settled\ninstantly via Stellar.'
+                  : 'Your offline payment voucher is ready.\nSelect your dispatch method to proceed.'}
+              </Text>
+
+              {/* Receipt Ticket Box */}
+              <View style={styles.receiptTicket}>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Recipient</Text>
+                  <Text style={styles.ticketValue}>{recipientName}</Text>
+                </View>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Short ID</Text>
+                  <Text style={styles.ticketValue}>{recipientShortId}</Text>
+                </View>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Amount sent</Text>
+                  <Text style={styles.ticketValue}>₱{formatCurrency(amount)}</Text>
+                </View>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Service Fee</Text>
+                  <Text style={styles.ticketValue}>₱{formatCurrency(fee)}</Text>
+                </View>
+                {isOnlineMode ? (
+                  <>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Ref. Number</Text>
+                      <Text style={styles.ticketIdValue}>{txId}</Text>
+                    </View>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Stellar Ledger</Text>
+                      <Text style={styles.ticketValue}>#{ledgerNum}</Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Ref. Number</Text>
+                      <Text style={styles.ticketValue}>Pending Dispatch</Text>
+                    </View>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Stellar Ledger</Text>
+                      <Text style={styles.ticketValue}>Pending Dispatch</Text>
+                    </View>
+                  </>
+                )}
+
+                <View style={styles.ticketSeparator} />
+
+                {/* Barcode representation */}
+                <View style={styles.barcodeWrapper}>
+                  <Barcode />
+                  <Text style={styles.barcodeLabel}>{txId}</Text>
+                </View>
+
+                {/* Scalloped border decorations */}
+                <View style={styles.scallopsWrapper}>
+                  {Array.from({ length: 22 }).map((_, i) => (
+                    <Svg key={i} width={18} height={10} viewBox="0 0 18 10" style={styles.scallopSvg}>
+                      <Path
+                        d="M 0 10 A 9 9 0 0 1 18 10"
+                        fill="#04295A"
+                        stroke="#04295A"
+                        strokeWidth={1.5}
+                      />
+                    </Svg>
+                  ))}
+                </View>
+              </View>
+
+              {/* Back to Dashboard / Dispatch Button */}
+              <TouchableOpacity onPress={handleBackToHome} style={styles.backHomeButton} activeOpacity={0.9}>
+                <Ionicons name="arrow-undo-outline" size={18} color="#FFFFFF" style={styles.backHomeIcon} />
+                <Text style={styles.backHomeButtonText}>
+                  {isOnlineMode ? 'Back to Dashboard' : 'Select Dispatch Method'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>

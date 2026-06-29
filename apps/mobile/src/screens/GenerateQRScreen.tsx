@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import QRCode from 'react-native-qrcode-svg';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
+import { connectionService } from '../services/connectionService';
 import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 
@@ -25,6 +26,15 @@ export function GenerateQRScreen({ route, navigation }: any) {
   const { activeAccount } = useAuth();
   const mode = route.params?.mode || 'receiver';
   const qrData = route.params?.qrData || '';
+
+  const [isOnline, setIsOnline] = useState(connectionService.currentState.isOnlineMode);
+
+  useEffect(() => {
+    const subscription = connectionService.state$.subscribe((state) => {
+      setIsOnline(state.isOnlineMode);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const qrRef = useRef<any>(null);
   const cardRef = useRef<View>(null);
@@ -81,7 +91,7 @@ export function GenerateQRScreen({ route, navigation }: any) {
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
       <StatusBar barStyle="dark-content" />
       
-      <ConnectionWatcher navigation={navigation} currentMode={mode === 'receiver' ? 'online' : 'offline'} />
+      <ConnectionWatcher navigation={navigation} currentMode={(isOnline && mode === 'receiver') ? 'online' : 'offline'} />
       
       {/* Header */}
       <View style={styles.headerRow}>
