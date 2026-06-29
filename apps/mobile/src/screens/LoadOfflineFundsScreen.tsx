@@ -35,6 +35,7 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
   const [formattedAmount, setFormattedAmount] = useState('0.00');
   const [isLoading, setIsLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const isProcessingRef = useRef(false);
   const [txId] = useState(() => {
     // Generate a random 16-digit transaction ID
     let id = '';
@@ -174,32 +175,36 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
   };
 
   const handleBackToHome = async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
     setModalVisible(false);
     
     try {
-      const { addTransaction } = require('../services/storage/transactionStorage');
-      await addTransaction({
-        title: 'Online to Offline Transfer',
-        subtitle: 'Today',
-        amount: -numericVal,
-        type: 'transfer',
-        tag: 'WALLET',
-        description: `Moved ₱${numericVal.toFixed(2)} from online wallet to offline vault.`,
-      });
-      await addTransaction({
-        title: 'Received from Online Wallet',
-        subtitle: 'Today',
-        amount: numericVal,
-        type: 'transfer',
-        tag: 'OFFLINE',
-        description: `Received ₱${numericVal.toFixed(2)} from online wallet.`,
-      });
+      const { addTransactions } = require('../db/services/transactionDb');
+      await addTransactions([
+        {
+          title: 'Online to Offline Transfer',
+          amount: -numericVal,
+          type: 'transfer',
+          tag: 'WALLET',
+          description: `Moved ₱${numericVal.toFixed(2)} from online wallet to offline vault.`,
+        },
+        {
+          title: 'Received from Online Wallet',
+          amount: numericVal,
+          type: 'transfer',
+          tag: 'OFFLINE',
+          description: `Received ₱${numericVal.toFixed(2)} from online wallet.`,
+        },
+      ]);
+      // Emit event to deduct online balance and add to offline balance
+      DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     } catch (err) {
       console.error('Failed to log load offline funds transaction:', err);
+    } finally {
+      isProcessingRef.current = false;
     }
 
-    // Emit event to deduct online balance and add to offline balance
-    DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
     navigation.goBack();
   };
 

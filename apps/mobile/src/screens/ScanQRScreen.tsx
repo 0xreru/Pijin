@@ -18,8 +18,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
-import { loadStoredAccount } from '../services/storage/accountStorage';
-import { appendToOfflinePaymentsQueue } from '../services/storage/paymentQueueStorage';
+import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -68,7 +67,7 @@ export function ScanQRScreen({ navigation }: any) {
     return () => animation.stop();
   }, []);
 
-  const handleBarCodeScanned = ({ data }: { data: string }) => {
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
     if (scanned || !isFocused) return;
     setScanned(true);
 
@@ -79,27 +78,25 @@ export function ScanQRScreen({ navigation }: any) {
         const { parseOfflinePaymentPayload } = require('../utils/offlinePaymentPayload');
         const parsed = parseOfflinePaymentPayload(data);
         
-        const { addTransaction } = require('../services/storage/transactionStorage');
-        addTransaction({
+        const { addTransaction } = require('../db/services/transactionDb');
+        await addTransaction({
           title: `Scanned Payment from ${parsed.customerShortId}`,
-          subtitle: 'Today',
           amount: parsed.amount,
           type: 'incoming',
           tag: 'OFFLINE',
           description: `Scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. Awaiting sync to Stellar network.`,
-        }).catch((err: any) => console.error('Failed to log scanned transaction:', err));
-
-        appendToOfflinePaymentsQueue(parsed).then(() => {
-          DeviceEventEmitter.emit('TRANSACTIONS_UPDATED');
-          Alert.alert(
-            'Relay Voucher Scanned',
-            `Successfully scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. It has been added to your queue and will sync to the Stellar network.`,
-            [{ text: 'OK', onPress: () => navigation.navigate('Dashboard') }]
-          );
         });
+
+        await enqueuePayment(parsed);
+
+        Alert.alert(
+          'Relay Voucher Scanned',
+          `Successfully scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. It has been added to your queue and will sync to the Stellar network.`,
+          [{ text: 'OK', onPress: () => navigation.navigate('Dashboard') }]
+        );
       } catch (err: any) {
-        Alert.alert('Scan Error', err.message || 'Invalid signed voucher scanned.');
         setScanned(false);
+        Alert.alert('Scan Error', err.message || 'Invalid signed voucher scanned.');
       }
     } else {
       // Receiver Short ID or standard prefilled format

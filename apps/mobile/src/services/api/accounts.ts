@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { isPhoneRegistered } from '../storage/onboardingStorage';
 
 export type AccountRole = 'CUSTOMER' | 'MERCHANT';
 
@@ -44,4 +45,19 @@ export async function registerAccount(input: {
   });
 
   return result.data;
+}
+
+type CheckUserResponse = { exists: boolean };
+
+/**
+ * Checks whether a phone number is already registered.
+ * @param phone - 10-digit local number (no country code), e.g. "9123456789"
+ *
+ * TODO: Replace body with real call once backend endpoint is ready:
+ *   return apiRequest<CheckUserResponse>(`/api/users/check?phone=63${phone}`);
+ */
+export async function checkUserExists(phone: string): Promise<CheckUserResponse> {
+  // Local mock — checks the on-device registry populated by saveRegisteredPhone().
+  const exists = await isPhoneRegistered(phone);
+  return { exists };
 }

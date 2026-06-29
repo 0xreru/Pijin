@@ -2,6 +2,7 @@ import { apiRequest } from './client';
 
 export type SettlementRecord = {
   id: number;
+  nonce: string;
   customerShortId: string;
   merchantShortId: string;
   amountPhp: string;
@@ -15,12 +16,16 @@ type TransactionsResponse = {
   data: SettlementRecord[];
 };
 
-export async function getMerchantSettlements(
-  merchantShortId: string
+export async function getUserSettlements(
+  shortId: string
 ): Promise<SettlementRecord[]> {
-  const query = new URLSearchParams({ merchantShortId });
+  const query = new URLSearchParams({ shortId });
   const result = await apiRequest<TransactionsResponse>(
     `/api/transactions?${query.toString()}`
   );
+  if (!result || result.success !== true) {
+    throw new Error('[getUserSettlements] API responded with success: false');
+  }
   return result.data;
 }
+

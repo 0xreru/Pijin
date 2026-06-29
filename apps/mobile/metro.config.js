@@ -7,12 +7,18 @@ const config = getDefaultConfig(__dirname);
 // Metro (EAS/Android) often fails on package.json "exports" subpaths.
 config.resolver.unstable_enablePackageExports = false;
 
-const stellarSdkRoot = path.join(
-  __dirname,
-  'node_modules',
-  '@stellar',
-  'stellar-sdk'
-);
+function resolvePackageRoot(packageName) {
+  const mainPath = require.resolve(packageName);
+  let dir = path.dirname(mainPath);
+  const targetFolder = packageName.includes('/') ? packageName.split('/').pop() : packageName;
+  while (path.basename(dir) !== targetFolder && dir !== path.dirname(dir)) {
+    dir = path.dirname(dir);
+  }
+  return dir;
+}
+
+const stellarSdkRoot = resolvePackageRoot('@stellar/stellar-sdk');
+const reactNativeSvgRoot = resolvePackageRoot('react-native-svg');
 
 const stellarFull = path.join(stellarSdkRoot, 'lib');
 
@@ -33,7 +39,7 @@ const stellarAliases = {
   // NativeSvgViewModule.ts which calls TurboModuleRegistry.getEnforcing() at module
   // load time — crashing Expo Go before any screen renders. The compiled build uses
   // lazy Object.defineProperty getters that are safe to load without a native binary.
-  'react-native-svg': path.join(__dirname, 'node_modules', 'react-native-svg', 'lib', 'commonjs', 'index.js'),
+  'react-native-svg': path.join(reactNativeSvgRoot, 'lib', 'commonjs', 'index.js'),
 };
 
 const defaultResolveRequest = config.resolver.resolveRequest;
