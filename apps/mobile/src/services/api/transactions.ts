@@ -23,6 +23,9 @@ export async function getUserSettlements(
   const result = await apiRequest<TransactionsResponse>(
     `/api/transactions?${query.toString()}`
   );
+  if (!result || result.success !== true) {
+    throw new Error('[getUserSettlements] API responded with success: false');
+  }
   return result.data;
 }
 
