@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { runMigrations } from './src/db/migrations';
 import { syncService } from './src/services/syncService';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -103,19 +103,24 @@ function AppContent({
 export default function App() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   const [fontLoadTimedOut, setFontLoadTimedOut] = useState(false);
+  const isMountedRef = useRef(true);
 
   // Initialize the SQLite database and start the RxJS sync service.
   // runMigrations() is idempotent — safe to run on every app launch.
   useEffect(() => {
+    isMountedRef.current = true;
     runMigrations()
       .then(() => {
-        syncService.start();
+        if (isMountedRef.current) {
+          syncService.start();
+        }
       })
       .catch(err => {
         console.error('[App] DB initialization failed:', err);
       });
 
     return () => {
+      isMountedRef.current = false;
       syncService.stop();
     };
   }, []);
