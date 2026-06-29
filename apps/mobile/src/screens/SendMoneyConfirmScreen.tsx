@@ -504,14 +504,29 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
                 <Text style={styles.ticketLabel}>Service Fee</Text>
                 <Text style={styles.ticketValue}>₱{formatCurrency(fee)}</Text>
               </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Ref. Number</Text>
-                <Text style={styles.ticketIdValue}>{txId}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Stellar Ledger</Text>
-                <Text style={styles.ticketValue}>#{ledgerNum}</Text>
-              </View>
+              {isOnlineMode ? (
+                <>
+                  <View style={styles.ticketRow}>
+                    <Text style={styles.ticketLabel}>Ref. Number</Text>
+                    <Text style={styles.ticketIdValue}>{txId}</Text>
+                  </View>
+                  <View style={styles.ticketRow}>
+                    <Text style={styles.ticketLabel}>Stellar Ledger</Text>
+                    <Text style={styles.ticketValue}>#{ledgerNum}</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.ticketRow}>
+                    <Text style={styles.ticketLabel}>Ref. Number</Text>
+                    <Text style={styles.ticketValue}>Pending Dispatch</Text>
+                  </View>
+                  <View style={styles.ticketRow}>
+                    <Text style={styles.ticketLabel}>Stellar Ledger</Text>
+                    <Text style={styles.ticketValue}>Pending Dispatch</Text>
+                  </View>
+                </>
+              )}
 
               <View style={styles.ticketSeparator} />
 
