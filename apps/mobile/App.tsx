@@ -14,7 +14,7 @@ import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScre
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 
 type RootStackParamList = {
-  Onboarding: { initialStep?: number } | undefined;
+  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 } | undefined;
   SignIn: undefined;
   Dashboard: undefined;
   TransactionReceipt: { transaction: any };

@@ -6,8 +6,6 @@ import {
   Image,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
   SafeAreaView,
   Alert,
   Dimensions,
@@ -16,13 +14,23 @@ import {
   UIManager,
   Animated,
   BackHandler,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppButton } from '../components/ui/AppButton';
 import { AppPinInput } from '../components/ui/AppPinInput';
-import { setOnboardingComplete, saveUserPin, saveUserPhone } from '../services/storage/onboardingStorage';
+import {
+  setOnboardingComplete,
+  saveUserPin,
+  saveUserPhone,
+  saveUserFirstName,
+  saveUserLastName,
+  saveUserEmail,
+  saveRegisteredPhone,
+} from '../services/storage/onboardingStorage';
+import { checkUserExists } from '../services/api/accounts';
 import { StatusBar } from 'expo-status-bar';
 
 // Enable LayoutAnimation on Android
@@ -35,8 +43,10 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const ONBOARDING_DARK_BLUE = '#031634';
 const ONBOARDING_LIGHT_GRAY = '#EDEDED';
 
+type UserFlowType = 'new' | 'returning' | null;
+
 type RootStackParamList = {
-  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 } | undefined;
+  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 } | undefined;
   SignIn: undefined;
   Dashboard: undefined;
 };
@@ -48,18 +58,28 @@ export function OnboardingScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'Onboarding'>>();
   const scrollViewRef = useRef<ScrollView>(null);
   
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
   const [maxAllowedStep, setMaxAllowedStep] = useState<number>(1);
+  const [userFlowType, setUserFlowType] = useState<UserFlowType>(null);
+  const [isCheckingUser, setIsCheckingUser] = useState(false);
 
-  // Focus States to hide illustrations during input
-  const [isPhoneFocused, setIsPhoneFocused] = useState(false);
-  const [isOtpFocused, setIsOtpFocused] = useState(false);
-  const [isPinFocused, setIsPinFocused] = useState(false);
 
-  // Form States
+  // Phone form
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phoneError, setPhoneError] = useState('');
+
+  // OTP
   const [otp, setOtp] = useState('');
+
+  // Name & Info (new users only)
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [firstNameError, setFirstNameError] = useState('');
+  const [lastNameError, setLastNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+
+  // PIN
   const [pin, setPin] = useState('');
 
   // Animated value tracking the active step (1 to 5) for dots animation
@@ -86,47 +106,30 @@ export function OnboardingScreen() {
     }
   }, [route.params?.initialStep]);
 
-  // Intercept native back button on Android to navigate back through onboarding steps
+  // Intercept native back button on Android
   useEffect(() => {
     const backAction = () => {
       if (step > 1) {
+        if (step === 3) setUserFlowType(null);
         navigateToStep((step - 1) as any);
-        return true; // block default behavior (exiting the app)
+        return true;
       }
-      return false; // default behavior (exit app)
+      return false;
     };
-
-    const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
-      backAction
-    );
-
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [step]);
+  }, [step, userFlowType]);
 
-  const isDark = step === 1 || step === 3 || step === 5;
+  // Slides 1, 3, 6 are dark; 2, 4, 5 are light
+  const isDark = step === 1 || step === 3 || step === 6;
 
-  const handleFocusChange = (focused: boolean, type: 'phone' | 'otp' | 'pin') => {
-    // Smoothly animate the layout resizing when keyboard is shown/hidden
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    if (type === 'phone') {
-      setIsPhoneFocused(focused);
-    } else if (type === 'otp') {
-      setIsOtpFocused(focused);
-    } else if (type === 'pin') {
-      setIsPinFocused(focused);
-    }
-  };
 
-  const navigateToStep = (targetStep: 1 | 2 | 3 | 4 | 5) => {
+  const navigateToStep = (targetStep: 1 | 2 | 3 | 4 | 5 | 6) => {
     if (targetStep > maxAllowedStep) {
       setMaxAllowedStep(targetStep);
     }
-    
-    // Smooth transition between steps
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setStep(targetStep);
-    
     setTimeout(() => {
       scrollViewRef.current?.scrollTo({
         x: (targetStep - 1) * SCREEN_WIDTH,
@@ -150,12 +153,19 @@ export function OnboardingScreen() {
       return;
     }
     setPhoneError('');
+    setIsCheckingUser(true);
     try {
       await saveUserPhone(cleanNumber);
+      const { exists } = await checkUserExists(cleanNumber);
+      setUserFlowType(exists ? 'returning' : 'new');
+      navigateToStep(3);
     } catch (e) {
-      console.error('Failed to save phone number:', e);
+      console.error('Failed to check user:', e);
+      setUserFlowType('new');
+      navigateToStep(3);
+    } finally {
+      setIsCheckingUser(false);
     }
-    navigateToStep(3);
   };
 
   const handleOtpContinue = () => {
@@ -163,7 +173,29 @@ export function OnboardingScreen() {
       Alert.alert('Invalid OTP', 'Please enter a 4-digit OTP.');
       return;
     }
-    navigateToStep(4);
+    if (userFlowType === 'returning') {
+      navigation.replace('SignIn');
+    } else {
+      navigateToStep(4);
+    }
+  };
+
+  const handleNameContinue = async () => {
+    let hasError = false;
+    if (!firstName.trim()) { setFirstNameError('Please enter your first name'); hasError = true; }
+    if (!lastName.trim()) { setLastNameError('Please enter your last name'); hasError = true; }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email.trim() || !emailRegex.test(email.trim())) { setEmailError('Please enter a valid email address'); hasError = true; }
+    if (hasError) return;
+    try {
+      await saveUserFirstName(firstName.trim());
+      await saveUserLastName(lastName.trim());
+      await saveUserEmail(email.trim());
+      navigateToStep(5);
+    } catch (e) {
+      console.error('Failed to save user info:', e);
+      Alert.alert('Error', 'Failed to save your information. Please try again.');
+    }
   };
 
   const handlePinConfirm = async () => {
@@ -173,7 +205,7 @@ export function OnboardingScreen() {
     }
     try {
       await saveUserPin(pin);
-      navigateToStep(5);
+      navigateToStep(6);
     } catch (e) {
       console.error(e);
       Alert.alert('Error', 'Failed to secure PIN. Please try again.');
@@ -182,6 +214,9 @@ export function OnboardingScreen() {
 
   const handleEnterPijin = async () => {
     try {
+      // Persist this phone to the local registry so returning-user detection
+      // works correctly when "Switch account" is used in the future.
+      await saveRegisteredPhone(phoneNumber);
       await setOnboardingComplete(true);
       navigation.reset({
         index: 0,
@@ -195,12 +230,14 @@ export function OnboardingScreen() {
 
   const handleBack = () => {
     if (step > 1) {
+      if (step === 3) setUserFlowType(null);
       navigateToStep((step - 1) as any);
     }
   };
 
   const renderBackArrow = () => {
-    if (step === 1) return <View style={styles.backButtonPlaceholder} />;
+    // Hide back button on success slide
+    if (step === 1 || step === 6) return <View style={styles.backButtonPlaceholder} />;
     return (
       <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
         <Ionicons
@@ -213,38 +250,27 @@ export function OnboardingScreen() {
   };
 
   const renderDots = () => {
-    if (step === 1) return null;
+    // No dots on welcome screen or phone entry (flow type not yet determined)
+    if (step <= 2) return null;
+    const dotSteps = userFlowType === 'returning' ? [2, 3] : [2, 3, 4, 5, 6];
+    const dotColor = isDark ? '#FFFFFF' : '#031634';
     return (
       <View style={styles.dotsContainer}>
-        {[2, 3, 4, 5].map((i) => {
-          // Dynamic width animation: active dot stretches to 24, inactive are 8
+        {dotSteps.map((i) => {
           const dotWidth = activeStepAnimated.interpolate({
             inputRange: [i - 1, i, i + 1],
             outputRange: [8, 24, 8],
             extrapolate: 'clamp',
           });
-
-          // Dynamic opacity animation: active dot is 1, inactive dots are translucent (0.35)
           const dotOpacity = activeStepAnimated.interpolate({
             inputRange: [i - 1, i, i + 1],
             outputRange: [0.35, 1, 0.35],
             extrapolate: 'clamp',
           });
-
-          // Theme color logic: white on dark background, dark blue on light background
-          const dotColor = isDark ? '#FFFFFF' : '#031634';
-
           return (
             <Animated.View
               key={i}
-              style={[
-                styles.dot,
-                {
-                  width: dotWidth,
-                  opacity: dotOpacity,
-                  backgroundColor: dotColor,
-                },
-              ]}
+              style={[styles.dot, { width: dotWidth, opacity: dotOpacity, backgroundColor: dotColor }]}
             />
           );
         })}
@@ -255,10 +281,7 @@ export function OnboardingScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: isDark ? ONBOARDING_DARK_BLUE : ONBOARDING_LIGHT_GRAY }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardView}
-      >
+      <View style={styles.keyboardView}>
         {/* Header */}
         <View style={styles.header}>
           {renderBackArrow()}
@@ -320,10 +343,7 @@ export function OnboardingScreen() {
           {/* Slide 2: Enter Phone Number */}
           <View style={styles.slide}>
             {/* Shrink illustration height when focused for smooth keyboard avoidance */}
-            <View style={[
-              styles.illustrationContainer,
-              isPhoneFocused && styles.illustrationContainerCollapsed
-            ]}>
+            <View style={styles.illustrationContainer}>
               <Image
                 source={require('../../assets/onboarding/onboarding-2.png')}
                 style={styles.illustrationImage}
@@ -357,8 +377,6 @@ export function OnboardingScreen() {
                       setPhoneError('');
                     }}
                     maxLength={10}
-                    onFocus={() => handleFocusChange(true, 'phone')}
-                    onBlur={() => handleFocusChange(false, 'phone')}
                   />
                 </View>
               </View>
@@ -366,12 +384,19 @@ export function OnboardingScreen() {
             </View>
 
             <View style={styles.footer}>
-              <AppButton
-                title="Send OTP"
-                onPress={handleSendOtp}
-                variant="primary"
-                icon={<Ionicons name="paper-plane-outline" size={24} color="#FFFFFF" />}
-              />
+              {isCheckingUser ? (
+                <View style={styles.loadingButton}>
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <Text style={styles.loadingButtonText}>Verifying number...</Text>
+                </View>
+              ) : (
+                <AppButton
+                  title="Send OTP"
+                  onPress={handleSendOtp}
+                  variant="primary"
+                  icon={<Ionicons name="paper-plane-outline" size={24} color="#FFFFFF" />}
+                />
+              )}
             </View>
           </View>
 
@@ -391,8 +416,6 @@ export function OnboardingScreen() {
                 onChange={setOtp}
                 theme="dark"
                 length={4}
-                onFocus={() => handleFocusChange(true, 'otp')}
-                onBlur={() => handleFocusChange(false, 'otp')}
               />
 
               <TouchableOpacity style={styles.resendContainer} activeOpacity={0.7}>
@@ -402,10 +425,7 @@ export function OnboardingScreen() {
             </View>
 
             {/* Shrink illustration height when focused for smooth keyboard avoidance */}
-            <View style={[
-              styles.otpIllustrationContainer,
-              isOtpFocused && styles.otpIllustrationContainerCollapsed
-            ]}>
+            <View style={styles.otpIllustrationContainer}>
               <Image
                 source={require('../../assets/onboarding/onboarding-3.png')}
                 style={styles.otpIllustrationImage}
@@ -423,13 +443,78 @@ export function OnboardingScreen() {
             </View>
           </View>
 
-          {/* Slide 4: Secure PIN */}
+          {/* Slide 4: Name & Info (new users only) */}
+          <View style={styles.slide}>
+            <View style={styles.illustrationContainer}>
+              <Image
+                source={require('../../assets/onboarding/onboarding-2.png')}
+                style={styles.illustrationImage}
+                resizeMode="contain"
+              />
+            </View>
+
+            <View style={styles.formContentContainer}>
+              <View style={styles.textContainerLeft}>
+                <Text style={styles.stepTitleLight}>Tell us about you</Text>
+                <Text style={styles.stepSubtitleLight}>
+                  Enter your details to complete registration
+                </Text>
+              </View>
+
+              <View style={styles.infoInputGroup}>
+                <View style={styles.nameRow}>
+                  <View style={styles.nameInputWrapper}>
+                    <TextInput
+                      style={styles.infoInput}
+                      placeholder="First Name"
+                      placeholderTextColor="#9CA3AF"
+                      value={firstName}
+                      onChangeText={(t) => { setFirstName(t); setFirstNameError(''); }}
+                    />
+                  </View>
+                  <View style={styles.nameInputWrapper}>
+                    <TextInput
+                      style={styles.infoInput}
+                      placeholder="Last Name"
+                      placeholderTextColor="#9CA3AF"
+                      value={lastName}
+                      onChangeText={(t) => { setLastName(t); setLastNameError(''); }}
+                    />
+                  </View>
+                </View>
+                {(firstNameError || lastNameError) ? (
+                  <Text style={styles.errorText}>{firstNameError || lastNameError}</Text>
+                ) : null}
+
+                <View style={styles.emailInputWrapper}>
+                  <TextInput
+                    style={styles.infoInput}
+                    placeholder="Email Address"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={email}
+                    onChangeText={(t) => { setEmail(t); setEmailError(''); }}
+                  />
+                </View>
+                {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+              </View>
+            </View>
+
+            <View style={styles.footer}>
+              <AppButton
+                title="Continue"
+                onPress={handleNameContinue}
+                variant="primary"
+                icon={<Ionicons name="arrow-forward" size={24} color="#FFFFFF" />}
+              />
+            </View>
+          </View>
+
+          {/* Slide 5: Secure PIN */}
           <View style={styles.slide}>
             {/* Shrink illustration height when focused for smooth keyboard avoidance */}
-            <View style={[
-              styles.illustrationContainer,
-              isPinFocused && styles.illustrationContainerCollapsed
-            ]}>
+            <View style={styles.illustrationContainer}>
               <Image
                 source={require('../../assets/onboarding/onboarding-4.png')}
                 style={styles.illustrationImage}
@@ -452,8 +537,6 @@ export function OnboardingScreen() {
                 theme="light"
                 length={4}
                 secureTextEntry={true}
-                onFocus={() => handleFocusChange(true, 'pin')}
-                onBlur={() => handleFocusChange(false, 'pin')}
               />
             </View>
 
@@ -497,7 +580,7 @@ export function OnboardingScreen() {
 
         {/* Static Dots Indicator at the bottom */}
         {renderDots()}
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -736,5 +819,50 @@ const styles = StyleSheet.create({
   dot: {
     height: 8,
     borderRadius: 4,
+  },
+  infoInputGroup: {
+    gap: 12,
+    marginTop: 12,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  nameInputWrapper: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#031634',
+    borderRadius: 8,
+    height: 52,
+    justifyContent: 'center',
+  },
+  emailInputWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#031634',
+    borderRadius: 8,
+    height: 52,
+    justifyContent: 'center',
+  },
+  infoInput: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#08090A',
+    paddingHorizontal: 16,
+  },
+  loadingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#031634',
+    borderRadius: 12,
+    height: 56,
+    gap: 10,
+  },
+  loadingButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
