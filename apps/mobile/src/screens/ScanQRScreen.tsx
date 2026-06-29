@@ -67,7 +67,7 @@ export function ScanQRScreen({ navigation }: any) {
     return () => animation.stop();
   }, []);
 
-  const handleBarCodeScanned = ({ data }: { data: string }) => {
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
     if (scanned || !isFocused) return;
     setScanned(true);
 
@@ -79,24 +79,24 @@ export function ScanQRScreen({ navigation }: any) {
         const parsed = parseOfflinePaymentPayload(data);
         
         const { addTransaction } = require('../db/services/transactionDb');
-        addTransaction({
+        await addTransaction({
           title: `Scanned Payment from ${parsed.customerShortId}`,
           amount: parsed.amount,
           type: 'incoming',
           tag: 'OFFLINE',
           description: `Scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. Awaiting sync to Stellar network.`,
-        }).catch((err: any) => console.error('Failed to log scanned transaction:', err));
-
-        enqueuePayment(parsed).then(() => {
-          Alert.alert(
-            'Relay Voucher Scanned',
-            `Successfully scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. It has been added to your queue and will sync to the Stellar network.`,
-            [{ text: 'OK', onPress: () => navigation.navigate('Dashboard') }]
-          );
         });
+
+        await enqueuePayment(parsed);
+
+        Alert.alert(
+          'Relay Voucher Scanned',
+          `Successfully scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. It has been added to your queue and will sync to the Stellar network.`,
+          [{ text: 'OK', onPress: () => navigation.navigate('Dashboard') }]
+        );
       } catch (err: any) {
-        Alert.alert('Scan Error', err.message || 'Invalid signed voucher scanned.');
         setScanned(false);
+        Alert.alert('Scan Error', err.message || 'Invalid signed voucher scanned.');
       }
     } else {
       // Receiver Short ID or standard prefilled format
