@@ -23,7 +23,7 @@ export const transactions = sqliteTable('transactions', {
   id:          text('id').primaryKey(),
   title:       text('title').notNull(),
   subtitle:    text('subtitle').notNull(),
-  amount:      real('amount').notNull(),
+  amount:      integer('amount').notNull(),
 
   /** 'incoming' | 'outgoing' | 'transfer' | 'settlement' */
   type:        text('type').notNull(),
@@ -64,7 +64,7 @@ export const paymentQueue = sqliteTable('payment_queue', {
 
   // ── Settlement payload (mirrors Prisma Settlement model) ────────────────
   /** PHP amount — backend converts to Stellar stroops (7-decimal BigInt) */
-  amount:          real('amount').notNull(),
+  amount:          integer('amount').notNull(),
 
   /** 'PHP' */
   currency:        text('currency').notNull().default('PHP'),

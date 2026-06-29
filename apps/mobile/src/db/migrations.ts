@@ -32,7 +32,7 @@ export async function runMigrations(): Promise<void> {
         id          TEXT    PRIMARY KEY NOT NULL,
         title       TEXT    NOT NULL,
         subtitle    TEXT    NOT NULL,
-        amount      REAL    NOT NULL,
+        amount      INTEGER NOT NULL,
         type        TEXT    NOT NULL,
         tag         TEXT    NOT NULL,
         date_group  TEXT    NOT NULL,
@@ -50,7 +50,7 @@ export async function runMigrations(): Promise<void> {
       CREATE TABLE IF NOT EXISTS payment_queue (
         id                  TEXT    PRIMARY KEY NOT NULL,
         nonce               TEXT    NOT NULL UNIQUE,
-        amount              REAL    NOT NULL,
+        amount              INTEGER NOT NULL,
         currency            TEXT    NOT NULL DEFAULT 'PHP',
         customer_short_id   TEXT    NOT NULL,
         merchant_short_id   TEXT    NOT NULL,
