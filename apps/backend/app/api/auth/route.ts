@@ -210,8 +210,9 @@ export async function GET(request: Request): Promise<Response> {
     );
 
     return NextResponse.json(
-      { transaction: challengeXdr },
-      { status: 200 },
+      { transaction: challengeXdr,
+        network_passphrase: NETWORK_PASSPHRASE
+      },{ status: 200 },
     );
 
   } catch (err: unknown) {
