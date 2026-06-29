@@ -84,3 +84,37 @@ model Settlement {
 
   @@map("settlement")
 }
+
+//Anchor Transaction
+enum AnchorTxType {
+  deposit
+  withdrawal
+}
+
+enum AnchorTxStatus {
+  incomplete
+  pending_user_transfer_start
+  pending_external
+  completed
+  error
+}
+
+model AnchorTransaction {
+  id              String         @id @default(uuid()) // SEP-24 requires string/UUID transaction IDs
+  stellarAccount  String         @map("stellar_account") // The user's G... public key
+  type            AnchorTxType
+  status          AnchorTxStatus @default(incomplete)
+  
+  assetCode       String         @map("asset_code") // "PHPC" or "USDC"
+  amountIn        String?        @map("amount_in") // Fiat amount user wants to deposit
+  amountOut       String?        @map("amount_out") // Crypto amount they will receive (minus fees)
+  amountFee       String?        @map("amount_fee")
+  
+  memo            String?        // For withdrawals (identifying the return transaction)
+  memoType        String?        @map("memo_type") // Usually "hash" or "id"
+  
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@map("anchor_transaction")
+}

@@ -4,11 +4,13 @@ import { prisma } from '@/lib/prisma';
 import { pijinContract } from '@/lib/pijin-contract';
 import { sendSmsNotification } from '@/lib/sms';
 import { Keypair, Address, xdr, nativeToScVal } from '@stellar/stellar-sdk';
+
 // ---------------------------------------------------------------------------
 // Runtime
 // ---------------------------------------------------------------------------
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
 // ---------------------------------------------------------------------------
 // POST /api/engine/settle
 //
@@ -16,7 +18,7 @@ export const dynamic = 'force-dynamic';
 // verifySignatureAppRouter so any request that doesn't carry a valid QStash
 // HMAC signature is rejected before execution.
 //
-// Payload format (v2 - Omni-Vault multi-token):
+// Payload format (v2 - Pijin-Vault multi-token):
 //   tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
 //
 // Happy-path status machine:
@@ -122,8 +124,8 @@ async function handler(req: Request): Promise<Response> {
         });
         return [null, null, null] as const;
     }) as [
-        { stellarPublicKey: string } | null,
-        { stellarPublicKey: string } | null,
+        { stellarPublicKey: string; phoneNumber?: string | null } | null,
+        { stellarPublicKey: string; phoneNumber?: string | null } | null,
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
 
@@ -209,7 +211,8 @@ async function handler(req: Request): Promise<Response> {
             });
 
             if (senderPhone) {
-                sendSmsNotification(
+                // Ensure SMS goes out but don't crash if Textbee is slow
+                await sendSmsNotification(
                     senderPhone,
                     `Transaction failed: Invalid cryptographic signature.`
                 ).catch(console.error);
@@ -246,14 +249,38 @@ async function handler(req: Request): Promise<Response> {
 
         console.log(`[Settle] SETTLED | settlementId=${settlementId} | txHash=${txHash ?? 'n/a'}`);
 
-        // Send final SMS receipt to the originating sender.
-        if (senderPhone) {
-            const humanAmount = Number(amountStroops) / 10_000_000;
-            const tokenSymbol = token.symbol;
-            sendSmsNotification(
-                senderPhone,
-                `Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}`,
-            ).catch(console.error);
+        // 🔥 ARCHITECT FIX: Non-blocking parallel SMS dispatch
+        // We use Promise.allSettled so that if one SMS fails or Textbee times out, 
+        // it doesn't crash the worker, and we still return the 200 OK to QStash.
+        const humanAmount = Number(amountStroops) / 10_000_000;
+        const tokenSymbol = token.symbol;
+        const shortRef = txHash ? txHash.substring(0, 8) : settlementId.toString();
+
+        const smsPromises: Promise<void>[] = [];
+
+        const senderRegisteredNumber = senderAccount.phoneNumber;
+        if (senderRegisteredNumber) {
+            smsPromises.push(
+                sendSmsNotification(
+                    senderRegisteredNumber,
+                    `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
+                )
+            );
+        }
+
+        const receiverRegisteredNumber = receiverAccount.phoneNumber;
+        if (receiverRegisteredNumber) {
+            smsPromises.push(
+                sendSmsNotification(
+                    receiverRegisteredNumber,
+                    `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
+                )
+            );
+        }
+
+        // Wait for both SMS requests to hit the network, but ignore any 502 Textbee errors
+        if (smsPromises.length > 0) {
+            await Promise.allSettled(smsPromises);
         }
 
         // Serialize amountStroops as string to avoid BigInt JSON serialization error.
@@ -284,7 +311,7 @@ async function handler(req: Request): Promise<Response> {
 
         // Notify sender of permanent business-logic failure (e.g. insufficient balance).
         if (senderPhone) {
-            sendSmsNotification(
+            await sendSmsNotification(
                 senderPhone,
                 `Transaction failed: ${failReason.slice(0, 120)}`,
             ).catch(console.error);
