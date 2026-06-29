@@ -78,6 +78,7 @@ async function postToBackend(
 
 class SyncService {
   private subscription: Subscription | null = null;
+  private isFlushInProgress = false;
 
   /**
    * Starts the background sync listener.
@@ -97,14 +98,18 @@ class SyncService {
 
       // switchMap cancels any in-flight sync if the state toggles again
       // mid-flush (e.g. connection drops while syncing)
-      switchMap(() =>
-        from(this.flush()).pipe(
+      switchMap(() => {
+        if (this.isFlushInProgress) {
+          console.log('[SyncService] Flush already in progress. Skipping automatic trigger.');
+          return EMPTY;
+        }
+        return from(this.flush()).pipe(
           catchError(err => {
             console.error('[SyncService] Unhandled flush error:', err);
             return EMPTY;
           })
-        )
-      )
+        );
+      })
     ).subscribe();
 
     console.log('[SyncService] Listening for online transitions.');
@@ -135,78 +140,88 @@ class SyncService {
    * from the "Sync Now" button in DashboardScreen as a manual override.
    */
   async flush(): Promise<void> {
-    const pending = await loadPendingQueue();
-
-    if (pending.length === 0) {
-      console.log('[SyncService] No pending items to sync.');
+    if (this.isFlushInProgress) {
+      console.log('[SyncService] Flush already in progress. Skipping manual trigger.');
       return;
     }
 
-    console.log(`[SyncService] Flushing ${pending.length} pending item(s)...`);
-
-    // Fetch user settlements from backend for comparison
-    let settledNonces = new Set<string>();
+    this.isFlushInProgress = true;
     try {
-      const account = await loadStoredAccount();
-      if (account?.shortId) {
-        const serverSettlements = await getUserSettlements(account.shortId);
-        settledNonces = new Set(serverSettlements.map(s => s.nonce).filter(Boolean));
-        console.log(`[SyncService] Reconciling with ${settledNonces.size} server settlements.`);
+      const pending = await loadPendingQueue();
+
+      if (pending.length === 0) {
+        console.log('[SyncService] No pending items to sync.');
+        return;
       }
-    } catch (err) {
-      console.warn('[SyncService] Could not fetch server settlements. Defaulting to direct sync.', err);
-    }
 
-    let successCount = 0;
-    let totalAmount = 0;
+      console.log(`[SyncService] Flushing ${pending.length} pending item(s)...`);
 
-    for (const item of pending) {
+      // Fetch user settlements from backend for comparison
+      let settledNonces = new Set<string>();
       try {
-        const shortNonce = this.extractShortNonce(item.smsBody);
+        const account = await loadStoredAccount();
+        if (account?.shortId) {
+          const serverSettlements = await getUserSettlements(account.shortId);
+          settledNonces = new Set(serverSettlements.map(s => s.nonce).filter(Boolean));
+          console.log(`[SyncService] Reconciling with ${settledNonces.size} server settlements.`);
+        }
+      } catch (err) {
+        console.warn('[SyncService] Could not fetch server settlements. Defaulting to direct sync.', err);
+      }
 
-        // If already settled, update local status only
-        if (shortNonce && settledNonces.has(shortNonce)) {
-          console.log(`[SyncService] Item ${item.id} already settled on backend (Nonce: ${shortNonce}). Marking synced.`);
-          await markSynced(item.id, item.txHash, 'SETTLED');
+      let successCount = 0;
+      let totalAmount = 0;
+
+      for (const item of pending) {
+        try {
+          const shortNonce = this.extractShortNonce(item.smsBody);
+
+          // If already settled, update local status only
+          if (shortNonce && settledNonces.has(shortNonce)) {
+            console.log(`[SyncService] Item ${item.id} already settled on backend (Nonce: ${shortNonce}). Marking synced.`);
+            await markSynced(item.id, item.txHash, 'SETTLED');
+            successCount++;
+            totalAmount += item.amount;
+            continue;
+          }
+
+          const result = await postToBackend(item);
+
+          await markSynced(item.id, result.txHash, result.status);
           successCount++;
           totalAmount += item.amount;
-          continue;
+
+          console.log(`[SyncService] Item ${item.id} synced. txHash: ${result.txHash}`);
+        } catch (err: any) {
+          const message = err?.message ?? 'Unknown error';
+          await markSyncError(item.id, message);
+          console.warn(`[SyncService] Item ${item.id} failed: ${message}`);
+          // Continue processing remaining items — do not abort the whole flush
         }
-
-        const result = await postToBackend(item);
-
-        await markSynced(item.id, result.txHash, result.status);
-        successCount++;
-        totalAmount += item.amount;
-
-        console.log(`[SyncService] Item ${item.id} synced. txHash: ${result.txHash}`);
-      } catch (err: any) {
-        const message = err?.message ?? 'Unknown error';
-        await markSyncError(item.id, message);
-        console.warn(`[SyncService] Item ${item.id} failed: ${message}`);
-        // Continue processing remaining items — do not abort the whole flush
       }
-    }
 
-    // If at least one item synced successfully, log a settlement transaction
-    // so the UI (via useLiveQuery) auto-updates without any manual refresh.
-    if (successCount > 0) {
-      try {
-        await addTransaction({
-          title:       'Synced Offline Payments',
-          amount:      totalAmount,
-          type:        'settlement',
-          tag:         'WALLET',
-          description: `Settled ${successCount} offline payment(s) totalling ₱${totalAmount.toFixed(2)} on the Stellar network.`,
-        });
-      } catch (txErr) {
-        console.error('[SyncService] Failed to log settlement transaction:', txErr);
+      // If at least one item synced successfully, log a settlement transaction
+      // so the UI (via useLiveQuery) auto-updates without any manual refresh.
+      if (successCount > 0) {
+        try {
+          await addTransaction({
+            title:       'Synced Offline Payments',
+            amount:      totalAmount,
+            type:        'settlement',
+            tag:         'WALLET',
+            description: `Settled ${successCount} offline payment(s) totalling ₱${totalAmount.toFixed(2)} on the Stellar network.`,
+          });
+        } catch (txErr) {
+          console.error('[SyncService] Failed to log settlement transaction:', txErr);
+        }
       }
-    }
 
-    console.log(
-      `[SyncService] Flush complete. Success: ${successCount}/${pending.length}`
-    );
+      console.log(
+        `[SyncService] Flush complete. Success: ${successCount}/${pending.length}`
+      );
+    } finally {
+      this.isFlushInProgress = false;
+    }
   }
 }
 
