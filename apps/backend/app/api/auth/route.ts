@@ -234,21 +234,42 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    // ── 1. Parse request body ───────────────────────────────────────────────
-    let body: Sep10PostBody;
+    // ── 1. Parse request body (Bulletproof multi-content-type parser) ───────
+    //
+    // The Stellar Demo Wallet and many older Web3 wallets submit the signed
+    // challenge via `application/x-www-form-urlencoded` or `multipart/form-data`
+    // rather than `application/json`.  Next.js's native `request.json()` throws
+    // immediately when the Content-Type header is not JSON, so we must branch on
+    // the content-type and extract the `transaction` field manually.
+    let signedChallengeXdr: string;
     try {
-      body = await request.json() as Sep10PostBody;
+      const contentType = request.headers.get('content-type') ?? '';
+
+      if (
+        contentType.includes('application/x-www-form-urlencoded') ||
+        contentType.includes('multipart/form-data')
+      ) {
+        // Form-encoded body — use the Web API FormData parser.
+        const formData = await request.formData();
+        signedChallengeXdr = (formData.get('transaction') as string | null) ?? '';
+      } else {
+        // JSON body (or unspecified) — read as raw text and parse safely so
+        // we avoid the strict content-type check that `request.json()` enforces.
+        const text = await request.text();
+        const parsed = JSON.parse(text) as Sep10PostBody;
+        signedChallengeXdr = parsed?.transaction ?? '';
+      }
     } catch {
       return NextResponse.json(
         {
           error: 'Bad Request',
-          message: 'Request body must be valid JSON.',
+          message: "Request body must contain a valid 'transaction' field.",
         },
         { status: 400 },
       );
     }
 
-    if (!body?.transaction) {
+    if (!signedChallengeXdr) {
       return NextResponse.json(
         {
           error: 'Bad Request',
@@ -257,8 +278,6 @@ export async function POST(request: Request): Promise<Response> {
         { status: 400 },
       );
     }
-
-    const signedChallengeXdr = body.transaction;
 
     // ── 2. Load runtime config ──────────────────────────────────────────────
     const signingKeypair = Keypair.fromSecret(
