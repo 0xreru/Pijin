@@ -18,16 +18,19 @@
  *
  * Environment variables required
  * ──────────────────────────────
- *   PHPC_DISTRIBUTOR_SECRET   — Stellar secret key of the PHPC issuer/distributor
- *   USDC_DISTRIBUTOR_SECRET   — Stellar secret key of the USDC distributor
+ *   PHPC_DISTRIBUTOR_SECRET   — Stellar secret key of the PHPC distributor (sends payments)
+ *   PHPC_ISSUER_PUBKEY        — Stellar public key of the PHPC issuer (trustline anchor)
+ *   USDC_DISTRIBUTOR_SECRET   — Stellar secret key of the USDC distributor (sends payments)
+ *   USDC_ISSUER_PUBKEY        — Stellar public key of the USDC issuer (trustline anchor)
  *
  * Stellar Testnet Horizon
  * ───────────────────────
  *   https://horizon-testnet.stellar.org
  *
- * The PHPC and USDC assets must be issued by the public keys that correspond
- * to the distributor secrets above.  If you're running on Testnet, make sure
- * the user's account already has a trustline for the asset.
+ * IMPORTANT — Issuer vs. Distributor:
+ *   The asset MUST be constructed with the Issuer's public key, because that is
+ *   the key the user's wallet trusted when it created the trustline.  The
+ *   Distributor holds the supply and signs/sends the payment, but is NOT the issuer.
  */
 
 // ── Runtime ───────────────────────────────────────────────────────────────────
@@ -66,6 +69,7 @@ function requireEnv(name: string): string {
 
 /**
  * Returns the distributor keypair for a given asset code.
+ * The distributor holds the token supply and signs/sends payments.
  * Throws a descriptive error if the asset is unsupported or the env var is missing.
  */
 function getDistributorKeypair(assetCode: string): StellarSdk.Keypair {
@@ -78,6 +82,29 @@ function getDistributorKeypair(assetCode: string): StellarSdk.Keypair {
       const secret = requireEnv('USDC_DISTRIBUTOR_SECRET');
       return StellarSdk.Keypair.fromSecret(secret);
     }
+    default:
+      throw new Error(`Unsupported asset code: "${assetCode}". Expected PHPC or USDC.`);
+  }
+}
+
+/**
+ * Returns the Issuer public key for a given asset code.
+ *
+ * The Issuer is the account that CREATED the asset and against which all
+ * trustlines are established.  This is distinct from the Distributor, which
+ * merely holds the supply.  The StellarSdk.Asset MUST be constructed with
+ * the Issuer public key — otherwise Horizon rejects the payment with op_no_trust.
+ *
+ * Env vars consumed:
+ *   PHPC_ISSUER_PUBKEY — public key of the PHPC issuer
+ *   USDC_ISSUER_PUBKEY — public key of the USDC issuer
+ */
+function getIssuerPubKey(assetCode: string): string {
+  switch (assetCode.toUpperCase()) {
+    case 'PHPC':
+      return requireEnv('PHPC_ISSUER_PUBKEY');
+    case 'USDC':
+      return requireEnv('USDC_ISSUER_PUBKEY');
     default:
       throw new Error(`Unsupported asset code: "${assetCode}". Expected PHPC or USDC.`);
   }
@@ -206,10 +233,24 @@ export async function POST(
   // ── 4. Build & submit the Stellar Payment transaction ────────────────────
   const horizon = new StellarSdk.Horizon.Server(HORIZON_TESTNET_URL);
 
-  // The asset is issued BY the distributor themselves — issuer == distributor.
+  // Resolve the ISSUER public key — this is the account the user's wallet
+  // trusted when it opened the trustline.  It is NOT the distributor.
+  let issuerPubKey: string;
+  try {
+    issuerPubKey = getIssuerPubKey(anchorTx.assetCode);
+  } catch (issuerErr: unknown) {
+    const detail = issuerErr instanceof Error ? issuerErr.message : String(issuerErr);
+    console.error(`[SimulatePayment] Issuer pubkey resolution failed: ${detail}`);
+    return NextResponse.json(
+      { success: false, error: 'Unsupported asset or missing issuer public key.', detail },
+      { status: 500 },
+    );
+  }
+
+  // Construct the asset with the ISSUER key so Horizon can validate the trustline.
   const asset = new StellarSdk.Asset(
     anchorTx.assetCode.toUpperCase(),
-    distributorKeypair.publicKey(),
+    issuerPubKey,
   );
 
   let stellarTxHash: string;
