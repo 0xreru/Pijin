@@ -86,22 +86,44 @@ function verifyBearerToken(authHeader: string | null, secret: string): Sep10JwtP
 }
 
 /**
- * Parses the request body as JSON or URL-encoded form data (SEP-24 allows both).
+ * Bulletproof body parser — handles all content types sent by Web3 wallets:
+ *
+ *  • multipart/form-data           → native request.formData()  (Demo Wallet, most mobile wallets)
+ *  • application/x-www-form-urlencoded → native request.formData()  (legacy wallets, curl)
+ *  • application/json / text/plain → request.text() + conditional JSON.parse()
+ *
+ * Using request.formData() for both form types lets the browser's built-in
+ * MIME parser handle boundary extraction for multipart bodies, which is far
+ * more reliable than manual URLSearchParams parsing.
  */
 async function parseRequestBody(request: Request): Promise<DepositRequestBody> {
   const contentType = request.headers.get('content-type') ?? '';
 
-  if (contentType.includes('application/x-www-form-urlencoded')) {
-    const text = await request.text();
-    const params = new URLSearchParams(text);
+  // ── Form data: multipart OR url-encoded ─────────────────────────────────────
+  if (
+    contentType.includes('multipart/form-data') ||
+    contentType.includes('application/x-www-form-urlencoded')
+  ) {
+    const formData = await request.formData();
     const body: DepositRequestBody = {};
-    params.forEach((value, key) => { body[key] = value; });
+    formData.forEach((value, key) => {
+      // formData values can be File objects; only capture string fields.
+      if (typeof value === 'string') {
+        body[key] = value;
+      }
+    });
     return body;
   }
 
+  // ── JSON / plain-text fallback ───────────────────────────────────────────────
+  const text = await request.text();
+  if (!text) return {};
+
   try {
-    return await request.json() as DepositRequestBody;
+    return JSON.parse(text) as DepositRequestBody;
   } catch {
+    // Body was not valid JSON (e.g. empty or malformed) — return empty object
+    // so downstream validation can produce a meaningful 400 error message.
     return {};
   }
 }
