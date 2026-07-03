@@ -44,9 +44,9 @@ function requireEnv(name: string): string {
 }
 
 interface InteractiveJwtPayload {
-  tid?: string;   // transaction_id (primary)
-  sub?: string;   // fallback — some implementations put transaction_id in sub
-  act?: string;   // stellarAccount (informational; DB is authoritative)
+  transaction_id?: string; // UUID minted by /api/sep24/transactions/deposit/interactive
+  sub?: string;            // Stellar public key (G…) — NOT used for tx ID comparison
+  act?: string;            // stellarAccount (informational; DB is authoritative)
   iat?: number;
   exp?: number;
 }
@@ -118,10 +118,12 @@ export default async function DepositPage({ searchParams }: DepositPageProps) {
   }
 
   // ── 3. transaction_id consistency check ─────────────────────────────────
-  const tokenTxId = jwtPayload.tid ?? jwtPayload.sub;
-  if (tokenTxId && tokenTxId !== transaction_id) {
+  // jwtPayload.transaction_id is the UUID set by the minting route.
+  // jwtPayload.sub holds the Stellar public key and must NOT be used as a
+  // transaction ID fallback — doing so caused the previous Security Error.
+  if (jwtPayload.transaction_id && jwtPayload.transaction_id !== transaction_id) {
     console.warn(
-      `[Deposit Webview] transaction_id mismatch | url=${transaction_id} | jwt=${tokenTxId}`,
+      `[Deposit Webview] transaction_id mismatch | url=${transaction_id} | jwt=${jwtPayload.transaction_id}`,
     );
     return (
       <ErrorCard
