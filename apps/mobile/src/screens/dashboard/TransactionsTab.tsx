@@ -12,8 +12,6 @@ import {
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
-import { Transaction } from '../../types/transaction';
-
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Module-level constant — Intl.NumberFormat is expensive to construct;
