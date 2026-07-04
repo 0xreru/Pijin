@@ -39,6 +39,8 @@ apps/mobile/*.mobileprovision
 apps/mobile/.env
 apps/mobile/.env.local
 
+apps/mobile/PERFORMANCE_OPTIMIZATION_TASKS.md
+
 # ----------------------------------------------------------------------
 # Backend
 # ----------------------------------------------------------------------
