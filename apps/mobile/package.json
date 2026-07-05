@@ -14,6 +14,7 @@
     "@expo/vector-icons": "~14.0.4",
     "@react-native-async-storage/async-storage": "1.23.1",
     "@react-native-community/netinfo": "11.4.1",
+    "@react-navigation/elements": "^2.9.29",
     "@react-navigation/native": "^7.2.5",
     "@react-navigation/native-stack": "^7.16.0",
     "@stellar/stellar-base": "^15.0.0",
@@ -21,6 +22,7 @@
     "@walletconnect/react-native-compat": "^2.23.9",
     "@walletconnect/sign-client": "^2.23.9",
     "buffer": "^6.0.3",
+    "css-tree": "^1.1.3",
     "drizzle-orm": "^0.45.2",
     "expo": "~52.0.0",
     "expo-application": "~6.0.2",
@@ -37,7 +39,11 @@
     "expo-sharing": "~13.0.1",
     "expo-sqlite": "~15.1.4",
     "expo-status-bar": "~2.0.1",
+    "fast-base64-decode": "^1.0.0",
+    "fast-text-encoding": "^1.0.6",
+    "qrcode": "^1.5.4",
     "react": "18.3.1",
+    "react-freeze": "^1.0.4",
     "react-native": "0.76.9",
     "react-native-get-random-values": "~1.11.0",
     "react-native-qrcode-svg": "^6.3.21",
@@ -46,9 +52,12 @@
     "react-native-svg": "15.8.0",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-view-shot": "~4.0.3",
-    "rxjs": "^7.8.2"
+    "react-native-webview": "13.12.5",
+    "rxjs": "^7.8.2",
+    "warn-once": "^0.1.1"
   },
   "devDependencies": {
+    "@expo/cli": "^57.0.4",
     "@types/react": "~18.3.12",
     "drizzle-kit": "^0.31.10",
     "typescript": "~5.9.2"
