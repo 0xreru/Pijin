@@ -324,6 +324,10 @@ export function DashboardScreen({ navigation }: any) {
                 navigation.navigate('GenerateQR', { mode: 'receiver' });
               }}
               onViewAllTransactions={() => setActiveTab('transactions')}
+              publicKey={publicKey}
+              onDepositSuccess={(url, assetCode, transactionId) => {
+                navigation.navigate('Sep24Webview', { url, assetCode, transactionId });
+              }}
             />
           </View>
 

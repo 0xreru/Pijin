@@ -1,14 +1,32 @@
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 
-/** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+const projectRoot = __dirname;
+const workspaceRoot = path.resolve(projectRoot, '../..');
 
+/** @type {import('expo/metro-config').MetroConfig} */
+const config = getDefaultConfig(projectRoot);
+
+// --- MONOREPO CONFIGURATION ---
+// 1. Watch all files within the monorepo root so Metro can see hoisted packages
+config.watchFolders = [workspaceRoot];
+
+// 2. Let Metro know where to resolve packages (local first, then root)
+config.resolver.nodeModulesPaths = [
+  path.resolve(projectRoot, 'node_modules'),
+  path.resolve(workspaceRoot, 'node_modules'),
+];
+
+// 3. Force Metro to resolve dependencies correctly through the workspace
+config.resolver.disableHierarchicalLookup = true;
+
+// --- STELLAR SDK POLYFILLS & ALIASES ---
 // Metro (EAS/Android) often fails on package.json "exports" subpaths.
 config.resolver.unstable_enablePackageExports = false;
 
+// Resolve stellar-sdk from the workspace root (where NPM hoisted it)
 const stellarSdkRoot = path.join(
-  __dirname,
+  workspaceRoot,
   'node_modules',
   '@stellar',
   'stellar-sdk'

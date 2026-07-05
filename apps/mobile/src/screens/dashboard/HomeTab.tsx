@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -15,6 +15,10 @@ import { DashboardHeader } from '../../components/ui/DashboardHeader';
 import { BalanceCard } from '../../components/wallet/BalanceCard';
 import { TransactionList } from '../../components/transaction/TransactionList';
 import { QueueIndicator } from '../../components/ui/QueueIndicator';
+import { DepositButton } from '../../components/ui/DepositButton';
+import type { AssetCode } from '../../services/stellar/trustlineService';
+import { startSep24Deposit } from '../../services/stellar/anchorService';
+import { getOrGenerateDeviceKeypair } from '../../services/wallet/deviceKeyStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -39,6 +43,10 @@ interface HomeTabProps {
   onReceivePress: () => void;
   onViewAllTransactions: () => void;
   isOnlineDisabled?: boolean;
+  /** The user's Stellar public key — forwarded to DepositButton for trustline checks. */
+  publicKey: string;
+  /** Called by DepositButton after trustline is confirmed. Triggers SEP-24 flow. */
+  onDepositSuccess: (url: string, assetCode: string, transactionId: string) => void;
 }
 
 export function HomeTab({
@@ -62,7 +70,43 @@ export function HomeTab({
   onReceivePress,
   onViewAllTransactions,
   isOnlineDisabled = false,
+  publicKey,
+  onDepositSuccess,
 }: HomeTabProps) {
+  const [depositLoading, setDepositLoading] = useState(false);
+  const [stellarPublicKey, setStellarPublicKey] = useState<string | null>(null);
+
+  // Resolve the full Stellar public key (G...) from SecureStore on mount.
+  // This is the source of truth for trustline checks — the prop `publicKey`
+  // from the parent may be empty if the account was stored without it.
+  useEffect(() => {
+    let cancelled = false;
+    getOrGenerateDeviceKeypair()
+      .then((kp) => {
+        if (!cancelled) setStellarPublicKey(kp.publicKey());
+      })
+      .catch((err) => console.warn('[HomeTab] Could not load device keypair:', err));
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Called by DepositButton once the JIT trustline is confirmed.
+   * Runs SEP-10 auth + SEP-24 deposit initiation, then calls back
+   * the parent navigator to open the webview.
+   */
+  const handleDepositSuccess = async (assetCode: AssetCode) => {
+    try {
+      setDepositLoading(true);
+      const keypair = await getOrGenerateDeviceKeypair();
+      const { url, transactionId } = await startSep24Deposit(assetCode, keypair);
+      onDepositSuccess(url, assetCode, transactionId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Could not start deposit.';
+      Alert.alert('Deposit Error', message);
+    } finally {
+      setDepositLoading(false);
+    }
+  };
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
@@ -150,14 +194,15 @@ export function HomeTab({
               </View>
 
               <View style={styles.actionItem}>
-                <TouchableOpacity
-                  style={styles.actionCircle}
-                  onPress={() => Alert.alert('Top-Up', 'Open payment gateways to add funds.')}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="card" size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-                <Text style={styles.actionLabel}>Top-Up</Text>
+                {stellarPublicKey ? (
+                  <DepositButton
+                    assetCode="PHPC"
+                    publicKey={stellarPublicKey}
+                    onSuccess={handleDepositSuccess}
+                    disabled={depositLoading || !isOnline}
+                    label="Top-Up"
+                  />
+                ) : null}
               </View>
 
               <View style={styles.actionItem}>
