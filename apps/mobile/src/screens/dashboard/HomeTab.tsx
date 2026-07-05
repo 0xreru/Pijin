@@ -1,15 +1,15 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   Animated,
   TouchableOpacity,
-  Image,
   Dimensions,
   ScrollView,
   Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { DashboardHeader } from '../../components/ui/DashboardHeader';
 import { BalanceCard } from '../../components/wallet/BalanceCard';
@@ -41,7 +41,7 @@ interface HomeTabProps {
   isOnlineDisabled?: boolean;
 }
 
-export function HomeTab({
+export const HomeTab = memo(function HomeTab({
   shortId,
   isOnline,
   cachedBalance,
@@ -252,7 +252,7 @@ export function HomeTab({
       </View>
     </ScrollView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   headerWrapper: {

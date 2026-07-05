@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -16,7 +16,7 @@ interface ProfileTabProps {
   onLogoutPress: () => void;
 }
 
-export function ProfileTab({ shortId, publicKey, insets, onLogoutPress }: ProfileTabProps) {
+export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets, onLogoutPress }: ProfileTabProps) {
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
@@ -81,7 +81,7 @@ export function ProfileTab({ shortId, publicKey, insets, onLogoutPress }: Profil
       </View>
     </ScrollView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   tabContentContainer: {

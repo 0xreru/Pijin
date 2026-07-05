@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -198,16 +198,16 @@ export function DashboardScreen({ navigation }: any) {
     });
   };
 
-  const handleManualToggle = (targetOnline: boolean) => {
+  const handleManualToggle = useCallback((targetOnline: boolean) => {
     if (!hasInternet && targetOnline) {
       return;
     }
     isManualOverrideRef.current = true;
     connectionService.setOnlineState(targetOnline);
-  };
+  }, [hasInternet]);
 
   // Trigger sync queue using the new background syncService flush
-  const handleSyncQueue = async () => {
+  const handleSyncQueue = useCallback(async () => {
     if (queueCount === 0) return;
     setSyncing(true);
     try {
@@ -222,9 +222,9 @@ export function DashboardScreen({ navigation }: any) {
       setSyncing(false);
       Alert.alert('Sync Failed', 'An error occurred during synchronization.');
     }
-  };
+  }, [queueCount, refreshBalance]);
 
-  const handleAddMockQueueItem = async () => {
+  const handleAddMockQueueItem = useCallback(async () => {
     if (!isOnline) {
       const mockPayload = {
         type: 'ABOTPERA_OFFLINE_PAYMENT' as const,
@@ -242,7 +242,43 @@ export function DashboardScreen({ navigation }: any) {
     } else {
       Alert.alert('Load Offline Funds', 'Move funds to offline vault for network-free usage.');
     }
-  };
+  }, [isOnline, shortId]);
+
+  // ── Stable callback refs for tab props ────────────────────────────────────
+  const handleLogoutPress = useCallback(() => setLogoutModalVisible(true), []);
+
+  const handleLoadOfflineFundsPress = useCallback(() => {
+    navigation.navigate('LoadOfflineFunds', { balance: cachedBalance });
+  }, [navigation, cachedBalance]);
+
+  const handleSendPress = useCallback(() => {
+    navigation.navigate('SendMoney');
+  }, [navigation]);
+
+  const handleReceivePress = useCallback(() => {
+    navigation.navigate('GenerateQR', { mode: 'receiver' });
+  }, [navigation]);
+
+  const handleViewAllTransactions = useCallback(() => setActiveTab('transactions'), []);
+
+  const handleChangeTab = useCallback((tab: TabType) => {
+    if (tab === 'scan') {
+      navigation.navigate('ScanQR');
+    } else {
+      setActiveTab(tab);
+    }
+  }, [navigation]);
+
+  const handleLogoutConfirm = useCallback(async () => {
+    setLogoutModalVisible(false);
+    await logout();
+  }, [logout]);
+
+  const handleLogoutCancel = useCallback(() => setLogoutModalVisible(false), []);
+
+  // ── Memoized derived transaction lists ────────────────────────────────────
+  const onlineTxs = useMemo(() => transactions.filter(t => t.tag === 'WALLET'), [transactions]);
+  const offlineTxs = useMemo(() => transactions.filter(t => t.tag === 'OFFLINE'), [transactions]);
 
   const renderActiveTabContent = () => {
     return (
@@ -267,25 +303,17 @@ export function DashboardScreen({ navigation }: any) {
               syncing={syncing}
               slideAnim={slideAnim}
               isTransitioning={isTransitioning}
-              onlineTxs={transactions.filter(t => t.tag === 'WALLET')}
-              offlineTxs={transactions.filter(t => t.tag === 'OFFLINE')}
+              onlineTxs={onlineTxs}
+              offlineTxs={offlineTxs}
               insets={insets}
-              onLogoutPress={() => setLogoutModalVisible(true)}
+              onLogoutPress={handleLogoutPress}
               onManualToggle={handleManualToggle}
               onSyncQueue={handleSyncQueue}
               onAddMockQueueItem={handleAddMockQueueItem}
-              onLoadOfflineFundsPress={() => {
-                navigation.navigate('LoadOfflineFunds', {
-                  balance: cachedBalance,
-                });
-              }}
-              onSendPress={() => {
-                navigation.navigate('SendMoney');
-              }}
-              onReceivePress={() => {
-                navigation.navigate('GenerateQR', { mode: 'receiver' });
-              }}
-              onViewAllTransactions={() => setActiveTab('transactions')}
+              onLoadOfflineFundsPress={handleLoadOfflineFundsPress}
+              onSendPress={handleSendPress}
+              onReceivePress={handleReceivePress}
+              onViewAllTransactions={handleViewAllTransactions}
             />
           </View>
 
@@ -310,7 +338,7 @@ export function DashboardScreen({ navigation }: any) {
               shortId={shortId}
               publicKey={publicKey}
               insets={insets}
-              onLogoutPress={() => setLogoutModalVisible(true)}
+              onLogoutPress={handleLogoutPress}
             />
           </View>
         </Animated.View>
@@ -333,23 +361,14 @@ export function DashboardScreen({ navigation }: any) {
       {/* Bottom Navigation Bar */}
       <BottomNavBar
         activeTab={activeTab}
-        onChangeTab={(tab) => {
-          if (tab === 'scan') {
-            navigation.navigate('ScanQR');
-          } else {
-            setActiveTab(tab);
-          }
-        }}
+        onChangeTab={handleChangeTab}
       />
 
       {/* Logout Modal */}
       <LogoutConfirmationModal
         visible={logoutModalVisible}
-        onConfirm={async () => {
-          setLogoutModalVisible(false);
-          await logout();
-        }}
-        onCancel={() => setLogoutModalVisible(false)}
+        onConfirm={handleLogoutConfirm}
+        onCancel={handleLogoutCancel}
       />
     </View>
   );

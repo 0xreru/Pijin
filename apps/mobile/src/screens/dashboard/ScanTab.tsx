@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,7 +12,7 @@ interface ScanTabProps {
   insets: { top: number; bottom: number; left: number; right: number };
 }
 
-export function ScanTab({ insets }: ScanTabProps) {
+export const ScanTab = memo(function ScanTab({ insets }: ScanTabProps) {
   return (
     <View style={[styles.scannerContainer, { paddingTop: Math.max(insets.top, 20) }]}>
       <Text style={styles.tabHeaderTitleCentered}>Scan QR Code</Text>
@@ -43,7 +43,7 @@ export function ScanTab({ insets }: ScanTabProps) {
       </TouchableOpacity>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   scannerContainer: {
