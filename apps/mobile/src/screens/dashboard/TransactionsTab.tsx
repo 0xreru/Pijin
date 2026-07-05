@@ -1,30 +1,43 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
   ScrollView,
+  SectionList,
   Dimensions,
   Animated,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
-import { Transaction } from '../../types/transaction';
-
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Module-level constant — Intl.NumberFormat is expensive to construct;
+// creating it once here means zero allocation cost per render.
+const phpFormatter = new Intl.NumberFormat('en-PH', {
+  style: 'currency',
+  currency: 'PHP',
+  minimumFractionDigits: 2,
+});
 
 interface TransactionsTabProps {
   mockTxs: any[];
   insets: { top: number; bottom: number; left: number; right: number };
 }
 
-export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
+export const TransactionsTab = memo(function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
   const navigation = useNavigation<any>();
   const TRANS_SCREEN_WIDTH = SCREEN_WIDTH - 40;
   const [activeFilter, setActiveFilter] = useState<'all' | 'wallet' | 'offline'>('all');
   const transSlideAnim = useRef(new Animated.Value(0)).current;
+
+  // Lazy-load tracking: a panel is only mounted after it has been visited
+  // for the first time. This prevents all 3 SectionLists from being
+  // rendered simultaneously at startup, saving ~2/3 of list mount cost.
+  const [seenWallet, setSeenWallet] = useState(false);
+  const [seenOffline, setSeenOffline] = useState(false);
 
   useEffect(() => {
     const filterIndex = ['all', 'wallet', 'offline'].indexOf(activeFilter);
@@ -34,6 +47,10 @@ export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
       tension: 45,
       friction: 8.5,
     }).start();
+
+    // Mark the panel as seen so it gets mounted on first visit
+    if (activeFilter === 'wallet') setSeenWallet(true);
+    if (activeFilter === 'offline') setSeenOffline(true);
   }, [activeFilter]);
 
   const handleFilterChange = (filter: 'all' | 'wallet' | 'offline') => {
@@ -56,23 +73,23 @@ export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
     );
   };
 
-  const formatPhp = (val: number, type: string) => {
+  const formatPhp = useCallback((val: number, type: string) => {
     const isIncoming = type === 'incoming' || type === 'settlement';
-    const formatted = new Intl.NumberFormat('en-PH', {
-      style: 'currency',
-      currency: 'PHP',
-      minimumFractionDigits: 2,
-    }).format(Math.abs(val));
+    const formatted = phpFormatter.format(Math.abs(val));
     return isIncoming ? `+ ${formatted}` : `- ${formatted}`;
-  };
+  }, []);
 
-  const mappedTxs = (mockTxs || []).map(tx => ({
-    ...tx,
-    amountPhp: formatPhp(tx.amount, tx.type),
-  }));
+  const mappedTxs = useMemo(
+    () =>
+      (mockTxs || []).map(tx => ({
+        ...tx,
+        amountPhp: formatPhp(tx.amount, tx.type),
+      })),
+    [mockTxs, formatPhp],
+  );
 
-  const renderTransactionList = (items: typeof mappedTxs) => {
-    // Group items by dateGroup
+  // Build SectionList-compatible sections from a flat list grouped by dateGroup
+  const buildSections = (items: typeof mappedTxs) => {
     const groups: { [key: string]: typeof mappedTxs } = {};
     items.forEach(item => {
       if (!groups[item.dateGroup]) {
@@ -80,56 +97,68 @@ export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
       }
       groups[item.dateGroup].push(item);
     });
+    return Object.keys(groups).map(dateKey => ({
+      title: dateKey,
+      data: groups[dateKey],
+    }));
+  };
 
-    const groupKeys = Object.keys(groups);
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: { title: string } }) => (
+      <View style={styles.dateHeaderRow}>
+        <View style={styles.dateDividerLine} />
+        <View style={styles.dateBadge}>
+          <Text style={styles.dateBadgeText}>{section.title}</Text>
+        </View>
+      </View>
+    ),
+    [],
+  );
 
+  const renderTxItem = useCallback(
+    ({ item: tx }: { item: (typeof mappedTxs)[0] }) => (
+      <TouchableOpacity
+        style={styles.cardContainer}
+        activeOpacity={0.85}
+        onPress={() => navigation.navigate('TransactionReceipt', { transaction: tx })}
+      >
+        {/* Header Row */}
+        <View style={styles.cardHeader}>
+          <View style={[
+            styles.walletTag,
+            tx.tag === 'OFFLINE' && { backgroundColor: '#F59E0B' }
+          ]}>
+            <Text style={styles.walletTagText}>{tx.tag}</Text>
+          </View>
+          <Text style={styles.timeAgoText}>{tx.timeAgo}</Text>
+        </View>
+
+        {/* Info Column */}
+        <Text style={styles.txTitle}>{tx.title}</Text>
+        <Text style={[
+          styles.txAmount,
+          (tx.type === 'incoming' || tx.type === 'settlement') && { color: '#10B981' }
+        ]}>{tx.amountPhp}</Text>
+        <Text style={styles.txDesc}>{tx.description}</Text>
+      </TouchableOpacity>
+    ),
+    [navigation],
+  );
+
+  const renderTransactionList = (sections: ReturnType<typeof buildSections>) => {
     return (
-      <ScrollView
+      <SectionList
+        sections={sections}
+        keyExtractor={item => item.id}
+        renderItem={renderTxItem}
+        renderSectionHeader={renderSectionHeader}
+        renderSectionFooter={() => <View style={styles.sectionFooter} />}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 40 }}
-        style={{ flex: 1 }}
-      >
-        {groupKeys.map(dateKey => (
-          <View key={dateKey} style={styles.groupContainer}>
-            {/* Horizontal Line with Center Date Tag */}
-            <View style={styles.dateHeaderRow}>
-              <View style={styles.dateDividerLine} />
-              <View style={styles.dateBadge}>
-                <Text style={styles.dateBadgeText}>{dateKey}</Text>
-              </View>
-            </View>
-
-            {/* Group Cards */}
-            {groups[dateKey].map(tx => (
-              <TouchableOpacity
-                key={tx.id}
-                style={styles.cardContainer}
-                activeOpacity={0.85}
-                onPress={() => navigation.navigate('TransactionReceipt', { transaction: tx })}
-              >
-                {/* Header Row */}
-                <View style={styles.cardHeader}>
-                  <View style={[
-                    styles.walletTag,
-                    tx.tag === 'OFFLINE' && { backgroundColor: '#F59E0B' }
-                  ]}>
-                    <Text style={styles.walletTagText}>{tx.tag}</Text>
-                  </View>
-                  <Text style={styles.timeAgoText}>{tx.timeAgo}</Text>
-                </View>
-
-                {/* Info Column */}
-                <Text style={styles.txTitle}>{tx.title}</Text>
-                <Text style={[
-                  styles.txAmount,
-                  (tx.type === 'incoming' || tx.type === 'settlement') && { color: '#10B981' }
-                ]}>{tx.amountPhp}</Text>
-                <Text style={styles.txDesc}>{tx.description}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ))}
-      </ScrollView>
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={5}
+      />
     );
   };
 
@@ -146,16 +175,25 @@ export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
     );
   };
 
-  const renderPanel = (items: typeof mappedTxs) => {
-    if (items.length === 0) {
-      return renderEmptyState();
-    }
-    return renderTransactionList(items);
+  const renderPanel = (
+    items: typeof mappedTxs,
+    sections: ReturnType<typeof buildSections>,
+    isSeen: boolean,
+  ) => {
+    // Off-screen panels are not yet mounted — render nothing until first visit
+    if (!isSeen) return null;
+    if (items.length === 0) return renderEmptyState();
+    return renderTransactionList(sections);
   };
 
   const allTxs = mappedTxs;
-  const walletTxs = mappedTxs.filter(tx => tx.tag === 'WALLET');
-  const offlineTxs = mappedTxs.filter(tx => tx.tag === 'OFFLINE');
+  const walletTxs = useMemo(() => mappedTxs.filter(tx => tx.tag === 'WALLET'), [mappedTxs]);
+  const offlineTxs = useMemo(() => mappedTxs.filter(tx => tx.tag === 'OFFLINE'), [mappedTxs]);
+
+  // Pre-build sections for each panel once — only re-computed when source lists change
+  const allSections = useMemo(() => buildSections(allTxs), [allTxs]);
+  const walletSections = useMemo(() => buildSections(walletTxs), [walletTxs]);
+  const offlineSections = useMemo(() => buildSections(offlineTxs), [offlineTxs]);
 
   return (
     <View style={[styles.tabContentContainer, { paddingTop: Math.max(insets.top, 20), flex: 1 }]}>
@@ -189,25 +227,25 @@ export function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
             transform: [{ translateX: transSlideAnim }],
           }}
         >
-          {/* Panel 0: All */}
+          {/* Panel 0: All — always mounted (default active panel) */}
           <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
-            {renderPanel(allTxs)}
+            {renderPanel(allTxs, allSections, true)}
           </View>
 
-          {/* Panel 1: Wallet */}
+          {/* Panel 1: Wallet — lazy-mounted on first visit */}
           <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
-            {renderPanel(walletTxs)}
+            {renderPanel(walletTxs, walletSections, seenWallet)}
           </View>
 
-          {/* Panel 2: Offline Funds */}
+          {/* Panel 2: Offline Funds — lazy-mounted on first visit */}
           <View style={{ width: TRANS_SCREEN_WIDTH, flex: 1 }}>
-            {renderPanel(offlineTxs)}
+            {renderPanel(offlineTxs, offlineSections, seenOffline)}
           </View>
         </Animated.View>
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   tabContentContainer: {
@@ -268,6 +306,9 @@ const styles = StyleSheet.create({
   },
   groupContainer: {
     marginBottom: 20,
+  },
+  sectionFooter: {
+    height: 20,
   },
   dateHeaderRow: {
     flexDirection: 'row',

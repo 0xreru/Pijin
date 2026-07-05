@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, View, Text, Image, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, Dimensions, FlatList } from 'react-native';
+import { Image } from 'expo-image';
 import { Transaction } from '../../types/transaction';
 import { TransactionItem } from './TransactionItem';
 import { SectionHeader } from '../ui/SectionHeader';
@@ -21,10 +22,12 @@ export function TransactionList({ transactions, onViewAll }: TransactionListProp
         actionLabel={hasTransactions ? "View All" : undefined}
         onActionPress={onViewAll}
       />
-      
+
       {hasTransactions ? (
-        <View style={styles.listContainer}>
-          {transactions.map((tx) => (
+        <FlatList
+          data={transactions}
+          keyExtractor={(tx) => tx.id}
+          renderItem={({ item: tx }) => (
             <TransactionItem
               key={tx.id}
               id={tx.id}
@@ -33,8 +36,13 @@ export function TransactionList({ transactions, onViewAll }: TransactionListProp
               amount={tx.amount}
               type={tx.type}
             />
-          ))}
-        </View>
+          )}
+          scrollEnabled={false}
+          removeClippedSubviews
+          maxToRenderPerBatch={8}
+          windowSize={3}
+          style={styles.listContainer}
+        />
       ) : (
         <View style={styles.emptyContainer}>
           <Image

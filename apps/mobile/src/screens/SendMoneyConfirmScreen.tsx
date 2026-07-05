@@ -21,7 +21,7 @@ import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
-import { appendToOfflinePaymentsQueue } from '../services/storage/paymentQueueStorage';
+import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 
@@ -60,6 +60,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const [isChecked, setIsChecked] = useState(false);
   const isCheckedRef = useRef(false);
   const [isOnlineMode, setIsOnlineMode] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     const checkState = async () => {
@@ -168,14 +169,15 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   };
 
   const handleBackToHome = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     setSuccessVisible(false);
     
-    const { addTransaction } = require('../services/storage/transactionStorage');
+    const { addTransaction } = require('../db/services/transactionDb');
     if (isOnlineMode) {
       try {
         await addTransaction({
           title: `Paid to ${recipientName}`,
-          subtitle: 'Today',
           amount: -total,
           type: 'outgoing',
           tag: 'WALLET',
@@ -183,11 +185,14 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         });
       } catch (err) {
         console.error('Failed to log online transaction:', err);
+      } finally {
+        setIsProcessing(false);
       }
       DeviceEventEmitter.emit('ON_SEND_MONEY_ONLINE', total);
       navigation.navigate('Dashboard');
     } else {
-      // Build and queue offline payment payload
+      // Build offline payment payload and navigate to TransportChoice.
+      // We do NOT write to database or deduct balance here. We defer it until the user selects a transport option on the TransportChoiceScreen.
       try {
         const account = await loadStoredAccount();
         const customerId = account?.shortId || '1234';
@@ -212,27 +217,20 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
           expiresInMinutes: 10,
         };
 
-        await appendToOfflinePaymentsQueue(payload);
-
-        try {
-          await addTransaction({
-            title: `Paid to ${recipientName} (Offline)`,
-            subtitle: 'Today',
-            amount: -total,
-            type: 'outgoing',
-            tag: 'OFFLINE',
-            description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
-          });
-        } catch (err) {
-          console.error('Failed to log offline transaction:', err);
-        }
-
-        DeviceEventEmitter.emit('ON_SEND_MONEY_OFFLINE', total);
-        
-        navigation.navigate('TransportChoice', { qrData: voucher.smsBody });
+        navigation.navigate('TransportChoice', {
+          qrData: voucher.smsBody,
+          payload,
+          amount,
+          total,
+          recipientName,
+          recipientShortId,
+          fee
+        });
       } catch (err) {
-        console.error('Failed to queue offline payment:', err);
+        console.error('Failed to build offline voucher:', err);
         navigation.navigate('Dashboard');
+      } finally {
+        setIsProcessing(false);
       }
     }
   };
@@ -465,80 +463,107 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         onRequestClose={handleBackToHome}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { maxHeight: '90%' }]}>
             {/* Close Button */}
-            <TouchableOpacity onPress={handleBackToHome} style={styles.closeModalButton} activeOpacity={0.7}>
+            <TouchableOpacity onPress={handleBackToHome} style={[styles.closeModalButton, { zIndex: 10 }]} activeOpacity={0.7}>
               <Ionicons name="close-outline" size={24} color="#6B7280" />
             </TouchableOpacity>
 
-            {/* Mascot Image */}
-            <Image
-              source={require('../../assets/success/piji-success.png')}
-              style={styles.successImage}
-              resizeMode="contain"
-            />
+            <ScrollView 
+              style={{ width: '100%' }}
+              contentContainerStyle={{ alignItems: 'center', paddingTop: 12 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Mascot Image */}
+              <Image
+                source={require('../../assets/success/piji-success.png')}
+                style={styles.successImage}
+                resizeMode="contain"
+              />
 
-            {/* Success Info */}
-            <Text style={styles.successTitle}>Transaction Success</Text>
-            <Text style={styles.successDesc}>
-              Funds have been transferred and settled{'\n'}instantly via Stellar.
-            </Text>
+              {/* Success Info */}
+              <Text style={styles.successTitle}>
+                {isOnlineMode ? 'Transaction Success' : 'Offline Voucher Created'}
+              </Text>
+              <Text style={styles.successDesc}>
+                {isOnlineMode
+                  ? 'Funds have been transferred and settled\ninstantly via Stellar.'
+                  : 'Your offline payment voucher is ready.\nSelect your dispatch method to proceed.'}
+              </Text>
 
-            {/* Receipt Ticket Box */}
-            <View style={styles.receiptTicket}>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Recipient</Text>
-                <Text style={styles.ticketValue}>{recipientName}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Short ID</Text>
-                <Text style={styles.ticketValue}>{recipientShortId}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Amount sent</Text>
-                <Text style={styles.ticketValue}>₱{formatCurrency(amount)}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Service Fee</Text>
-                <Text style={styles.ticketValue}>₱{formatCurrency(fee)}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Ref. Number</Text>
-                <Text style={styles.ticketIdValue}>{txId}</Text>
-              </View>
-              <View style={styles.ticketRow}>
-                <Text style={styles.ticketLabel}>Stellar Ledger</Text>
-                <Text style={styles.ticketValue}>#{ledgerNum}</Text>
+              {/* Receipt Ticket Box */}
+              <View style={styles.receiptTicket}>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Recipient</Text>
+                  <Text style={styles.ticketValue}>{recipientName}</Text>
+                </View>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Short ID</Text>
+                  <Text style={styles.ticketValue}>{recipientShortId}</Text>
+                </View>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Amount sent</Text>
+                  <Text style={styles.ticketValue}>₱{formatCurrency(amount)}</Text>
+                </View>
+                <View style={styles.ticketRow}>
+                  <Text style={styles.ticketLabel}>Service Fee</Text>
+                  <Text style={styles.ticketValue}>₱{formatCurrency(fee)}</Text>
+                </View>
+                {isOnlineMode ? (
+                  <>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Ref. Number</Text>
+                      <Text style={styles.ticketIdValue}>{txId}</Text>
+                    </View>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Stellar Ledger</Text>
+                      <Text style={styles.ticketValue}>#{ledgerNum}</Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Ref. Number</Text>
+                      <Text style={styles.ticketValue}>Pending Dispatch</Text>
+                    </View>
+                    <View style={styles.ticketRow}>
+                      <Text style={styles.ticketLabel}>Stellar Ledger</Text>
+                      <Text style={styles.ticketValue}>Pending Dispatch</Text>
+                    </View>
+                  </>
+                )}
+
+                <View style={styles.ticketSeparator} />
+
+                {/* Barcode representation */}
+                <View style={styles.barcodeWrapper}>
+                  <Barcode />
+                  <Text style={styles.barcodeLabel}>{txId}</Text>
+                </View>
+
+                {/* Scalloped border decorations */}
+                <View style={styles.scallopsWrapper}>
+                  {Array.from({ length: 22 }).map((_, i) => (
+                    <Svg key={i} width={18} height={10} viewBox="0 0 18 10" style={styles.scallopSvg}>
+                      <Path
+                        d="M 0 10 A 9 9 0 0 1 18 10"
+                        fill="#04295A"
+                        stroke="#04295A"
+                        strokeWidth={1.5}
+                      />
+                    </Svg>
+                  ))}
+                </View>
               </View>
 
-              <View style={styles.ticketSeparator} />
-
-              {/* Barcode representation */}
-              <View style={styles.barcodeWrapper}>
-                <Barcode />
-                <Text style={styles.barcodeLabel}>{txId}</Text>
-              </View>
-
-              {/* Scalloped border decorations */}
-              <View style={styles.scallopsWrapper}>
-                {Array.from({ length: 22 }).map((_, i) => (
-                  <Svg key={i} width={18} height={10} viewBox="0 0 18 10" style={styles.scallopSvg}>
-                    <Path
-                      d="M 0 10 A 9 9 0 0 1 18 10"
-                      fill="#04295A"
-                      stroke="#04295A"
-                      strokeWidth={1.5}
-                    />
-                  </Svg>
-                ))}
-              </View>
-            </View>
-
-            {/* Back to Dashboard Button */}
-            <TouchableOpacity onPress={handleBackToHome} style={styles.backHomeButton} activeOpacity={0.9}>
-              <Ionicons name="arrow-undo-outline" size={18} color="#FFFFFF" style={styles.backHomeIcon} />
-              <Text style={styles.backHomeButtonText}>Back to Dashboard</Text>
-            </TouchableOpacity>
+              {/* Back to Dashboard / Dispatch Button */}
+              <TouchableOpacity onPress={handleBackToHome} style={styles.backHomeButton} activeOpacity={0.9}>
+                <Ionicons name="arrow-undo-outline" size={18} color="#FFFFFF" style={styles.backHomeIcon} />
+                <Text style={styles.backHomeButtonText}>
+                  {isOnlineMode ? 'Back to Dashboard' : 'Select Dispatch Method'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>

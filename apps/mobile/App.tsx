@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { runMigrations } from './src/db/migrations';
+import { syncService } from './src/services/syncService';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -13,7 +15,7 @@ import { Sep24WebviewScreen } from './src/screens/Sep24WebviewScreen';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 
 type RootStackParamList = {
-  Onboarding: { initialStep?: number } | undefined;
+  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 } | undefined;
   SignIn: undefined;
   Dashboard: undefined;
   TransactionReceipt: { transaction: any };
@@ -113,6 +115,27 @@ function AppContent({
 export default function App() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   const [fontLoadTimedOut, setFontLoadTimedOut] = useState(false);
+  const isMountedRef = useRef(true);
+
+  // Initialize the SQLite database and start the RxJS sync service.
+  // runMigrations() is idempotent — safe to run on every app launch.
+  useEffect(() => {
+    isMountedRef.current = true;
+    runMigrations()
+      .then(() => {
+        if (isMountedRef.current) {
+          syncService.start();
+        }
+      })
+      .catch(err => {
+        console.error('[App] DB initialization failed:', err);
+      });
+
+    return () => {
+      isMountedRef.current = false;
+      syncService.stop();
+    };
+  }, []);
 
   useEffect(() => {
     if (fontError) {

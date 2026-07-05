@@ -1,6 +1,18 @@
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 
+// --- DYNAMIC PACKAGE RESOLVER (Teammate's Addition) ---
+// Safely finds hoisted packages no matter where NPM installs them in the monorepo
+function resolvePackageRoot(packageName) {
+  const mainPath = require.resolve(packageName);
+  let dir = path.dirname(mainPath);
+  const targetFolder = packageName.includes('/') ? packageName.split('/').pop() : packageName;
+  while (path.basename(dir) !== targetFolder && dir !== path.dirname(dir)) {
+    dir = path.dirname(dir);
+  }
+  return dir;
+}
+
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
 
@@ -24,13 +36,9 @@ config.resolver.disableHierarchicalLookup = true;
 // Metro (EAS/Android) often fails on package.json "exports" subpaths.
 config.resolver.unstable_enablePackageExports = false;
 
-// Resolve stellar-sdk from the workspace root (where NPM hoisted it)
-const stellarSdkRoot = path.join(
-  workspaceRoot,
-  'node_modules',
-  '@stellar',
-  'stellar-sdk'
-);
+// Dynamically resolve roots using the new helper
+const stellarSdkRoot = resolvePackageRoot('@stellar/stellar-sdk');
+const reactNativeSvgRoot = resolvePackageRoot('react-native-svg');
 
 const stellarFull = path.join(stellarSdkRoot, 'lib');
 
@@ -47,11 +55,8 @@ const stellarAliases = {
   '@stellar/stellar-sdk/rpc': path.join(stellarFull, 'rpc/index.js'),
   'eventsource': path.join(__dirname, 'empty-module.js'),
   // Force Metro to use the compiled CommonJS build of react-native-svg instead of
-  // the TypeScript source. The TS source (src/index.ts) eagerly imports
-  // NativeSvgViewModule.ts which calls TurboModuleRegistry.getEnforcing() at module
-  // load time — crashing Expo Go before any screen renders. The compiled build uses
-  // lazy Object.defineProperty getters that are safe to load without a native binary.
-  'react-native-svg': path.join(__dirname, 'node_modules', 'react-native-svg', 'lib', 'commonjs', 'index.js'),
+  // the TypeScript source.
+  'react-native-svg': path.join(reactNativeSvgRoot, 'lib', 'commonjs', 'index.js'),
 };
 
 const defaultResolveRequest = config.resolver.resolveRequest;

@@ -1,14 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { memo, useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   Animated,
   TouchableOpacity,
-  Image,
   Dimensions,
   ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -17,7 +17,7 @@ interface NotificationsTabProps {
   insets: { top: number; bottom: number; left: number; right: number };
 }
 
-export function NotificationsTab({ insets }: NotificationsTabProps) {
+export const NotificationsTab = memo(function NotificationsTab({ insets }: NotificationsTabProps) {
   const NOTIF_SCREEN_WIDTH = SCREEN_WIDTH - 40;
 
   const [activeNotificationFilter, setActiveNotificationFilter] = useState<'all' | 'transactions' | 'updates' | 'unread'>('all');
@@ -180,7 +180,7 @@ export function NotificationsTab({ insets }: NotificationsTabProps) {
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   tabContentContainer: {

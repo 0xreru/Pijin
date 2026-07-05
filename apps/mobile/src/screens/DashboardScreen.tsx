@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -13,8 +13,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { useVaultBalance } from '../hooks/useVaultBalance';
 import { LogoutConfirmationModal } from '../components/ui/LogoutConfirmationModal';
-import { loadTransactions } from '../services/storage/transactionStorage';
-import { loadOfflinePaymentsQueue, clearOfflinePaymentsQueue, appendToOfflinePaymentsQueue } from '../services/storage/paymentQueueStorage';
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { db } from '../db/client';
+import { transactions as transactionsTable, paymentQueue as paymentQueueTable } from '../db/schema';
+import { eq, desc } from 'drizzle-orm';
+import { enqueuePayment } from '../db/services/paymentQueueDb';
+import { syncService } from '../services/syncService';
 import { BottomNavBar, TabType } from '../components/ui/BottomNavBar';
 import { connectionService } from '../services/connectionService';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
@@ -46,10 +50,19 @@ export function DashboardScreen({ navigation }: any) {
   const isManualOverrideRef = useRef(false);
   const [cachedBalance, setCachedBalance] = useState<number>(0.00); // Start at 0 like screenshot
   const [offlineBalance, setOfflineBalance] = useState<number>(0.00);
-  const [queueCount, setQueueCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
+
+  // Live Queries for automatic, reactive UI updates
+  const { data: transactions = [] } = useLiveQuery(
+    db.select().from(transactionsTable).orderBy(desc(transactionsTable.createdAt))
+  );
+
+  const { data: pendingPayments = [] } = useLiveQuery(
+    db.select().from(paymentQueueTable).where(eq(paymentQueueTable.synced, false))
+  );
+  const queueCount = pendingPayments.length;
 
   // Switch animation states
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -93,8 +106,6 @@ export function DashboardScreen({ navigation }: any) {
             await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
           }
         }
-        await updateQueueCount();
-        await fetchTransactions();
 
         // Initial connection check to position layout correctly on mount
         const initialOnline = connectionService.currentState.isOnlineMode;
@@ -120,7 +131,6 @@ export function DashboardScreen({ navigation }: any) {
         AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
         return newOffline;
       });
-      fetchTransactions();
     });
 
     const subSendOnline = DeviceEventEmitter.addListener('ON_SEND_MONEY_ONLINE', (amount: number) => {
@@ -129,7 +139,6 @@ export function DashboardScreen({ navigation }: any) {
         AsyncStorage.setItem(CACHED_BALANCE_KEY, newOnline.toString());
         return newOnline;
       });
-      fetchTransactions();
     });
 
     const subSendOffline = DeviceEventEmitter.addListener('ON_SEND_MONEY_OFFLINE', (amount: number) => {
@@ -138,18 +147,12 @@ export function DashboardScreen({ navigation }: any) {
         AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
         return newOffline;
       });
-      fetchTransactions();
-    });
-
-    const subTxUpdated = DeviceEventEmitter.addListener('TRANSACTIONS_UPDATED', () => {
-      fetchTransactions();
     });
 
     return () => {
       subLoad.remove();
       subSendOnline.remove();
       subSendOffline.remove();
-      subTxUpdated.remove();
     };
   }, []);
 
@@ -171,11 +174,6 @@ export function DashboardScreen({ navigation }: any) {
     });
     return () => sub.unsubscribe();
   }, [isOnline]);
-
-  const updateQueueCount = async () => {
-    const queue = await loadOfflinePaymentsQueue();
-    setQueueCount(queue.length);
-  };
 
   // Switch transition handler
   const handleStateTransition = (targetOnline: boolean) => {
@@ -200,57 +198,33 @@ export function DashboardScreen({ navigation }: any) {
     });
   };
 
-  const handleManualToggle = (targetOnline: boolean) => {
+  const handleManualToggle = useCallback((targetOnline: boolean) => {
     if (!hasInternet && targetOnline) {
       return;
     }
     isManualOverrideRef.current = true;
     connectionService.setOnlineState(targetOnline);
-  };
+  }, [hasInternet]);
 
-  // Mock sync queue
-  const handleSyncQueue = async () => {
+  // Trigger sync queue using the new background syncService flush
+  const handleSyncQueue = useCallback(async () => {
     if (queueCount === 0) return;
     setSyncing(true);
-    
     try {
-      const queue = await loadOfflinePaymentsQueue();
-      const totalAmount = queue.reduce((sum, item) => sum + item.amount, 0);
-
-      setTimeout(async () => {
-        try {
-          await clearOfflinePaymentsQueue();
-          setQueueCount(0);
-          
-          const { addTransaction } = require('../services/storage/transactionStorage');
-          await addTransaction({
-            title: 'Synced Offline Payments',
-            subtitle: 'Today',
-            amount: totalAmount,
-            type: 'settlement',
-            tag: 'WALLET',
-            description: `Successfully synchronized and settled ${queue.length} offline voucher(s) totaling ₱${totalAmount.toFixed(2)} on the Stellar network.`,
-          });
-
-          await refreshBalance();
-          setSyncing(false);
-          await fetchTransactions();
-          Alert.alert(
-            'Sync Complete',
-            'Offline payments have been broadcasted and settled on the Stellar network.'
-          );
-        } catch (err) {
-          setSyncing(false);
-          Alert.alert('Sync Failed', 'Could not establish connection to Horizon. Try again.');
-        }
-      }, 2000);
+      await syncService.flush();
+      await refreshBalance();
+      setSyncing(false);
+      Alert.alert(
+        'Sync Sequence Triggered',
+        'The sync sequence has been executed. Check the queue status for details.'
+      );
     } catch (err) {
       setSyncing(false);
-      Alert.alert('Sync Failed', 'Could not read offline queue.');
+      Alert.alert('Sync Failed', 'An error occurred during synchronization.');
     }
-  };
+  }, [queueCount, refreshBalance]);
 
-  const handleAddMockQueueItem = async () => {
+  const handleAddMockQueueItem = useCallback(async () => {
     if (!isOnline) {
       const mockPayload = {
         type: 'ABOTPERA_OFFLINE_PAYMENT' as const,
@@ -263,24 +237,48 @@ export function DashboardScreen({ navigation }: any) {
         createdAt: new Date().toISOString(),
         expiresInMinutes: 10,
       };
-      await appendToOfflinePaymentsQueue(mockPayload);
-      await updateQueueCount();
+      await enqueuePayment(mockPayload);
       Alert.alert('Offline Payment Queued', 'An offline payment has been generated and queued.');
     } else {
       Alert.alert('Load Offline Funds', 'Move funds to offline vault for network-free usage.');
     }
-  };
+  }, [isOnline, shortId]);
 
-  const [transactions, setTransactions] = useState<any[]>([]);
+  // ── Stable callback refs for tab props ────────────────────────────────────
+  const handleLogoutPress = useCallback(() => setLogoutModalVisible(true), []);
 
-  const fetchTransactions = async () => {
-    try {
-      const list = await loadTransactions();
-      setTransactions(list);
-    } catch (err) {
-      console.error('Failed to load transactions:', err);
+  const handleLoadOfflineFundsPress = useCallback(() => {
+    navigation.navigate('LoadOfflineFunds', { balance: cachedBalance });
+  }, [navigation, cachedBalance]);
+
+  const handleSendPress = useCallback(() => {
+    navigation.navigate('SendMoney');
+  }, [navigation]);
+
+  const handleReceivePress = useCallback(() => {
+    navigation.navigate('GenerateQR', { mode: 'receiver' });
+  }, [navigation]);
+
+  const handleViewAllTransactions = useCallback(() => setActiveTab('transactions'), []);
+
+  const handleChangeTab = useCallback((tab: TabType) => {
+    if (tab === 'scan') {
+      navigation.navigate('ScanQR');
+    } else {
+      setActiveTab(tab);
     }
-  };
+  }, [navigation]);
+
+  const handleLogoutConfirm = useCallback(async () => {
+    setLogoutModalVisible(false);
+    await logout();
+  }, [logout]);
+
+  const handleLogoutCancel = useCallback(() => setLogoutModalVisible(false), []);
+
+  // ── Memoized derived transaction lists ────────────────────────────────────
+  const onlineTxs = useMemo(() => transactions.filter(t => t.tag === 'WALLET'), [transactions]);
+  const offlineTxs = useMemo(() => transactions.filter(t => t.tag === 'OFFLINE'), [transactions]);
 
   const renderActiveTabContent = () => {
     return (
@@ -305,29 +303,17 @@ export function DashboardScreen({ navigation }: any) {
               syncing={syncing}
               slideAnim={slideAnim}
               isTransitioning={isTransitioning}
-              onlineTxs={transactions.filter(t => t.tag === 'WALLET')}
-              offlineTxs={transactions.filter(t => t.tag === 'OFFLINE')}
+              onlineTxs={onlineTxs}
+              offlineTxs={offlineTxs}
               insets={insets}
-              onLogoutPress={() => setLogoutModalVisible(true)}
+              onLogoutPress={handleLogoutPress}
               onManualToggle={handleManualToggle}
               onSyncQueue={handleSyncQueue}
               onAddMockQueueItem={handleAddMockQueueItem}
-              onLoadOfflineFundsPress={() => {
-                navigation.navigate('LoadOfflineFunds', {
-                  balance: cachedBalance,
-                });
-              }}
-              onSendPress={() => {
-                navigation.navigate('SendMoney');
-              }}
-              onReceivePress={() => {
-                navigation.navigate('GenerateQR', { mode: 'receiver' });
-              }}
-              onViewAllTransactions={() => setActiveTab('transactions')}
-              publicKey={publicKey}
-              onDepositSuccess={(url, assetCode, transactionId) => {
-                navigation.navigate('Sep24Webview', { url, assetCode, transactionId });
-              }}
+              onLoadOfflineFundsPress={handleLoadOfflineFundsPress}
+              onSendPress={handleSendPress}
+              onReceivePress={handleReceivePress}
+              onViewAllTransactions={handleViewAllTransactions}
             />
           </View>
 
@@ -352,7 +338,7 @@ export function DashboardScreen({ navigation }: any) {
               shortId={shortId}
               publicKey={publicKey}
               insets={insets}
-              onLogoutPress={() => setLogoutModalVisible(true)}
+              onLogoutPress={handleLogoutPress}
             />
           </View>
         </Animated.View>
@@ -375,23 +361,14 @@ export function DashboardScreen({ navigation }: any) {
       {/* Bottom Navigation Bar */}
       <BottomNavBar
         activeTab={activeTab}
-        onChangeTab={(tab) => {
-          if (tab === 'scan') {
-            navigation.navigate('ScanQR');
-          } else {
-            setActiveTab(tab);
-          }
-        }}
+        onChangeTab={handleChangeTab}
       />
 
       {/* Logout Modal */}
       <LogoutConfirmationModal
         visible={logoutModalVisible}
-        onConfirm={async () => {
-          setLogoutModalVisible(false);
-          await logout();
-        }}
-        onCancel={() => setLogoutModalVisible(false)}
+        onConfirm={handleLogoutConfirm}
+        onCancel={handleLogoutCancel}
       />
     </View>
   );
