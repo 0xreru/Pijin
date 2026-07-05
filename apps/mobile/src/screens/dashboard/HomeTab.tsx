@@ -1,4 +1,5 @@
 import React, { useState, useEffect, memo } from 'react';
+import { useNavigation } from '@react-navigation/native';
 import {
   StyleSheet,
   Text,
@@ -45,8 +46,6 @@ interface HomeTabProps {
   isOnlineDisabled?: boolean;
   /** The user's Stellar public key — forwarded to DepositButton for trustline checks. */
   publicKey: string;
-  /** Called by DepositButton after trustline is confirmed. Triggers SEP-24 flow. */
-  onDepositSuccess: (url: string, assetCode: string, transactionId: string) => void;
 }
 
 export const HomeTab = memo(function HomeTab({
@@ -71,8 +70,8 @@ export const HomeTab = memo(function HomeTab({
   onViewAllTransactions,
   isOnlineDisabled = false,
   publicKey,
-  onDepositSuccess,
 }: HomeTabProps) {
+  const navigation = useNavigation<any>();
   const [depositLoading, setDepositLoading] = useState(false);
   const [stellarPublicKey, setStellarPublicKey] = useState<string | null>(null);
 
@@ -91,20 +90,21 @@ export const HomeTab = memo(function HomeTab({
 
   /**
    * Called by DepositButton once the JIT trustline is confirmed.
-   * Runs SEP-10 auth + SEP-24 deposit initiation, then calls back
-   * the parent navigator to open the webview.
+   * Runs SEP-10 auth + SEP-24 deposit initiation, then navigates
+   * directly to the SEP-24 webview — no parent callback needed.
    */
   const handleDepositSuccess = async (assetCode: AssetCode) => {
     try {
-      setDepositLoading(true);
+      // 1. Get the offline signing key
       const keypair = await getOrGenerateDeviceKeypair();
+
+      // 2. Start the SEP-24 flow (Auth & Deposit initiation)
       const { url, transactionId } = await startSep24Deposit(assetCode, keypair);
-      onDepositSuccess(url, assetCode, transactionId);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Could not start deposit.';
-      Alert.alert('Deposit Error', message);
-    } finally {
-      setDepositLoading(false);
+
+      // 3. Navigate directly to the webview!
+      navigation.navigate('Sep24Webview', { url, assetCode, transactionId });
+    } catch (e) {
+      Alert.alert('Deposit Error', String(e));
     }
   };
   return (
