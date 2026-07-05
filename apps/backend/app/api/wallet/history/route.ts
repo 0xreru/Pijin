@@ -93,8 +93,9 @@ export async function GET(req: NextRequest) {
   // Instead of storing a duplicate "TransactionHistory" table, we query both the 
   // offline Settlement table and online AnchorTransaction table simultaneously.
   // Promise.all ensures both queries run at the exact same time, halving response time.
-  let settlements: Awaited<ReturnType<typeof prisma.settlement.findMany>>;
-  let anchorTransactions: Awaited<ReturnType<typeof prisma.anchorTransaction.findMany>>;
+  
+  let settlements: any[] = [];
+  let anchorTransactions: any[] = [];
 
   try {
     [settlements, anchorTransactions] = await Promise.all([
@@ -125,7 +126,7 @@ export async function GET(req: NextRequest) {
 
   // --- 5. MAP SETTLEMENT RECORDS ---
   // We map the raw database rows into our standardized unified `TransactionHistoryItem` interface.
-  const settlementItems: TransactionHistoryItem[] = settlements.map((s: typeof settlements[number]) => {
+  const settlementItems: TransactionHistoryItem[] = settlements.map((s: any) => {
     const decimals  = s.token?.decimals ?? 7;
     const assetCode = s.token?.symbol   ?? 'UNKNOWN';
     
@@ -147,7 +148,7 @@ export async function GET(req: NextRequest) {
   });
 
   // --- 6. MAP ANCHOR TRANSACTION RECORDS ---
-  const anchorItems: TransactionHistoryItem[] = anchorTransactions.map((a: typeof anchorTransactions[number]) => {
+  const anchorItems: TransactionHistoryItem[] = anchorTransactions.map((a: any) => {
     const isDeposit = a.type === 'deposit';
     
     // SEP-24 semantics: amountOut is the actual crypto the user received. 
