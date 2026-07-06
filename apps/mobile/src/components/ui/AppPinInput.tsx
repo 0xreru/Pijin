@@ -7,6 +7,8 @@ interface AppPinInputProps {
   length?: number;
   theme?: 'light' | 'dark';
   secureTextEntry?: boolean;
+  /** Override box size (width & height) for layouts with many digits. Default: 60. */
+  inputSize?: number;
   onFocus?: () => void;
   onBlur?: () => void;
 }
@@ -17,6 +19,7 @@ export function AppPinInput({
   length = 4,
   theme = 'light',
   secureTextEntry = false,
+  inputSize = 60,
   onFocus,
   onBlur,
 }: AppPinInputProps) {
@@ -62,6 +65,7 @@ export function AppPinInput({
           }}
           style={[
             styles.input,
+            { width: inputSize, height: inputSize + 12 },
             isDark ? styles.darkInput : styles.lightInput,
             value.length === index && styles.activeInput,
           ]}
@@ -84,16 +88,15 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 16,
+    gap: 10,
     marginVertical: 20,
     width: '100%',
   },
   input: {
-    width: 60,
-    height: 72,
+    // width & height are overridden inline via inputSize prop
     borderRadius: 8,
     borderWidth: 1.5,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
   },
