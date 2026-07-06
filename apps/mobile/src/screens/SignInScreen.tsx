@@ -7,12 +7,19 @@ import {
   TouchableOpacity,
   Animated,
   Dimensions,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import { getUserPin, getUserPhone } from '../services/storage/onboardingStorage';
+import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
+import { checkUserExists } from '../services/api/accounts';
+import { getSep10Token } from '../services/stellar/anchorService';
+import { useAuth } from '../context/AuthContext';
+import { loadStoredAccount } from '../services/storage/accountStorage';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -26,9 +33,11 @@ const KEYPAD = [
 export function SignInScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { login } = useAuth();
 
   const [pin, setPin] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('9123456789');
+  const [isValidating, setIsValidating] = useState(false);
 
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
@@ -58,34 +67,77 @@ export function SignInScreen() {
   };
 
   const validatePin = async (enteredPin: string) => {
+    setIsValidating(true);
     try {
       const savedPin = await getUserPin();
-      // Fallback to "0000" if no PIN is set yet for testing
       const pinToCompare = savedPin || '0000';
       
-      if (enteredPin === pinToCompare) {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Dashboard' }],
-        });
-      } else {
+      if (enteredPin !== pinToCompare) {
         triggerShake();
+        setIsValidating(false);
+        return;
       }
+
+      // PIN is correct. Obtain keypair and check backend status
+      const keypair = await getOrGenerateDeviceKeypair();
+      const publicKey = keypair.publicKey();
+
+      try {
+        // Online check & authentication
+        const checkRes = await checkUserExists(phoneNumber);
+        
+        if (checkRes.exists && checkRes.stellarPublicKey && checkRes.shortId) {
+          const token = await getSep10Token(keypair);
+          await login(checkRes.stellarPublicKey, checkRes.shortId, token);
+        } else {
+          // Phone number not found in DB
+          Alert.alert(
+            'Account Not Found',
+            'This phone number is not registered on the network. Please register first.',
+            [{ text: 'OK', onPress: () => handleSwitchAccount() }]
+          );
+          setIsValidating(false);
+          return;
+        }
+      } catch (networkError) {
+        console.warn('[SignIn] Network error during online auth, attempting offline fallback:', networkError);
+        
+        // Offline fallback: load cached account from local storage
+        const stored = await loadStoredAccount();
+        if (stored && stored.stellarPublicKey === publicKey) {
+          // Proceed offline with empty/old token
+          await login(stored.stellarPublicKey, stored.shortId, '');
+        } else {
+          // No cached account or mismatched key
+          Alert.alert(
+            'Connection Required',
+            'First-time sign-in on this device requires an internet connection. Please connect to the internet and try again.'
+          );
+          setIsValidating(false);
+          return;
+        }
+      }
+
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Dashboard' }],
+      });
     } catch (e) {
       console.error('PIN verification failed:', e);
       triggerShake();
+    } finally {
+      setIsValidating(false);
     }
   };
 
   const handleKeyPress = (key: string) => {
-    if (pin.length < 4) {
-      const newPin = pin + key;
-      setPin(newPin);
-      if (newPin.length === 4) {
-        setTimeout(() => {
-          validatePin(newPin);
-        }, 150);
-      }
+    if (isValidating || pin.length >= 4) return;
+    const newPin = pin + key;
+    setPin(newPin);
+    if (newPin.length === 4) {
+      setTimeout(() => {
+        validatePin(newPin);
+      }, 150);
     }
   };
 
@@ -144,8 +196,17 @@ export function SignInScreen() {
 
         {/* Enter PIN text and dots */}
         <View style={styles.mpinSection}>
-          <Text style={styles.enterMpinText}>Enter your MPIN</Text>
-          {renderPinDots()}
+          {isValidating ? (
+            <View style={{ height: 60, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator color="#FFFFFF" size="small" />
+              <Text style={{ marginTop: 8, fontSize: 14, color: '#9CA3AF', fontWeight: '700' }}>Authenticating secure session...</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.enterMpinText}>Enter your MPIN</Text>
+              {renderPinDots()}
+            </>
+          )}
         </View>
 
         {/* Tip Text */}
