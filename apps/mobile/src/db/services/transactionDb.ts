@@ -15,7 +15,7 @@
 
 import { db } from '../client';
 import { transactions, type TransactionRow, type NewTransactionRow } from '../schema';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { TransactionType } from '../../types/transaction';
 
 // ---------------------------------------------------------------------------
@@ -152,5 +152,71 @@ export async function clearTransactions(): Promise<void> {
     await db.delete(transactions);
   } catch (error) {
     console.error('[transactionDb] Failed to clear transactions:', error);
+  }
+}
+
+/**
+ * Atomic upsert of server settlement transactions into local SQLite database.
+ * Matches requirements for smart sync (latest 50 records).
+ */
+export async function upsertServerTransactions(
+  shortId: string,
+  serverTxs: any[] // Use any to avoid circular import if needed, or cast internally
+): Promise<void> {
+  try {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    
+    await db.transaction(async (trx) => {
+      for (const sTx of serverTxs) {
+        const amountNum = parseFloat(sTx.amountPhp);
+        const isIncoming = sTx.merchantShortId === shortId;
+        const type = isIncoming ? 'incoming' : 'outgoing';
+        const title = isIncoming
+          ? `Received from ${sTx.customerShortId}`
+          : `Paid to ${sTx.merchantShortId}`;
+        
+        const now = new Date(sTx.createdAt);
+        const dateGroup = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2, '0')}, ${now.getFullYear()}`;
+        const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const subtitle = `${dateGroup.split(',')[0]} at ${timeStr}`;
+
+        const txId = `TX-SVR-${sTx.id}`;
+
+        // Prepare row
+        const rowData: NewTransactionRow = {
+          id: txId,
+          title,
+          subtitle,
+          amount: isIncoming ? amountNum : -amountNum,
+          type,
+          tag: 'WALLET',
+          dateGroup,
+          timeAgo: 'Synced',
+          description: sTx.txHash ? `Stellar Tx Hash: ${sTx.txHash}` : `Status: ${sTx.status}`,
+          createdAt: sTx.createdAt,
+        };
+
+        // Check if row already exists
+        const existing = await trx
+          .select()
+          .from(transactions)
+          .where(eq(transactions.id, txId))
+          .limit(1);
+
+        if (existing.length > 0) {
+          // Update the existing row
+          await trx
+            .update(transactions)
+            .set(rowData)
+            .where(eq(transactions.id, txId));
+        } else {
+          // Insert new row
+          await trx.insert(transactions).values(rowData);
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[transactionDb] Failed to upsert server transactions:', error);
+    throw error;
   }
 }
