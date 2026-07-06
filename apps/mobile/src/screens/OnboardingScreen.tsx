@@ -40,7 +40,7 @@ import { StatusBar } from 'expo-status-bar';
 // ---------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
 
 
 // Enable LayoutAnimation on Android
@@ -224,7 +224,7 @@ export function OnboardingScreen() {
     } catch (e: any) {
       console.error('handleVerifyOtp error:', e);
       setOtp(''); // clear the input
-      Alert.alert('Error', e?.message ?? 'Invalid OTP. Please try again.');
+      Alert.alert('Verification Failed', e?.message ?? 'Invalid OTP. Please try again.');
     } finally {
       setIsVerifyingOtp(false);
     }
