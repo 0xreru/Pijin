@@ -2,6 +2,11 @@
  * DepositButton.tsx
  *
  * Pijin-branded "Deposit" button with a built-in JIT Trustline overlay.
+ * Redesigned to match the app's overall theme:
+ *  - White surface cards, deep navy (#031634 / #001E42) accents
+ *  - expo-linear-gradient for branded elements
+ *  - Native Animated API for smooth, 60fps animations
+ *  - Consistent with BalanceCard, AppButton, DashboardHeader design language
  *
  * Usage
  * ─────
@@ -12,15 +17,6 @@
  *   onSuccess={(code) => openSep24Webview(code)}
  * />
  * ```
- *
- * What happens on press
- * ─────────────────────
- * 1. Silently checks the user's balances for an existing trustline.
- * 2. If the trustline exists → `onSuccess` fires immediately.
- * 3. If missing → a full-screen Pijin-branded overlay appears while the
- *    ChangeTrust tx is built, signed, and submitted to Horizon Testnet.
- * 4. On success → overlay dismisses, `onSuccess` fires.
- * 5. On failure → overlay switches to a clean error card with a "Retry" CTA.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -34,8 +30,40 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AssetCode, PIJIN_ASSETS } from '../../services/stellar/trustlineService';
 import { useJitTrustline } from '../../hooks/useJitTrustline';
+
+// ─── Theme tokens (mirrors app-wide theme.ts + BalanceCard colors) ────────────
+
+const T = {
+  navyDark: '#02132B',
+  navy: '#031634',
+  navyMid: '#04224C',
+  navyAccent: '#001E42',
+  accent: '#635BFF',       // walletPurple from theme.ts
+  accentLight: '#8B87FF',
+  success: '#16C784',      // theme.ts success
+  danger: '#F04438',       // theme.ts danger
+  surface: '#FFFFFF',
+  surfaceSoft: '#F5F5F6',
+  surfaceMuted: '#F0F0F0',
+  border: '#DADADA',
+  borderSoft: '#E6E9EE',
+  ink: '#08090A',
+  inkSoft: '#3F4144',
+  muted: '#707984',
+  shadowNavy: '#031634',
+  // Overlay tokens
+  overlayBg: 'rgba(2, 19, 43, 0.92)',
+  white: '#FFFFFF',
+  white80: 'rgba(255,255,255,0.80)',
+  white50: 'rgba(255,255,255,0.50)',
+  white20: 'rgba(255,255,255,0.20)',
+  white10: 'rgba(255,255,255,0.10)',
+  white06: 'rgba(255,255,255,0.06)',
+};
 
 // ─── Public component props ───────────────────────────────────────────────────
 
@@ -70,54 +98,87 @@ export function DepositButton({
 
   const isLoading = phase === 'checking' || phase === 'establishing';
 
+  // Subtle scale press animation for the CTA circle
+  const pressScale = useRef(new Animated.Value(1)).current;
+  const handlePressIn = () =>
+    Animated.spring(pressScale, { toValue: 0.92, useNativeDriver: true, speed: 50, bounciness: 4 }).start();
+  const handlePressOut = () =>
+    Animated.spring(pressScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
+
   return (
     <>
-      {/* ── Deposit CTA ── */}
-      <TouchableOpacity
-        style={[
-          styles.button,
-          (disabled || isLoading) && styles.buttonDisabled,
-        ]}
-        onPress={() => handleDepositClick(assetCode)}
-        activeOpacity={0.82}
-        disabled={disabled || isLoading}
-        accessibilityRole="button"
-        accessibilityLabel={`Deposit ${assetCode}`}
-        accessibilityHint={`Tap to deposit ${PIJIN_ASSETS[assetCode].code} to your Pijin wallet`}
-      >
-        <View style={styles.buttonContent}>
-          {phase === 'checking' && activeAsset === assetCode ? (
-            <>
-              <ActivityIndicator
-                size="small"
-                color="#fff"
-                style={styles.buttonSpinner}
-              />
-              <Text style={styles.buttonText}>Checking…</Text>
-            </>
-          ) : (
-            <Text style={styles.buttonText}>{label ?? `Deposit ${assetCode}`}</Text>
-          )}
-        </View>
-      </TouchableOpacity>
+      {/* ── Deposit CTA (circle + label, matching action row siblings) ── */}
+      <View style={styles.actionItem}>
+        <Animated.View style={{ transform: [{ scale: pressScale }] }}>
+          <TouchableOpacity
+            style={[
+              styles.actionCircle,
+              (disabled || isLoading) && styles.actionCircleDisabled,
+            ]}
+            onPress={() => handleDepositClick(assetCode)}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            activeOpacity={1}
+            disabled={disabled || isLoading}
+            accessibilityRole="button"
+            accessibilityLabel={`Deposit ${assetCode}`}
+            accessibilityHint={`Tap to deposit ${PIJIN_ASSETS[assetCode].code} to your Pijin wallet`}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
+            )}
+          </TouchableOpacity>
+        </Animated.View>
+        <Text style={styles.actionLabel}>{label ?? `Deposit ${assetCode}`}</Text>
+      </View>
 
       {/* ── JIT Overlay Modal ── */}
       <Modal
         visible={overlayVisible}
         transparent
-        animationType="fade"
+        animationType="none"
         statusBarTranslucent
         onRequestClose={phase === 'error' ? dismissError : undefined}
       >
-        <View style={styles.backdrop}>
+        <OverlayContent>
           {phase === 'error' ? (
             <ErrorCard assetCode={assetCode} message={errorMessage} onDismiss={dismissError} />
           ) : (
             <LoadingCard assetCode={assetCode} phase={phase} />
           )}
-        </View>
+        </OverlayContent>
       </Modal>
     </>
+  );
+}
+
+// ─── Overlay Wrapper (animated backdrop) ──────────────────────────────────────
+
+function OverlayContent({ children }: { children: React.ReactNode }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  const slideY = fadeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [40, 0],
+  });
+
+  return (
+    <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
+      <Animated.View style={{ transform: [{ translateY: slideY }], width: '100%', alignItems: 'center' }}>
+        {children}
+      </Animated.View>
+    </Animated.View>
   );
 }
 
@@ -130,42 +191,55 @@ interface LoadingCardProps {
 
 function LoadingCard({ assetCode, phase }: LoadingCardProps) {
   const spinAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(0.9)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const dotAnim1 = useRef(new Animated.Value(0.3)).current;
+  const dotAnim2 = useRef(new Animated.Value(0.3)).current;
+  const dotAnim3 = useRef(new Animated.Value(0.3)).current;
 
-  // Infinite rotation for the ring spinner.
   useEffect(() => {
+    // Spinner rotation
     const spin = Animated.loop(
       Animated.timing(spinAnim, {
         toValue: 1,
-        duration: 1400,
+        duration: 1200,
         easing: Easing.linear,
         useNativeDriver: true,
       }),
     );
-    // Gentle pulse for the card itself.
+
+    // Gentle card pulse
     const pulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.96,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
+        Animated.timing(pulseAnim, { toValue: 1.012, duration: 850, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.988, duration: 850, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ]),
     );
+
+    // Staggered dot animation
+    const makeDot = (anim: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 1, duration: 380, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0.3, duration: 380, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+          Animated.delay(760 - delay),
+        ]),
+      );
+
     spin.start();
     pulse.start();
+    makeDot(dotAnim1, 0).start();
+    makeDot(dotAnim2, 180).start();
+    makeDot(dotAnim3, 360).start();
+
     return () => {
       spin.stop();
       pulse.stop();
+      dotAnim1.stopAnimation();
+      dotAnim2.stopAnimation();
+      dotAnim3.stopAnimation();
     };
-  }, [spinAnim, pulseAnim]);
+  }, [spinAnim, pulseAnim, dotAnim1, dotAnim2, dotAnim3]);
 
   const rotate = spinAnim.interpolate({
     inputRange: [0, 1],
@@ -174,41 +248,58 @@ function LoadingCard({ assetCode, phase }: LoadingCardProps) {
 
   const headingText =
     phase === 'establishing'
-      ? `Setting up secure vault\nfor ${assetCode}…`
-      : `Preparing your wallet\nfor ${assetCode}…`;
+      ? `Setting up your\n${assetCode} vault`
+      : `Checking your\nwallet`;
 
   const subText =
     phase === 'establishing'
-      ? 'Signing & submitting to Stellar Testnet'
-      : 'Checking your balances';
+      ? 'Signing & submitting to Stellar Network'
+      : `Verifying ${assetCode} trustline…`;
 
   return (
     <Animated.View style={[styles.card, { transform: [{ scale: pulseAnim }] }]}>
-      {/* Decorative gradient blobs */}
-      <View style={styles.blob1} />
-      <View style={styles.blob2} />
+      {/* Gradient header strip */}
+      <LinearGradient
+        colors={[T.navyDark, T.navyMid]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.cardHeader}
+      >
+        {/* Decorative dot */}
+        <View style={styles.headerDot} />
+        <View style={styles.headerDotSm} />
 
-      {/* Wordmark */}
-      <Text style={styles.wordmark}>pijin</Text>
+        {/* App wordmark */}
+        <Text style={styles.wordmark}>PIJIN</Text>
 
-      {/* Spinner */}
-      <View style={styles.spinnerWrapper}>
-        <Animated.View
-          style={[styles.spinnerRing, { transform: [{ rotate }] }]}
-        />
-        <View style={styles.spinnerInner}>
-          <Text style={styles.spinnerIcon}>⬡</Text>
+        {/* Asset pill inside header */}
+        <View style={styles.headerPill}>
+          <View style={styles.pillDot} />
+          <Text style={styles.headerPillText}>{PIJIN_ASSETS[assetCode].code}</Text>
         </View>
-      </View>
+      </LinearGradient>
 
-      {/* Copy */}
-      <Text style={styles.heading}>{headingText}</Text>
-      <Text style={styles.subText}>{subText}</Text>
+      {/* Card body */}
+      <View style={styles.cardBody}>
+        {/* Animated spinner */}
+        <View style={styles.spinnerWrapper}>
+          <Animated.View style={[styles.spinnerRing, { transform: [{ rotate }] }]} />
+          {/* Inner circle with navy background */}
+          <View style={styles.spinnerInner}>
+            <Ionicons name="shield-checkmark" size={22} color={T.navyAccent} />
+          </View>
+        </View>
 
-      {/* Asset pill */}
-      <View style={styles.assetPill}>
-        <View style={styles.assetDot} />
-        <Text style={styles.assetPillText}>{PIJIN_ASSETS[assetCode].code}</Text>
+        {/* Copy */}
+        <Text style={styles.cardHeading}>{headingText}</Text>
+        <Text style={styles.cardSubText}>{subText}</Text>
+
+        {/* Animated dots progress indicator */}
+        <View style={styles.dotsRow}>
+          {[dotAnim1, dotAnim2, dotAnim3].map((anim, i) => (
+            <Animated.View key={i} style={[styles.dot, { opacity: anim }]} />
+          ))}
+        </View>
       </View>
     </Animated.View>
   );
@@ -223,249 +314,298 @@ interface ErrorCardProps {
 }
 
 function ErrorCard({ assetCode, message, onDismiss }: ErrorCardProps) {
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 6, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -6, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+    ]).start();
+  }, [shakeAnim]);
+
   return (
-    <View style={[styles.card, styles.cardError]}>
-      <View style={styles.blob2} />
+    <Animated.View style={[styles.card, { transform: [{ translateX: shakeAnim }] }]}>
+      {/* Gradient header — danger tint */}
+      <LinearGradient
+        colors={['#2D0A0A', '#4A1010']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.cardHeader}
+      >
+        <View style={styles.headerDot} />
+        <Text style={styles.wordmark}>PIJIN</Text>
+        <View style={[styles.headerPill, styles.headerPillDanger]}>
+          <Ionicons name="warning" size={11} color={T.danger} />
+          <Text style={[styles.headerPillText, { color: T.danger }]}>Error</Text>
+        </View>
+      </LinearGradient>
 
-      {/* Wordmark */}
-      <Text style={styles.wordmark}>pijin</Text>
+      {/* Card body */}
+      <View style={styles.cardBody}>
+        {/* Error icon */}
+        <View style={styles.errorIconWrapper}>
+          <Ionicons name="close-circle" size={44} color={T.danger} />
+        </View>
 
-      {/* Error icon */}
-      <View style={styles.errorIconWrapper}>
-        <Text style={styles.errorIconText}>✕</Text>
+        <Text style={styles.cardHeading}>Setup Failed</Text>
+        <Text style={styles.cardSubText}>
+          {message ?? `We couldn't create a ${assetCode} trustline. Please try again.`}
+        </Text>
+
+        {/* Retry CTA — mirrors AppButton primary */}
+        <TouchableOpacity style={styles.retryBtn} onPress={onDismiss} activeOpacity={0.82}>
+          <LinearGradient
+            colors={[T.navy, T.navyMid]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.retryBtnGradient}
+          >
+            <Ionicons name="refresh" size={16} color={T.white} style={{ marginRight: 8 }} />
+            <Text style={styles.retryBtnText}>Try Again</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* Secondary dismiss link */}
+        <TouchableOpacity onPress={onDismiss} activeOpacity={0.7} style={styles.dismissLink}>
+          <Text style={styles.dismissLinkText}>Cancel</Text>
+        </TouchableOpacity>
       </View>
-
-      <Text style={styles.heading}>Setup Failed</Text>
-      <Text style={styles.subText}>
-        {message ?? `We could not create a ${assetCode} trustline. Please try again.`}
-      </Text>
-
-      {/* Dismiss / Retry CTA */}
-      <TouchableOpacity style={styles.retryBtn} onPress={onDismiss} activeOpacity={0.82}>
-        <Text style={styles.retryBtnText}>Try Again</Text>
-      </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const PIJIN_DEEP_NAVY = '#001233';
-const PIJIN_NAVY = '#002855';
-const PIJIN_BLUE = '#2D557E';
-const PIJIN_ACCENT = '#4A90D9';
-const PIJIN_WHITE = '#FFFFFF';
-const PIJIN_WHITE_60 = 'rgba(255,255,255,0.60)';
-const PIJIN_WHITE_15 = 'rgba(255,255,255,0.15)';
-const PIJIN_WHITE_08 = 'rgba(255,255,255,0.08)';
-const PIJIN_ERROR = '#FF4B6A';
-
 const styles = StyleSheet.create({
-  // ── Button ──────────────────────────────────────────────────────────────
-  button: {
-    backgroundColor: PIJIN_NAVY,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 14,
+  // ── Circle action button (matches Send / Receive / Transfer siblings) ──
+  actionItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  actionCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#001E42',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: PIJIN_DEEP_NAVY,
+    shadowColor: '#001E42',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  buttonDisabled: {
-    opacity: 0.45,
+  actionCircleDisabled: {
+    opacity: 0.4,
   },
-  buttonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  buttonSpinner: {
-    // Keeps the spinner tightly aligned next to the label
-  },
-  buttonText: {
-    color: PIJIN_WHITE,
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+  actionLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#001E42',
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 2,
   },
 
-  // ── Backdrop ─────────────────────────────────────────────────────────────
+  // ── Backdrop ──────────────────────────────────────────────────────────────
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 18, 51, 0.88)',
+    backgroundColor: T.overlayBg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
   },
 
-  // ── Shared card ──────────────────────────────────────────────────────────
+  // ── Shared card shell ────────────────────────────────────────────────────
   card: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: PIJIN_NAVY,
-    borderRadius: 28,
-    padding: 36,
-    alignItems: 'center',
+    backgroundColor: T.surface,
+    borderRadius: 24,
     overflow: 'hidden',
-    // Subtle inner border
-    borderWidth: 1,
-    borderColor: PIJIN_WHITE_15,
-    // Drop shadow
-    shadowColor: PIJIN_DEEP_NAVY,
+    // Drop shadow matching app's card shadow token
+    shadowColor: T.shadowNavy,
     shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.6,
-    shadowRadius: 40,
-    elevation: 24,
-  },
-  cardError: {
-    borderColor: 'rgba(255, 75, 106, 0.30)',
-  },
-
-  // ── Decorative blobs (non-interactive background glows) ──────────────────
-  blob1: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: PIJIN_BLUE,
-    opacity: 0.25,
-    top: -80,
-    right: -60,
-  },
-  blob2: {
-    position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: PIJIN_ACCENT,
-    opacity: 0.12,
-    bottom: -60,
-    left: -40,
+    shadowOpacity: 0.35,
+    shadowRadius: 36,
+    elevation: 20,
+    borderWidth: 1,
+    borderColor: T.borderSoft,
   },
 
-  // ── Wordmark ─────────────────────────────────────────────────────────────
+  // ── Gradient header strip ─────────────────────────────────────────────────
+  cardHeader: {
+    height: 80,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    overflow: 'hidden',
+  },
+  headerDot: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: T.white10,
+    top: -50,
+    right: -30,
+  },
+  headerDotSm: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: T.white06,
+    bottom: -20,
+    left: 80,
+  },
   wordmark: {
-    color: PIJIN_WHITE_60,
+    color: T.white80,
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 6,
+    letterSpacing: 4,
+  },
+  headerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: T.white10,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: T.white20,
+  },
+  headerPillDanger: {
+    backgroundColor: 'rgba(240, 68, 56, 0.15)',
+    borderColor: 'rgba(240, 68, 56, 0.30)',
+  },
+  pillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: T.success,
+  },
+  headerPillText: {
+    color: T.white,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
-    marginBottom: 32,
+  },
+
+  // ── Card body ────────────────────────────────────────────────────────────
+  cardBody: {
+    padding: 28,
+    alignItems: 'center',
   },
 
   // ── Spinner ──────────────────────────────────────────────────────────────
   spinnerWrapper: {
-    width: 72,
-    height: 72,
+    width: 76,
+    height: 76,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 28,
+    marginBottom: 24,
   },
   spinnerRing: {
     position: 'absolute',
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 2.5,
-    // Dashed appearance via transparent segments
-    borderColor: PIJIN_ACCENT,
+    borderColor: T.navyAccent,
     borderTopColor: 'transparent',
     borderRightColor: 'transparent',
   },
   spinnerInner: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: PIJIN_WHITE_08,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: T.surfaceSoft,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  spinnerIcon: {
-    fontSize: 22,
-    color: PIJIN_ACCENT,
+    borderWidth: 1,
+    borderColor: T.borderSoft,
   },
 
   // ── Copy ─────────────────────────────────────────────────────────────────
-  heading: {
-    color: PIJIN_WHITE,
+  cardHeading: {
+    color: T.ink,
     fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.3,
+    fontWeight: '800',
+    letterSpacing: -0.4,
     textAlign: 'center',
-    lineHeight: 28,
-    marginBottom: 10,
+    lineHeight: 27,
+    marginBottom: 8,
   },
-  subText: {
-    color: PIJIN_WHITE_60,
+  cardSubText: {
+    color: T.muted,
     fontSize: 13,
     fontWeight: '400',
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 28,
+    marginBottom: 22,
     paddingHorizontal: 8,
   },
 
-  // ── Asset pill ───────────────────────────────────────────────────────────
-  assetPill: {
+  // ── Dots progress indicator ───────────────────────────────────────────────
+  dotsRow: {
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 4,
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: T.navyAccent,
+  },
+
+  // ── Error icon ────────────────────────────────────────────────────────────
+  errorIconWrapper: {
+    marginBottom: 16,
+  },
+
+  // ── Retry button (matches AppButton primary + LinearGradient) ─────────────
+  retryBtn: {
+    width: '100%',
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginTop: 4,
+    shadowColor: T.shadowNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  retryBtnGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: PIJIN_WHITE_08,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: PIJIN_WHITE_15,
-    gap: 8,
-  },
-  assetDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: PIJIN_ACCENT,
-  },
-  assetPillText: {
-    color: PIJIN_WHITE,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-  },
-
-  // ── Error icon ───────────────────────────────────────────────────────────
-  errorIconWrapper: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(255, 75, 106, 0.15)',
-    alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 75, 106, 0.40)',
-  },
-  errorIconText: {
-    color: PIJIN_ERROR,
-    fontSize: 22,
-    fontWeight: '700',
-  },
-
-  // ── Retry button ─────────────────────────────────────────────────────────
-  retryBtn: {
-    backgroundColor: PIJIN_ACCENT,
-    paddingVertical: 13,
-    paddingHorizontal: 36,
-    borderRadius: 12,
-    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
   },
   retryBtnText: {
-    color: PIJIN_WHITE,
-    fontSize: 14,
+    color: T.white,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+  },
+
+  // ── Dismiss link ──────────────────────────────────────────────────────────
+  dismissLink: {
+    marginTop: 14,
+    paddingVertical: 6,
+  },
+  dismissLinkText: {
+    color: T.muted,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

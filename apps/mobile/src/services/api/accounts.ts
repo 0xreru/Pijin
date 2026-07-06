@@ -1,14 +1,16 @@
 import { apiRequest } from './client';
-import { isPhoneRegistered } from '../storage/onboardingStorage';
-
-export type AccountRole = 'CUSTOMER' | 'MERCHANT';
 
 export type RegisteredAccount = {
   id: number;
   shortId: string;
-  role: AccountRole;
+  role: string;
   stellarPublicKey: string;
-  merchantPin: string | null;
+  offlineDeviceKey: string | null;
+  pin: string | null;
+  phoneNumber: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
   createdAt: string;
 };
 
@@ -18,25 +20,36 @@ type RegisterResponse = {
 };
 
 export async function registerAccount(input: {
-  role: AccountRole;
   stellarPublicKey: string;
   offlineDeviceKey?: string;
-  merchantPin?: string;
-  merchantPhone?: string;
+  pin?: string;
+  phoneNumber?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
 }): Promise<RegisteredAccount> {
-  const role = input.role;
   const body: Record<string, string> = {
-    role,
+    role: 'USER', // Mobile always registers as USER role
     stellarPublicKey: input.stellarPublicKey,
   };
+  
   if (input.offlineDeviceKey) {
     body.offlineDeviceKey = input.offlineDeviceKey;
   }
-  if (role === 'MERCHANT' && input.merchantPin) {
-    body.merchantPin = input.merchantPin;
+  if (input.pin) {
+    body.pin = input.pin;
   }
-  if (role === 'MERCHANT' && input.merchantPhone) {
-    body.merchantPhone = input.merchantPhone;
+  if (input.phoneNumber) {
+    body.phoneNumber = input.phoneNumber;
+  }
+  if (input.firstName) {
+    body.firstName = input.firstName;
+  }
+  if (input.lastName) {
+    body.lastName = input.lastName;
+  }
+  if (input.email) {
+    body.email = input.email;
   }
 
   const result = await apiRequest<RegisterResponse>('/api/register', {
@@ -47,17 +60,17 @@ export async function registerAccount(input: {
   return result.data;
 }
 
-type CheckUserResponse = { exists: boolean };
+type CheckUserResponse = {
+  exists: boolean;
+  stellarPublicKey?: string;
+  shortId?: string;
+};
 
 /**
  * Checks whether a phone number is already registered.
- * @param phone - 10-digit local number (no country code), e.g. "9123456789"
- *
- * TODO: Replace body with real call once backend endpoint is ready:
- *   return apiRequest<CheckUserResponse>(`/api/users/check?phone=63${phone}`);
+ * @param phone - local number (no country code), e.g. "9123456789"
  */
 export async function checkUserExists(phone: string): Promise<CheckUserResponse> {
-  // Local mock — checks the on-device registry populated by saveRegisteredPhone().
-  const exists = await isPhoneRegistered(phone);
-  return { exists };
+  const cleanLocal = phone.replace(/\D/g, "");
+  return apiRequest<CheckUserResponse>(`/api/users/check?phone=63${cleanLocal}`);
 }

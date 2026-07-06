@@ -1,4 +1,3 @@
-import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from '@prisma/client';
 
 const prismaClientSingleton = () => {
@@ -7,8 +6,13 @@ const prismaClientSingleton = () => {
     throw new Error("Missing DATABASE_URL");
   }
 
-  const adapter = new PrismaPg({ connectionString });
-  return new PrismaClient({ adapter });
+  if (connectionString.startsWith("postgres://") || connectionString.startsWith("postgresql://")) {
+    const { PrismaPg } = require("@prisma/adapter-pg");
+    const adapter = new PrismaPg({ connectionString });
+    return new PrismaClient({ adapter });
+  }
+
+  return new PrismaClient();
 };
 
 declare const globalThis: {

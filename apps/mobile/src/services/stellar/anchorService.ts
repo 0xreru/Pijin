@@ -102,31 +102,34 @@ export interface Sep24DepositResult {
  *
  * @throws {AnchorServiceError} on any network failure or unexpected response.
  */
+/**
+ * Performs the full SEP-10 authentication handshake to retrieve a JWT token.
+ *
+ * @param userKeypair - The user's Stellar keypair.
+ */
+export async function getSep10Token(userKeypair: Keypair): Promise<string> {
+  const publicKey = userKeypair.publicKey();
+  const endpoints = await fetchAnchorEndpoints();
+  const challengeXdr = await fetchSep10Challenge(
+    endpoints.webAuthEndpoint,
+    publicKey,
+  );
+  const signedXdr = signChallenge(challengeXdr, userKeypair);
+  const token = await submitSignedChallenge(
+    endpoints.webAuthEndpoint,
+    signedXdr,
+  );
+  return token;
+}
+
 export async function startSep24Deposit(
   assetCode: string,
   userKeypair: Keypair,
 ): Promise<Sep24DepositResult> {
   const publicKey = userKeypair.publicKey();
-
-  // ── Step 1: Discover anchor endpoints via stellar.toml ────────────────────
   const endpoints = await fetchAnchorEndpoints();
+  const token = await getSep10Token(userKeypair);
 
-  // ── Step 2: SEP-10 — Request a challenge transaction ──────────────────────
-  const challengeXdr = await fetchSep10Challenge(
-    endpoints.webAuthEndpoint,
-    publicKey,
-  );
-
-  // ── Step 3: SEP-10 — Sign the challenge ───────────────────────────────────
-  const signedXdr = signChallenge(challengeXdr, userKeypair);
-
-  // ── Step 4: SEP-10 — Exchange signed XDR for a JWT ────────────────────────
-  const token = await submitSignedChallenge(
-    endpoints.webAuthEndpoint,
-    signedXdr,
-  );
-
-  // ── Step 5: SEP-24 — Initiate the interactive deposit ────────────────────
   const { url, transactionId } = await initiateSep24Deposit(
     endpoints.transferServerSep24,
     assetCode,
@@ -210,10 +213,11 @@ async function fetchSep10Challenge(
 
   if (!response.ok) {
     const body = await safeJson(response);
+    const detail = typeof body?.error === "string" ? body.error : `HTTP ${response.status}`;
     throw new AnchorServiceError(
       'Authentication challenge request was rejected.',
       'SEP10_CHALLENGE_FAILED',
-      body?.error ?? `HTTP ${response.status}`,
+      detail,
     );
   }
 
@@ -305,10 +309,11 @@ async function submitSignedChallenge(
 
   if (!response.ok) {
     const body = await safeJson(response);
+    const detail = typeof body?.error === "string" ? body.error : `HTTP ${response.status}`;
     throw new AnchorServiceError(
       'Authentication failed. Please try again.',
       'SEP10_TOKEN_FAILED',
-      body?.error ?? `HTTP ${response.status}`,
+      detail,
     );
   }
 
@@ -366,10 +371,11 @@ async function initiateSep24Deposit(
 
   if (!response.ok) {
     const body = await safeJson(response);
+    const detail = typeof body?.error === "string" ? body.error : `HTTP ${response.status}`;
     throw new AnchorServiceError(
       'The anchor rejected the deposit request.',
       'SEP24_DEPOSIT_FAILED',
-      body?.error ?? `HTTP ${response.status}`,
+      detail,
     );
   }
 

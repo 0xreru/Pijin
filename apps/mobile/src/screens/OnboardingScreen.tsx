@@ -15,6 +15,7 @@ import {
   Animated,
   BackHandler,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -30,7 +31,10 @@ import {
   saveUserEmail,
   saveRegisteredPhone,
 } from '../services/storage/onboardingStorage';
-import { checkUserExists } from '../services/api/accounts';
+import { checkUserExists, registerAccount } from '../services/api/accounts';
+import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
+import { getSep10Token } from '../services/stellar/anchorService';
+import { useAuth } from '../context/AuthContext';
 import { StatusBar } from 'expo-status-bar';
 
 // Enable LayoutAnimation on Android
@@ -58,10 +62,12 @@ export function OnboardingScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'Onboarding'>>();
   const scrollViewRef = useRef<ScrollView>(null);
   
+  const { login } = useAuth();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
   const [maxAllowedStep, setMaxAllowedStep] = useState<number>(1);
   const [userFlowType, setUserFlowType] = useState<UserFlowType>(null);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
 
 
   // Phone form
@@ -213,18 +219,42 @@ export function OnboardingScreen() {
   };
 
   const handleEnterPijin = async () => {
+    setIsRegistering(true);
     try {
-      // Persist this phone to the local registry so returning-user detection
-      // works correctly when "Switch account" is used in the future.
+      const keypair = await getOrGenerateDeviceKeypair();
+      const publicKey = keypair.publicKey();
+
+      // Register the account on the backend
+      const account = await registerAccount({
+        stellarPublicKey: publicKey,
+        offlineDeviceKey: publicKey,
+        pin,
+        phoneNumber: '63' + phoneNumber,
+        firstName,
+        lastName,
+        email,
+      });
+
+      // Get the SEP-10 authentication JWT token
+      const token = await getSep10Token(keypair);
+
+      // Save onboarding complete and phone
       await saveRegisteredPhone(phoneNumber);
       await setOnboardingComplete(true);
+
+      // Perform local session login
+      await login(publicKey, account.shortId, token);
+
       navigation.reset({
         index: 0,
         routes: [{ name: 'Dashboard' }],
       });
     } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Failed to complete onboarding. Please try again.');
+      console.error('[Onboarding Register Error]', e);
+      const errorMessage = e instanceof Error ? e.message : 'Please check your connection and try again.';
+      Alert.alert('Registration Failed', errorMessage);
+    } finally {
+      setIsRegistering(false);
     }
   };
 
@@ -568,12 +598,19 @@ export function OnboardingScreen() {
             </View>
 
             <View style={styles.footer}>
-              <AppButton
-                title="Enter Pijin"
-                onPress={handleEnterPijin}
-                variant="secondary"
-                icon={<Ionicons name="log-in-outline" size={24} color="#08090A" />}
-              />
+              {isRegistering ? (
+                <View style={styles.loadingButton}>
+                  <ActivityIndicator color="#031634" size="small" />
+                  <Text style={[styles.loadingButtonText, { color: '#031634' }]}>Registering account...</Text>
+                </View>
+              ) : (
+                <AppButton
+                  title="Enter Pijin"
+                  onPress={handleEnterPijin}
+                  variant="secondary"
+                  icon={<Ionicons name="log-in-outline" size={24} color="#08090A" />}
+                />
+              )}
             </View>
           </View>
         </ScrollView>

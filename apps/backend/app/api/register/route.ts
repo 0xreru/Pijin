@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { role, stellarPublicKey, pin, phoneNumber, offlineDeviceKey } = body;
+    const { role, stellarPublicKey, pin, phoneNumber, offlineDeviceKey, firstName, lastName, email } = body;
 
     if (!role || !stellarPublicKey) {
       return NextResponse.json({ error: "Missing required fields: role and stellarPublicKey" }, { status: 400 });
@@ -42,9 +42,12 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanKey = stellarPublicKey.trim();
-    const cleanPhone = phoneNumber ? phoneNumber.trim() : null;
+    const cleanPhone = phoneNumber ? phoneNumber.replace(/\D/g, "") : null;
     const cleanPin = pin ? pin.trim() : null;
     const cleanOfflineDeviceKey = offlineDeviceKey ? offlineDeviceKey.trim() : null;
+    const cleanFirstName = firstName ? firstName.trim() : null;
+    const cleanLastName = lastName ? lastName.trim() : null;
+    const cleanEmail = email ? email.trim() : null;
 
     const existingKey = await prisma.account.findUnique({
       where: { stellarPublicKey: cleanKey },
@@ -83,6 +86,9 @@ export async function POST(req: NextRequest) {
         offlineDeviceKey: cleanOfflineDeviceKey,
         pin: cleanPin,
         phoneNumber: cleanPhone,
+        firstName: cleanFirstName,
+        lastName: cleanLastName,
+        email: cleanEmail,
       },
     });
 
