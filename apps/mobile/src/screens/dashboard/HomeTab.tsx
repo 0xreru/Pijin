@@ -193,17 +193,13 @@ export const HomeTab = memo(function HomeTab({
                 <Text style={styles.actionLabel}>Receive</Text>
               </View>
 
-              <View style={styles.actionItem}>
-                {stellarPublicKey ? (
-                  <DepositButton
-                    assetCode="PHPC"
-                    publicKey={stellarPublicKey}
-                    onSuccess={handleDepositSuccess}
-                    disabled={depositLoading || !isOnline}
-                    label="Top-Up"
-                  />
-                ) : null}
-              </View>
+              <DepositButton
+                assetCode="PHPC"
+                publicKey={stellarPublicKey}
+                onSuccess={handleDepositSuccess}
+                disabled={depositLoading || !isOnline || !stellarPublicKey}
+                label="Top-Up"
+              />
 
               <View style={styles.actionItem}>
                 <TouchableOpacity
