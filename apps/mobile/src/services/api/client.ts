@@ -1,4 +1,25 @@
+import * as SecureStore from 'expo-secure-store';
 import { getApiBaseUrl } from '../../constants/api';
+
+const JWT_KEY = 'omnifi.auth.jwt';
+
+export async function getStoredJwt(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(JWT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function setStoredJwt(token: string | null): Promise<void> {
+  try {
+    if (token) {
+      await SecureStore.setItemAsync(JWT_KEY, token);
+    } else {
+      await SecureStore.deleteItemAsync(JWT_KEY);
+    }
+  } catch {}
+}
 
 export class ApiError extends Error {
   constructor(
@@ -16,12 +37,20 @@ export async function apiRequest<T>(
   init?: RequestInit
 ): Promise<T> {
   const url = `${getApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
+  const jwt = await getStoredJwt();
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(init?.headers ?? {}),
+  };
+
+  if (jwt) {
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${jwt}`;
+  }
+
   const response = await fetch(url, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   let body: unknown = null;
