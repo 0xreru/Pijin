@@ -53,26 +53,84 @@ interface InteractiveJwtPayload {
 
 // ── Error UI Primitives ───────────────────────────────────────────────────────
 
+const ERROR_STYLE_BLOCK = `
+  body, html {
+    background-color: #EFF1F5 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .min-h-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background-color: #EFF1F5;
+  }
+  .error-card {
+    background: #FFFFFF;
+    border: 1px solid #E6E9EE;
+    border-radius: 24px;
+    padding: 32px;
+    max-width: 380px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(4, 41, 90, 0.08);
+  }
+  .error-icon-wrapper {
+    margin: 0 auto 16px auto;
+    display: flex;
+    width: 64px;
+    height: 64px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: #FEF2F2;
+    border: 1px solid #FEE2E2;
+  }
+  .error-icon {
+    width: 32px;
+    height: 32px;
+    color: #F04438;
+  }
+  .error-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #04295A;
+    margin: 0 0 8px 0;
+  }
+  .error-message {
+    font-size: 14px;
+    color: #707984;
+    line-height: 1.5;
+    margin: 0;
+  }
+`;
+
 function ErrorCard({ title, message }: { title: string; message: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-4">
-      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
-        {/* Red X icon */}
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-500/20 border border-red-500/30">
-          <svg
-            className="h-8 w-8 text-red-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-          </svg>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: ERROR_STYLE_BLOCK }} />
+      <div className="min-h-screen">
+        <div className="error-card">
+          {/* Red X icon */}
+          <div className="error-icon-wrapper">
+            <svg
+              className="error-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <h1 className="error-title">{title}</h1>
+          <p className="error-message">{message}</p>
         </div>
-        <h1 className="text-xl font-bold text-white mb-2">{title}</h1>
-        <p className="text-sm text-slate-400 leading-relaxed">{message}</p>
       </div>
-    </div>
+    </>
   );
 }
 

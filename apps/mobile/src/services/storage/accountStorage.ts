@@ -1,13 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { AccountRole } from '../api/accounts';
 
 const STORAGE_KEY = 'abotpera.account';
 
 export type StoredAccount = {
   shortId: string;
-  role: AccountRole;
+  role: string;
   stellarPublicKey: string;
-  merchantPin?: string | null;
 };
 
 export async function saveStoredAccount(account: StoredAccount): Promise<void> {

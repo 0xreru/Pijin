@@ -2,30 +2,22 @@
  * Sep24WebviewScreen.tsx
  *
  * Pijin SEP-24 Interactive Deposit WebView
- * ─────────────────────────────────────────
+ * ────────────────────────────────────────
  *
- * Renders the anchor's interactive deposit URL inside a full-screen WebView.
- * The anchor serves a mobile-optimised form at this URL where the user enters
- * their deposit amount and bank details.
+ * Fully aligned with the app's design language:
+ *  - White background (#FFFFFF) body, deep navy (#02132B → #04224C) header
+ *  - expo-linear-gradient for the header strip (matches BalanceCard gradient)
+ *  - Native Animated API for smooth progress bar + success overlay
+ *  - Consistent typography, border radii, and shadow tokens from theme.ts & typography.ts
  *
  * Navigation params
  * ─────────────────
  * • url           — The interactive URL returned by the anchor (required).
  * • assetCode     — e.g. "PHPC" or "USDC" — shown in the header subtitle.
- * • transactionId — The SEP-24 tx ID for polling (optional, for future use).
- *
- * UX decisions
- * ────────────
- * • The header uses Pijin's deep navy (#001233) palette to stay on-brand.
- * • A custom loading indicator appears while the anchor page is fetching,
- *   keeping the experience smooth and branded.
- * • A "Done" button in the top-right lets the user dismiss manually after
- *   the anchor page confirms success (or if they abandon the flow).
- * • The WebView is configured to allow inline media, JS, and the anchor's
- *   specific origin to prevent accidental data leaks to unknown domains.
+ * • transactionId — The SEP-24 tx ID (shown as a compact chip).
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -36,25 +28,194 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import type { WebViewNavigation } from 'react-native-webview';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { ANCHOR_DOMAIN } from '../services/stellar/anchorService';
+import { typography } from '../constants/typography';
+
+// ─── Theme tokens (mirrors app-wide theme.ts + BalanceCard colors) ────────────
+
+const T = {
+  navyDark: '#02132B',
+  navy: '#031634',
+  navyMid: '#04224C',
+  navyAccent: '#001E42',
+  success: '#16C784',
+  danger: '#F04438',
+  surface: '#FFFFFF',
+  surfaceSoft: '#F5F5F6',
+  surfaceMuted: '#F0F0F0',
+  border: '#DADADA',
+  borderSoft: '#E6E9EE',
+  ink: '#08090A',
+  inkSoft: '#3F4144',
+  muted: '#707984',
+  mutedDark: '#55575A',
+  shadow: '#000000',
+  shadowNavy: '#031634',
+  white: '#FFFFFF',
+  white80: 'rgba(255,255,255,0.80)',
+  white50: 'rgba(255,255,255,0.50)',
+  white20: 'rgba(255,255,255,0.20)',
+  white10: 'rgba(255,255,255,0.10)',
+  white06: 'rgba(255,255,255,0.06)',
+};
+
+// ─── CSS Injection Script ─────────────────────────────────────────────────────
+
+const INJECTED_JS = `
+  (function() {
+    const style = document.createElement('style');
+    style.type = 'text/css';
+    style.innerHTML = \\\`
+      /* Force body styling to match app theme */
+      body, html {
+        background-color: #FFFFFF !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        color: #08090A !important;
+        padding: 20px 16px !important;
+        margin: 0 !important;
+        min-height: 100% !important;
+      }
+      
+      /* Typography styling */
+      h1, h2, h3, h4, h5, h6 {
+        color: #02132B !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.3px !important;
+        margin-top: 8px !important;
+        margin-bottom: 12px !important;
+      }
+      h1 { font-size: 24px !important; line-height: 30px !important; }
+      h2 { font-size: 20px !important; line-height: 26px !important; }
+      h3 { font-size: 18px !important; line-height: 24px !important; }
+      
+      p, span, label, li, td, th {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        color: #3F4144 !important;
+        font-size: 14px !important;
+        line-height: 20px !important;
+      }
+      
+      label {
+        color: #02132B !important;
+        font-weight: 700 !important;
+        display: block !important;
+        margin-bottom: 6px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        font-size: 11px !important;
+      }
+
+      /* Container and forms */
+      form {
+        margin-top: 16px !important;
+      }
+      
+      /* Input elements */
+      input[type="text"],
+      input[type="number"],
+      input[type="email"],
+      input[type="tel"],
+      input[type="password"],
+      input[type="url"],
+      select,
+      textarea {
+        background-color: #FFFFFF !important;
+        border: 1.5px solid #DADADA !important;
+        border-radius: 10px !important;
+        padding: 12px 14px !important;
+        color: #08090A !important;
+        font-size: 15px !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        margin-bottom: 16px !important;
+        outline: none !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+      }
+      
+      input:focus, select:focus, textarea:focus {
+        border-color: #02132B !important;
+        box-shadow: 0 0 0 3px rgba(2, 19, 43, 0.08) !important;
+      }
+
+      /* Placeholders */
+      ::placeholder {
+        color: #707984 !important;
+        opacity: 0.8 !important;
+      }
+
+      /* Buttons & CTA Actions */
+      button,
+      .button,
+      .btn,
+      input[type="submit"],
+      input[type="button"],
+      a.btn,
+      a.button {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: linear-gradient(135deg, #02132B, #04224C) !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 14px 20px !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 700 !important;
+        font-size: 15px !important;
+        letter-spacing: 0.2px !important;
+        text-decoration: none !important;
+        cursor: pointer !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        margin-top: 10px !important;
+        margin-bottom: 10px !important;
+        box-shadow: 0 4px 10px rgba(2, 19, 43, 0.15) !important;
+        transition: transform 0.15s ease, opacity 0.15s ease !important;
+      }
+      
+      button:active,
+      .button:active,
+      .btn:active,
+      input[type="submit"]:active,
+      input[type="button"]:active {
+        transform: scale(0.97) !important;
+        opacity: 0.9 !important;
+      }
+
+      /* Helper alert messages/boxes inside the web page */
+      .alert, .error, .success, .info {
+        border-radius: 10px !important;
+        padding: 12px 16px !important;
+        margin-bottom: 16px !important;
+        font-size: 14px !important;
+      }
+      
+      .alert-danger, .error, .error-message {
+        background-color: rgba(240, 68, 56, 0.08) !important;
+        border: 1px solid rgba(240, 68, 56, 0.2) !important;
+        color: #F04438 !important;
+      }
+
+      .alert-success, .success, .success-message {
+        background-color: rgba(22, 199, 132, 0.08) !important;
+        border: 1px solid rgba(22, 199, 132, 0.2) !important;
+        color: #16C784 !important;
+      }
+    \\\`;
+    document.head.appendChild(style);
+  })();
+  true;
+`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/**
- * Route params expected by this screen.
- * In your navigator you should declare:
- *
- * ```ts
- * Sep24Webview: {
- *   url: string;
- *   assetCode: string;
- *   transactionId?: string;
- * };
- * ```
- */
 interface Sep24WebviewRouteParams {
   url: string;
   assetCode: string;
@@ -69,36 +230,27 @@ interface Sep24WebviewScreenProps {
   };
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const PIJIN_DEEP_NAVY = '#001233';
-const PIJIN_NAVY = '#002855';
-const PIJIN_ACCENT = '#4A90D9';
-const PIJIN_WHITE = '#FFFFFF';
-const PIJIN_WHITE_60 = 'rgba(255,255,255,0.60)';
-const PIJIN_WHITE_15 = 'rgba(255,255,255,0.15)';
-const PIJIN_WHITE_08 = 'rgba(255,255,255,0.08)';
-const PIJIN_SUCCESS = '#22C55E';
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProps) {
   const { url, assetCode, transactionId } = route.params;
   const insets = useSafeAreaInsets();
 
-  const [loadingProgress, setLoadingProgress] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [hasError, setHasError] = useState(false);
 
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const progressOpacity = useRef(new Animated.Value(1)).current;
   const successFadeAnim = useRef(new Animated.Value(0)).current;
+  const successScaleAnim = useRef(new Animated.Value(0.85)).current;
+  const headerSubtitleAnim = useRef(new Animated.Value(1)).current;
 
-  // Animate progress bar width.
+  // Animate progress bar width
   const animateProgress = (toValue: number) => {
     Animated.timing(progressAnim, {
       toValue,
-      duration: 300,
+      duration: 280,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
@@ -106,29 +258,59 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
 
   const handleLoadProgress = ({ nativeEvent }: { nativeEvent: { progress: number } }) => {
     const progress = nativeEvent.progress;
-    setLoadingProgress(progress);
     animateProgress(progress);
     if (progress >= 1) {
-      setTimeout(() => setIsLoaded(true), 200);
+      // Fade out the progress bar smoothly once page is done loading
+      setTimeout(() => {
+        Animated.timing(progressOpacity, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: false,
+        }).start(() => setIsLoaded(true));
+      }, 200);
     }
   };
 
   const handleNavigationStateChange = (navState: WebViewNavigation) => {
-    // Detect anchor success redirects.
-    // The Pijin anchor appends `?status=completed` or redirects to a success path.
     const successUrl = navState.url;
     if (
       successUrl.includes('status=completed') ||
       successUrl.includes('/deposit/success') ||
       successUrl.includes('/success')
     ) {
-      setIsSuccess(true);
-      Animated.timing(successFadeAnim, {
+      triggerSuccess();
+    }
+  };
+
+  const triggerSuccess = () => {
+    setIsSuccess(true);
+    // Animate header subtitle cross-fade
+    Animated.timing(headerSubtitleAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      Animated.timing(headerSubtitleAnim, {
         toValue: 1,
-        duration: 400,
+        duration: 300,
         useNativeDriver: true,
       }).start();
-    }
+    });
+    // Animate success overlay
+    Animated.parallel([
+      Animated.timing(successFadeAnim, {
+        toValue: 1,
+        duration: 380,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(successScaleAnim, {
+        toValue: 1,
+        speed: 14,
+        bounciness: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
   const handleClose = () => {
@@ -143,91 +325,125 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
   });
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* ── Header ── */}
-      <View style={styles.header}>
-        {/* Decorative blob */}
-        <View style={styles.headerBlob} />
+    <View style={[styles.container, { backgroundColor: T.surface }]}>
+      {/* ── Header (navy gradient, matches BalanceCard) ── */}
+      <LinearGradient
+        colors={[T.navyDark, T.navyMid]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.header, { paddingTop: insets.top > 0 ? insets.top : 16 }]}
+      >
+        {/* Decorative blobs inside header */}
+        <View style={styles.headerBlobLg} />
+        <View style={styles.headerBlobSm} />
 
         <View style={styles.headerContent}>
-          {/* Left — wordmark */}
+          {/* Left — wordmark + screen title */}
           <View style={styles.headerLeft}>
-            <Text style={styles.wordmark}>pijin</Text>
-            <Text style={styles.headerSubtitle}>
-              {isSuccess ? 'Deposit Complete ✓' : `Deposit ${assetCode}`}
-            </Text>
+            <Text style={styles.wordmark}>PIJIN</Text>
+            <Animated.Text style={[styles.headerTitle, { opacity: headerSubtitleAnim }]}>
+              {isSuccess ? 'Deposit Complete' : `Deposit ${assetCode}`}
+            </Animated.Text>
           </View>
 
-          {/* Right — Done button */}
+          {/* Right — Close / Done button */}
           <TouchableOpacity
-            style={[styles.doneButton, isSuccess && styles.doneButtonSuccess]}
+            style={[styles.closeButton, isSuccess && styles.closeButtonSuccess]}
             onPress={handleClose}
-            activeOpacity={0.8}
+            activeOpacity={0.78}
             accessibilityRole="button"
             accessibilityLabel="Close deposit webview"
             testID="sep24-close-button"
           >
-            <Text style={[styles.doneButtonText, isSuccess && styles.doneButtonTextSuccess]}>
-              {isSuccess ? 'Done ✓' : 'Close'}
+            {isSuccess ? (
+              <Ionicons name="checkmark" size={16} color={T.success} style={{ marginRight: 4 }} />
+            ) : (
+              <Ionicons name="close" size={16} color={T.white80} style={{ marginRight: 4 }} />
+            )}
+            <Text style={[styles.closeButtonText, isSuccess && styles.closeButtonTextSuccess]}>
+              {isSuccess ? 'Done' : 'Close'}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Progress bar — visible while page is loading */}
-        {!isLoaded && (
-          <View style={styles.progressTrack}>
-            <Animated.View
-              style={[styles.progressFill, { width: progressWidth }]}
-            />
-          </View>
-        )}
-      </View>
+        {/* Animated progress bar — fades out when fully loaded */}
+        <Animated.View style={[styles.progressTrack, { opacity: progressOpacity }]}>
+          <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
+        </Animated.View>
+      </LinearGradient>
 
-      {/* ── Transaction ID chip (debug / UX info) ── */}
+      {/* ── Transaction ID chip ── */}
       {transactionId && (
-        <View style={styles.txChip}>
-          <View style={styles.txDot} />
-          <Text style={styles.txChipText} numberOfLines={1}>
-            TX: {transactionId.slice(0, 8)}…{transactionId.slice(-6)}
-          </Text>
+        <View style={styles.txChipRow}>
+          <View style={styles.txChip}>
+            <View style={styles.txDot} />
+            <Text style={styles.txChipText} numberOfLines={1}>
+              TX: {transactionId.slice(0, 8)}…{transactionId.slice(-6)}
+            </Text>
+          </View>
         </View>
       )}
 
-      {/* ── WebView ── */}
+      {/* ── WebView container ── */}
       <View style={styles.webviewContainer}>
         {/* Initial loading overlay */}
         {!isLoaded && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color={PIJIN_ACCENT} />
-            <Text style={styles.loadingText}>Loading secure deposit form…</Text>
+            <View style={styles.loadingSpinnerWrapper}>
+              <ActivityIndicator size="large" color={T.navyAccent} />
+            </View>
+            <Text style={styles.loadingTitle}>Loading deposit form</Text>
+            <Text style={styles.loadingSubText}>Connecting to secure anchor…</Text>
           </View>
         )}
 
         {/* Success overlay */}
         {isSuccess && (
-          <Animated.View style={[styles.successOverlay, { opacity: successFadeAnim }]}>
-            <View style={styles.successIcon}>
-              <Text style={styles.successIconText}>✓</Text>
-            </View>
+          <Animated.View
+            style={[
+              styles.successOverlay,
+              { opacity: successFadeAnim, transform: [{ scale: successScaleAnim }] },
+            ]}
+          >
+            {/* Success icon with navy bg */}
+            <LinearGradient
+              colors={[T.navyDark, T.navyMid]}
+              style={styles.successIconCircle}
+            >
+              <Ionicons name="checkmark" size={38} color={T.success} />
+            </LinearGradient>
+
             <Text style={styles.successTitle}>Deposit Initiated!</Text>
             <Text style={styles.successSubtitle}>
-              Your {assetCode} deposit is being processed. Tap "Done" to return to
-              your wallet.
+              Your {assetCode} deposit is being processed.{'\n'}Tap "Done" to return to your wallet.
             </Text>
+
+            {/* Done CTA */}
+            <TouchableOpacity style={styles.doneBtn} onPress={handleClose} activeOpacity={0.82}>
+              <LinearGradient
+                colors={[T.navyDark, T.navyMid]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.doneBtnGradient}
+              >
+                <Text style={styles.doneBtnText}>Done</Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </Animated.View>
         )}
 
         {/* Error state */}
         {hasError && (
           <View style={styles.errorOverlay}>
-            <Text style={styles.errorIcon}>⚠</Text>
+            <View style={styles.errorIconWrapper}>
+              <Ionicons name="wifi-outline" size={36} color={T.danger} />
+            </View>
             <Text style={styles.errorTitle}>Connection Error</Text>
             <Text style={styles.errorSubtitle}>
-              Could not load the deposit form. Please check your internet
-              connection and try again.
+              Could not load the deposit form.{'\n'}Please check your connection and try again.
             </Text>
-            <TouchableOpacity style={styles.closeBtn} onPress={handleClose}>
-              <Text style={styles.closeBtnText}>Go Back</Text>
+            <TouchableOpacity style={styles.goBackBtn} onPress={handleClose} activeOpacity={0.82}>
+              <Text style={styles.goBackBtnText}>Go Back</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -251,15 +467,13 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
               setIsLoaded(true);
             }
           }}
+          injectedJavaScript={INJECTED_JS}
           javaScriptEnabled
           domStorageEnabled
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
-          // Allow forms and POST actions within the anchor domain.
           mixedContentMode={Platform.OS === 'android' ? 'compatibility' : undefined}
-          // Security: prevent the anchor's webview from launching arbitrary apps.
           setSupportMultipleWindows={false}
-          // Performance
           cacheEnabled
           renderLoading={() => <View />}
           testID="sep24-webview"
@@ -274,220 +488,291 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: PIJIN_DEEP_NAVY,
+    backgroundColor: T.surface,
   },
 
   // ── Header ────────────────────────────────────────────────────────────────
   header: {
-    backgroundColor: PIJIN_DEEP_NAVY,
     paddingHorizontal: 20,
     paddingBottom: 0,
     overflow: 'hidden',
-    borderBottomWidth: 1,
-    borderBottomColor: PIJIN_WHITE_15,
+    // Subtle shadow below header to separate from white body
+    shadowColor: T.shadowNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 8,
     zIndex: 10,
   },
-  headerBlob: {
+  headerBlobLg: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: PIJIN_ACCENT,
-    opacity: 0.07,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: T.white10,
     top: -80,
     right: -40,
+  },
+  headerBlobSm: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: T.white06,
+    bottom: -20,
+    left: 60,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
   headerLeft: {
-    gap: 2,
+    gap: 3,
   },
   wordmark: {
-    color: PIJIN_WHITE_60,
+    color: T.white50,
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 5,
-    textTransform: 'uppercase',
+    letterSpacing: 4,
   },
-  headerSubtitle: {
-    color: PIJIN_WHITE,
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+  headerTitle: {
+    color: T.white,
+    fontSize: typography.screenTitle.fontSize,
+    lineHeight: typography.screenTitle.lineHeight,
+    fontWeight: typography.screenTitle.fontWeight,
+    letterSpacing: -0.3,
   },
 
-  // ── Done button ───────────────────────────────────────────────────────────
-  doneButton: {
+  // ── Close / Done button ───────────────────────────────────────────────────
+  closeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 7,
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     borderRadius: 20,
-    backgroundColor: PIJIN_WHITE_08,
+    backgroundColor: T.white10,
     borderWidth: 1,
-    borderColor: PIJIN_WHITE_15,
+    borderColor: T.white20,
   },
-  doneButtonSuccess: {
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-    borderColor: 'rgba(34, 197, 94, 0.35)',
+  closeButtonSuccess: {
+    backgroundColor: 'rgba(22, 199, 132, 0.15)',
+    borderColor: 'rgba(22, 199, 132, 0.35)',
   },
-  doneButtonText: {
-    color: PIJIN_WHITE,
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+  closeButtonText: {
+    color: T.white80,
+    fontSize: typography.caption.fontSize,
+    fontWeight: '700',
+    letterSpacing: 0.1,
   },
-  doneButtonTextSuccess: {
-    color: PIJIN_SUCCESS,
+  closeButtonTextSuccess: {
+    color: T.success,
   },
 
   // ── Progress bar ──────────────────────────────────────────────────────────
   progressTrack: {
-    height: 2,
-    backgroundColor: PIJIN_WHITE_08,
+    height: 3,
+    backgroundColor: T.white10,
     marginHorizontal: -20,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: PIJIN_ACCENT,
-    borderRadius: 1,
+    backgroundColor: T.success,
+    borderRadius: 1.5,
   },
 
   // ── TX chip ───────────────────────────────────────────────────────────────
+  txChipRow: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    backgroundColor: T.surfaceSoft,
+    borderBottomWidth: 1,
+    borderBottomColor: T.borderSoft,
+  },
   txChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 4,
-    backgroundColor: PIJIN_WHITE_08,
+    gap: 6,
+    backgroundColor: T.surfaceMuted,
     borderWidth: 1,
-    borderColor: PIJIN_WHITE_15,
+    borderColor: T.border,
     paddingVertical: 4,
     paddingHorizontal: 12,
     borderRadius: 20,
-    gap: 6,
   },
   txDot: {
     width: 5,
     height: 5,
-    borderRadius: 3,
-    backgroundColor: PIJIN_ACCENT,
+    borderRadius: 2.5,
+    backgroundColor: T.success,
   },
   txChipText: {
-    color: PIJIN_WHITE_60,
-    fontSize: 10,
+    color: T.mutedDark,
+    fontSize: typography.caption.fontSize - 2,
     fontWeight: '600',
     letterSpacing: 0.5,
     fontVariant: ['tabular-nums'],
   },
 
-  // ── WebView container ─────────────────────────────────────────────────────
+  // ── WebView container ──────────────────────────────────────────────────────
   webviewContainer: {
     flex: 1,
-    backgroundColor: PIJIN_NAVY,
+    backgroundColor: T.surface,
     position: 'relative',
   },
   webview: {
     flex: 1,
-    backgroundColor: PIJIN_NAVY,
+    backgroundColor: T.surface,
   },
 
   // ── Loading overlay ───────────────────────────────────────────────────────
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: PIJIN_DEEP_NAVY,
+    backgroundColor: T.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 14,
+    gap: 12,
     zIndex: 10,
   },
-  loadingText: {
-    color: PIJIN_WHITE_60,
-    fontSize: 13,
-    fontWeight: '500',
+  loadingSpinnerWrapper: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: T.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: T.borderSoft,
+    marginBottom: 4,
+    shadowColor: T.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  loadingTitle: {
+    color: T.ink,
+    fontSize: typography.body.fontSize + 1,
+    lineHeight: typography.body.lineHeight,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  loadingSubText: {
+    color: T.muted,
+    fontSize: typography.caption.fontSize,
+    fontWeight: '400',
   },
 
   // ── Success overlay ───────────────────────────────────────────────────────
   successOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: PIJIN_DEEP_NAVY,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    gap: 16,
-    zIndex: 20,
-  },
-  successIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-    borderWidth: 2,
-    borderColor: 'rgba(34, 197, 94, 0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  successIconText: {
-    fontSize: 36,
-    color: PIJIN_SUCCESS,
-    fontWeight: '700',
-  },
-  successTitle: {
-    color: PIJIN_WHITE,
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-  successSubtitle: {
-    color: PIJIN_WHITE_60,
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-
-  // ── Error overlay ─────────────────────────────────────────────────────────
-  errorOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: PIJIN_DEEP_NAVY,
+    backgroundColor: T.surface,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 40,
     gap: 14,
     zIndex: 20,
   },
-  errorIcon: {
-    fontSize: 40,
-    color: '#FF4B6A',
+  successIconCircle: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
+    shadowColor: T.shadowNavy,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  successTitle: {
+    color: T.ink,
+    fontSize: typography.title.fontSize,
+    lineHeight: typography.title.lineHeight,
+    fontWeight: typography.title.fontWeight,
+    letterSpacing: -0.4,
+  },
+  successSubtitle: {
+    color: T.muted,
+    fontSize: typography.body.fontSize,
+    lineHeight: typography.body.lineHeight,
+    textAlign: 'center',
+  },
+
+  // ── Done CTA button ───────────────────────────────────────────────────────
+  doneBtn: {
+    marginTop: 8,
+    width: '100%',
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: T.shadowNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  doneBtnGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doneBtnText: {
+    color: T.white,
+    fontSize: typography.button.fontSize - 4,
+    lineHeight: typography.button.lineHeight,
+    fontWeight: typography.button.fontWeight,
+    letterSpacing: 0.2,
+  },
+
+  // ── Error overlay ─────────────────────────────────────────────────────────
+  errorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: T.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    gap: 12,
+    zIndex: 20,
+  },
+  errorIconWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(240, 68, 56, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(240, 68, 56, 0.20)',
+    marginBottom: 6,
   },
   errorTitle: {
-    color: PIJIN_WHITE,
-    fontSize: 20,
-    fontWeight: '700',
+    color: T.ink,
+    fontSize: typography.title.fontSize,
+    lineHeight: typography.title.lineHeight,
+    fontWeight: typography.title.fontWeight,
+    letterSpacing: -0.3,
   },
   errorSubtitle: {
-    color: PIJIN_WHITE_60,
-    fontSize: 14,
+    color: T.muted,
+    fontSize: typography.body.fontSize,
+    lineHeight: typography.body.lineHeight,
     textAlign: 'center',
-    lineHeight: 22,
   },
-  closeBtn: {
+  goBackBtn: {
     marginTop: 8,
     paddingVertical: 12,
     paddingHorizontal: 32,
-    backgroundColor: PIJIN_NAVY,
-    borderRadius: 12,
+    backgroundColor: T.surfaceSoft,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: PIJIN_WHITE_15,
+    borderColor: T.border,
   },
-  closeBtnText: {
-    color: PIJIN_WHITE,
-    fontSize: 14,
-    fontWeight: '600',
+  goBackBtnText: {
+    color: T.inkSoft,
+    fontSize: typography.caption.fontSize,
+    fontWeight: '700',
   },
 });

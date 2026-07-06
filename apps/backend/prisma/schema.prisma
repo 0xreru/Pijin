@@ -34,6 +34,9 @@ model Account {
   offlineDeviceKey String?  @map("offline_device_key")         // Ed25519 public key
   pin              String?  @map("pin")
   phoneNumber      String?  @map("phone_number")
+  firstName        String?  @map("first_name")
+  lastName         String?  @map("last_name")
+  email            String?  @map("email")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
