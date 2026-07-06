@@ -33,6 +33,12 @@ import {
 import { checkUserExists } from '../services/api/accounts';
 import { StatusBar } from 'expo-status-bar';
 
+// ---------------------------------------------------------------------------
+// Environment
+// ---------------------------------------------------------------------------
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -62,6 +68,9 @@ export function OnboardingScreen() {
   const [maxAllowedStep, setMaxAllowedStep] = useState<number>(1);
   const [userFlowType, setUserFlowType] = useState<UserFlowType>(null);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+
 
 
   // Phone form
@@ -147,38 +156,82 @@ export function OnboardingScreen() {
   };
 
   const handleSendOtp = async () => {
+    if (isSendingOtp) return; // debounce
     const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
     if (cleanNumber.length !== 10) {
       setPhoneError('Please enter a valid 10-digit phone number (e.g. 9123456789)');
       return;
     }
     setPhoneError('');
-    setIsCheckingUser(true);
+    setIsSendingOtp(true);
     try {
       await saveUserPhone(cleanNumber);
-      const { exists } = await checkUserExists(cleanNumber);
+
+      // Check if user already exists (determines flow type)
+      const { exists } = await checkUserExists(cleanNumber).catch(() => ({ exists: false }));
       setUserFlowType(exists ? 'returning' : 'new');
+
+      // Send the real OTP via the backend
+      const e164 = `+63${cleanNumber}`;
+      const response = await fetch(`${API_URL}/api/otp/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: e164 }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json.success) {
+        throw new Error(json.error ?? 'Failed to send OTP. Please try again.');
+      }
+
       navigateToStep(3);
-    } catch (e) {
-      console.error('Failed to check user:', e);
-      setUserFlowType('new');
-      navigateToStep(3);
+    } catch (e: any) {
+      console.error('handleSendOtp error:', e);
+      Alert.alert('Error', e?.message ?? 'Failed to send OTP. Please try again.');
     } finally {
-      setIsCheckingUser(false);
+      setIsSendingOtp(false);
     }
   };
 
-  const handleOtpContinue = () => {
-    if (otp.length !== 4) {
-      Alert.alert('Invalid OTP', 'Please enter a 4-digit OTP.');
-      return;
-    }
-    if (userFlowType === 'returning') {
-      navigation.replace('SignIn');
-    } else {
-      navigateToStep(4);
+
+  const handleVerifyOtp = async (code: string) => {
+    if (code.length !== 6) return;
+    if (isVerifyingOtp) return;
+    const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+    const e164 = `+63${cleanNumber}`;
+    setIsVerifyingOtp(true);
+    try {
+      const response = await fetch(`${API_URL}/api/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: e164, code }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json.success) {
+        throw new Error(json.error ?? 'Invalid OTP. Please try again.');
+      }
+      // OTP verified — proceed based on user flow
+      if (userFlowType === 'returning') {
+        navigation.replace('SignIn');
+      } else {
+        navigateToStep(4);
+      }
+    } catch (e: any) {
+      console.error('handleVerifyOtp error:', e);
+      setOtp(''); // clear the input
+      Alert.alert('Error', e?.message ?? 'Invalid OTP. Please try again.');
+    } finally {
+      setIsVerifyingOtp(false);
     }
   };
+
+  /** Called by AppPinInput onChange; auto-verifies when all 6 digits entered. */
+  const handleOtpChange = (value: string) => {
+    setOtp(value);
+    if (value.length === 6) {
+      handleVerifyOtp(value);
+    }
+  };
+
 
   const handleNameContinue = async () => {
     let hasError = false;
@@ -384,10 +437,10 @@ export function OnboardingScreen() {
             </View>
 
             <View style={styles.footer}>
-              {isCheckingUser ? (
-                <View style={styles.loadingButton}>
+              {(isCheckingUser || isSendingOtp) ? (
+                <View style={styles.loadingButtonDark}>
                   <ActivityIndicator color="#FFFFFF" size="small" />
-                  <Text style={styles.loadingButtonText}>Verifying number...</Text>
+                  <Text style={[styles.loadingButtonText, { color: '#FFFFFF' }]}>Sending OTP...</Text>
                 </View>
               ) : (
                 <AppButton
@@ -407,20 +460,30 @@ export function OnboardingScreen() {
               <View style={styles.textContainerLeft}>
                 <Text style={styles.stepTitleDark}>Verify OTP</Text>
                 <Text style={styles.stepSubtitleDark}>
-                  We sent a verification code to your mobile number. +63 {phoneNumber ? `${phoneNumber.slice(0, 3)}-${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6)}` : '991-598-4988'}
+                  We sent a 6-digit code to +63 {phoneNumber ? `${phoneNumber.slice(0, 3)}-${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6)}` : '991-598-4988'}
                 </Text>
               </View>
 
               <AppPinInput
                 value={otp}
-                onChange={setOtp}
+                onChange={handleOtpChange}
                 theme="dark"
-                length={4}
+                length={6}
+                inputSize={46}
               />
 
-              <TouchableOpacity style={styles.resendContainer} activeOpacity={0.7}>
+              <TouchableOpacity
+                style={styles.resendContainer}
+                activeOpacity={0.7}
+                onPress={handleSendOtp}
+                disabled={isSendingOtp}
+              >
                 <Text style={styles.resendTextMuted}>Didn't get an OTP? </Text>
-                <Text style={styles.resendTextLink}>Resend</Text>
+                {isSendingOtp ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.resendTextLink}>Resend</Text>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -434,12 +497,19 @@ export function OnboardingScreen() {
             </View>
 
             <View style={styles.footer}>
-              <AppButton
-                title="Continue"
-                onPress={handleOtpContinue}
-                variant="secondary"
-                icon={<Ionicons name="arrow-forward" size={24} color="#08090A" />}
-              />
+              {isVerifyingOtp ? (
+                <View style={styles.loadingButton}>
+                  <ActivityIndicator color="#08090A" size="small" />
+                  <Text style={[styles.loadingButtonText, { color: '#08090A' }]}>Verifying...</Text>
+                </View>
+              ) : (
+                <AppButton
+                  title="Verify OTP"
+                  onPress={() => handleVerifyOtp(otp)}
+                  variant="secondary"
+                  icon={<Ionicons name="shield-checkmark-outline" size={24} color="#08090A" />}
+                />
+              )}
             </View>
           </View>
 
@@ -855,13 +925,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#EDEDED',
+    borderRadius: 12,
+    height: 56,
+    gap: 10,
+  },
+  loadingButtonDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#031634',
     borderRadius: 12,
     height: 56,
     gap: 10,
   },
   loadingButtonText: {
-    color: '#FFFFFF',
+    color: '#08090A',
     fontSize: 16,
     fontWeight: '700',
   },
