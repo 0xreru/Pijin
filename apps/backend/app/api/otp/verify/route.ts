@@ -34,7 +34,8 @@ export async function POST(req: NextRequest) {
     const redisKey = `pijin:otp:${formattedPhone}`;
 
     // 1. Fetch the stored OTP from Upstash Redis
-    const storedOtp = await redis.get<string>(redisKey);
+    // Upstash automatically parses numeric strings into actual Numbers!
+    const storedOtp = await redis.get<string | number>(redisKey);
 
     // 2. Validate it
     if (!storedOtp) {
@@ -44,7 +45,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (storedOtp !== code.trim()) {
+    // 🔥 ARCHITECT FIX: Force `storedOtp` into a string to safely compare with `code.trim()`
+    if (String(storedOtp) !== code.trim()) {
       return NextResponse.json(
         { error: "Invalid verification code." },
         { status: 401 }
