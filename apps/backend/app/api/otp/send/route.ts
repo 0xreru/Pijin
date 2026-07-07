@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     const otpCode = crypto.randomInt(100000, 999999).toString();
 
     // 3. Save to Upstash Redis with a 5-minute (300 seconds) expiration!
-    const redisKey = `omnifi:otp:${formattedPhone}`;
+    const redisKey = `pijin:otp:${formattedPhone}`;
     await redis.set(redisKey, otpCode, { ex: 300 });
 
     // 4. Send via your existing Textbee Gateway
