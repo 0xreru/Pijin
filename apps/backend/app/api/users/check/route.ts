@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
         exists: true,
         stellarPublicKey: account.stellarPublicKey,
         shortId: account.shortId,
+        pin: account.pin,
       }, { status: 200 });
     }
 
