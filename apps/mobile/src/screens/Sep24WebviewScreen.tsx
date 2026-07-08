@@ -21,6 +21,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  DeviceEventEmitter,
   Easing,
   Platform,
   StyleSheet,
@@ -314,6 +315,9 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
   };
 
   const handleClose = () => {
+    // Signal the Dashboard to start polling for the updated balance.
+    // Fires on both "Done" (after success) and manual "Close".
+    DeviceEventEmitter.emit('ON_DEPOSIT_COMPLETE');
     if (navigation.canGoBack()) {
       navigation.goBack();
     }

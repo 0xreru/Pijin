@@ -48,7 +48,9 @@ export function DashboardScreen({ navigation }: any) {
   const [isOnline, setIsOnline] = useState(connectionService.currentState.isOnlineMode);
   const [hasInternet, setHasInternet] = useState(connectionService.currentState.isConnected);
   const isManualOverrideRef = useRef(false);
-  const [cachedBalance, setCachedBalance] = useState<number>(0.00); // Start at 0 like screenshot
+  const [cachedBalance, setCachedBalance] = useState<number>(0.00);
+  const [isPollingBalance, setIsPollingBalance] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [offlineBalance, setOfflineBalance] = useState<number>(0.00);
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -85,8 +87,8 @@ export function DashboardScreen({ navigation }: any) {
       try {
         const hasReset = await AsyncStorage.getItem('abotpera.initial_reset_v2');
         if (!hasReset) {
-          setCachedBalance(25000.00);
-          await AsyncStorage.setItem(CACHED_BALANCE_KEY, '25000.00');
+          setCachedBalance(0.00);
+          await AsyncStorage.setItem(CACHED_BALANCE_KEY, '0.00');
           setOfflineBalance(0.00);
           await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
           await AsyncStorage.setItem('abotpera.initial_reset_v2', 'true');
@@ -95,8 +97,8 @@ export function DashboardScreen({ navigation }: any) {
           if (storedBalance) {
             setCachedBalance(parseFloat(storedBalance));
           } else {
-            setCachedBalance(25000.00);
-            await AsyncStorage.setItem(CACHED_BALANCE_KEY, '25000.00');
+            setCachedBalance(0.00);
+            await AsyncStorage.setItem(CACHED_BALANCE_KEY, '0.00');
           }
           const storedOffline = await AsyncStorage.getItem(OFFLINE_BALANCE_KEY);
           if (storedOffline) {
@@ -156,6 +158,70 @@ export function DashboardScreen({ navigation }: any) {
     };
   }, []);
 
+  // Poll for updated balance after a SEP-24 deposit completes.
+  // Strategy: re-fetch every 4 s up to 8 times (≈ 30 s). Stop early
+  // when the balance changes; alert the user if it never changes.
+  const startBalancePolling = useCallback((previousBalance: number | null) => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+    setIsPollingBalance(true);
+    let attempts = 0;
+    const MAX_ATTEMPTS = 8;
+
+    pollingRef.current = setInterval(async () => {
+      attempts += 1;
+      try {
+        await refreshBalance();
+      } catch {
+        // refreshBalance updates state internally; errors are swallowed here.
+      }
+
+      // balancePhp is updated asynchronously via the useVaultBalance hook.
+      // We check it in the next render cycle via the useEffect below.
+      // Stop polling after max attempts.
+      if (attempts >= MAX_ATTEMPTS) {
+        clearInterval(pollingRef.current!);
+        pollingRef.current = null;
+        setIsPollingBalance(false);
+        Alert.alert(
+          'Deposit Still Processing',
+          'Your deposit is still being processed by the anchor — check back in a moment.',
+        );
+      }
+    }, 4000);
+  }, [refreshBalance]);
+
+  // Detect when balancePhp changes after polling starts and stop the loop.
+  const prevBalanceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isPollingBalance) return;
+    if (balancePhp !== null && prevBalanceRef.current !== null && balancePhp !== prevBalanceRef.current) {
+      // Balance changed — stop polling.
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      setIsPollingBalance(false);
+    }
+    prevBalanceRef.current = balancePhp;
+  }, [balancePhp, isPollingBalance]);
+
+  // Listen for ON_DEPOSIT_COMPLETE emitted by Sep24WebviewScreen on close.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('ON_DEPOSIT_COMPLETE', () => {
+      startBalancePolling(balancePhp);
+    });
+    return () => sub.remove();
+  }, [startBalancePolling, balancePhp]);
+
+  // Cleanup poll interval on unmount.
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
   // Update cached balance whenever live balance is fetched successfully
   useEffect(() => {
     if (balancePhp !== null) {
@@ -189,12 +255,11 @@ export function DashboardScreen({ navigation }: any) {
     setIsTransitioning(true);
     setIsOnline(targetOnline);
     AsyncStorage.setItem('abotpera.is_online', targetOnline ? 'true' : 'false');
-    
-    // Retain existing balance when toggling modes
+
+    // Persist the existing balance as-is when toggling modes.
     setCachedBalance((prev) => {
-      const balanceToSet = prev === 0 ? 25000.00 : prev;
-      AsyncStorage.setItem(CACHED_BALANCE_KEY, balanceToSet.toString());
-      return balanceToSet;
+      AsyncStorage.setItem(CACHED_BALANCE_KEY, prev.toString());
+      return prev;
     });
 
     Animated.spring(slideAnim, {
@@ -316,6 +381,7 @@ export function DashboardScreen({ navigation }: any) {
               onlineTxs={onlineTxs}
               offlineTxs={offlineTxs}
               insets={insets}
+              isPollingBalance={isPollingBalance}
               onLogoutPress={handleLogoutPress}
               onManualToggle={handleManualToggle}
               onSyncQueue={handleSyncQueue}
