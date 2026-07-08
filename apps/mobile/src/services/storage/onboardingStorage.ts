@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 const ONBOARDING_COMPLETE_KEY = 'abotpera.onboarding_complete';
 const PIN_KEY = 'abotpera.user_pin';
+const PIN_SECURE_KEY = 'abotpera.user_pin_secure';
 const PHONE_NUMBER_KEY = 'abotpera.user_phone';
 const FIRST_NAME_KEY = 'abotpera.user_first_name';
 const LAST_NAME_KEY = 'abotpera.user_last_name';
@@ -25,6 +27,34 @@ export async function saveUserPin(pin: string): Promise<void> {
 
 export async function getUserPin(): Promise<string | null> {
   return await AsyncStorage.getItem(PIN_KEY);
+}
+
+/**
+ * Persists the PIN in the device's Secure Enclave (survives app data clears).
+ * Always call alongside saveUserPin so both stores stay in sync.
+ */
+export async function saveUserPinSecure(pin: string): Promise<void> {
+  await SecureStore.setItemAsync(PIN_SECURE_KEY, pin);
+}
+
+/**
+ * Reads the PIN from SecureStore. Returns null if not yet stored.
+ */
+export async function getUserPinSecure(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(PIN_SECURE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Removes the PIN from SecureStore (call on account wipe / logout). */
+export async function clearUserPinSecure(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(PIN_SECURE_KEY);
+  } catch {
+    // Ignore — key may not exist
+  }
 }
 
 export async function saveUserPhone(phone: string): Promise<void> {

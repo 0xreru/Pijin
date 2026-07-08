@@ -64,6 +64,7 @@ type CheckUserResponse = {
   exists: boolean;
   stellarPublicKey?: string;
   shortId?: string;
+  pin?: string | null;
 };
 
 /**
