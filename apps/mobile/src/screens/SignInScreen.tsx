@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
-import { getUserPin, getUserPhone } from '../services/storage/onboardingStorage';
+import { getUserPin, getUserPinSecure, getUserPhone } from '../services/storage/onboardingStorage';
 import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
 import { checkUserExists } from '../services/api/accounts';
 import { getSep10Token } from '../services/stellar/anchorService';
@@ -36,7 +36,8 @@ export function SignInScreen() {
   const { login } = useAuth();
 
   const [pin, setPin] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('9123456789');
+  // Start with empty string — loadUserData() will populate from AsyncStorage.
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [isValidating, setIsValidating] = useState(false);
 
   const shakeAnim = useRef(new Animated.Value(0)).current;
@@ -69,23 +70,59 @@ export function SignInScreen() {
   const validatePin = async (enteredPin: string) => {
     setIsValidating(true);
     try {
-      const savedPin = await getUserPin();
-      const pinToCompare = savedPin || '0000';
-      
+      // ── Tier 1: AsyncStorage (fastest, cleared when app data is wiped)
+      let pinToCompare = await getUserPin();
+
+      // ── Tier 2: SecureStore (survives app data clears, same device)
+      if (!pinToCompare) {
+        pinToCompare = await getUserPinSecure();
+      }
+
+      // ── Tier 3: Backend DB (ultimate fallback — requires network)
+      // Read phone directly from storage in case the state hasn't populated yet.
+      if (!pinToCompare) {
+        const phoneForQuery = phoneNumber || (await getUserPhone());
+        if (phoneForQuery) {
+          try {
+            const checkRes = await checkUserExists(phoneForQuery);
+            if (checkRes.exists && checkRes.pin) {
+              pinToCompare = checkRes.pin;
+              // Restore both local stores so future logins are offline-capable.
+              const storage = await import('../services/storage/onboardingStorage');
+              await storage.saveUserPin(pinToCompare);
+              await storage.saveUserPinSecure(pinToCompare);
+            }
+          } catch (networkErr) {
+            console.warn('[SignIn] Could not fetch PIN from backend:', networkErr);
+          }
+        }
+      }
+
+      if (!pinToCompare) {
+        // All three tiers exhausted — cannot verify without a known PIN.
+        triggerShake();
+        Alert.alert(
+          'Cannot Verify PIN',
+          'Your PIN could not be retrieved. Please ensure you are connected to the internet, then try again.',
+        );
+        setIsValidating(false);
+        return;
+      }
+
       if (enteredPin !== pinToCompare) {
         triggerShake();
         setIsValidating(false);
         return;
       }
 
-      // PIN is correct. Obtain keypair and check backend status
+      // PIN is correct. Obtain keypair and check backend status.
       const keypair = await getOrGenerateDeviceKeypair();
       const publicKey = keypair.publicKey();
 
       try {
         // Online check & authentication
         const checkRes = await checkUserExists(phoneNumber);
-        
+
         if (checkRes.exists && checkRes.stellarPublicKey && checkRes.shortId) {
           const token = await getSep10Token(keypair);
           await login(checkRes.stellarPublicKey, checkRes.shortId, token);
@@ -101,7 +138,7 @@ export function SignInScreen() {
         }
       } catch (networkError) {
         console.warn('[SignIn] Network error during online auth, attempting offline fallback:', networkError);
-        
+
         // Offline fallback: load cached account from local storage
         const stored = await loadStoredAccount();
         if (stored && stored.stellarPublicKey === publicKey) {

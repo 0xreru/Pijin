@@ -25,6 +25,7 @@ import { AppPinInput } from '../components/ui/AppPinInput';
 import {
   setOnboardingComplete,
   saveUserPin,
+  saveUserPinSecure,
   saveUserPhone,
   saveUserFirstName,
   saveUserLastName,
@@ -263,7 +264,9 @@ export function OnboardingScreen() {
       return;
     }
     try {
+      // Write to both stores so the PIN survives app data clears.
       await saveUserPin(pin);
+      await saveUserPinSecure(pin);
       navigateToStep(6);
     } catch (e) {
       console.error(e);

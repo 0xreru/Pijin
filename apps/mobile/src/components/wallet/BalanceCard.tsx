@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, Dimensions, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, Dimensions, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -9,9 +9,11 @@ interface BalanceCardProps {
   balance: number;
   isOnline: boolean;
   shortId: string;
+  /** When true, shows a spinner badge instead of "Synced" — used during post-deposit balance polling. */
+  isUpdating?: boolean;
 }
 
-export function BalanceCard({ balance, isOnline }: BalanceCardProps) {
+export function BalanceCard({ balance, isOnline, isUpdating = false }: BalanceCardProps) {
   const [isVisible, setIsVisible] = useState(true);
 
   // Format currency
@@ -47,10 +49,17 @@ export function BalanceCard({ balance, isOnline }: BalanceCardProps) {
           </View>
           
           {isOnline ? (
-            <View style={styles.syncedBadge}>
-              <Ionicons name="cloud-done-outline" size={13} color="#031634" style={styles.badgeIcon} />
-              <Text style={styles.syncedText}>Synced</Text>
-            </View>
+            isUpdating ? (
+              <View style={styles.updatingBadge}>
+                <ActivityIndicator size={11} color="#031634" style={styles.badgeIcon} />
+                <Text style={styles.updatingText}>Updating…</Text>
+              </View>
+            ) : (
+              <View style={styles.syncedBadge}>
+                <Ionicons name="cloud-done-outline" size={13} color="#031634" style={styles.badgeIcon} />
+                <Text style={styles.syncedText}>Synced</Text>
+              </View>
+            )
           ) : (
             <Ionicons name="card-outline" size={20} color="#FFFFFF" />
           )}
@@ -142,6 +151,19 @@ const styles = StyleSheet.create({
   },
   syncedText: {
     color: '#031634',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  updatingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+  },
+  updatingText: {
+    color: '#92400E',
     fontSize: 11,
     fontWeight: '700',
   },

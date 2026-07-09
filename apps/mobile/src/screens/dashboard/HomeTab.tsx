@@ -44,6 +44,8 @@ interface HomeTabProps {
   onReceivePress: () => void;
   onViewAllTransactions: () => void;
   isOnlineDisabled?: boolean;
+  /** True while the Dashboard is polling for a post-deposit balance update. */
+  isPollingBalance?: boolean;
   /** The user's Stellar public key — forwarded to DepositButton for trustline checks. */
   publicKey: string;
 }
@@ -69,6 +71,7 @@ export const HomeTab = memo(function HomeTab({
   onReceivePress,
   onViewAllTransactions,
   isOnlineDisabled = false,
+  isPollingBalance = false,
   publicKey,
 }: HomeTabProps) {
   const navigation = useNavigation<any>();
@@ -166,6 +169,7 @@ export const HomeTab = memo(function HomeTab({
                 balance={cachedBalance}
                 isOnline={true}
                 shortId={shortId}
+                isUpdating={isPollingBalance}
               />
             </View>
 
