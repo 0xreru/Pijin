@@ -31,18 +31,34 @@ import { TransactionsTab } from './dashboard/TransactionsTab';
 import { ProfileTab } from './dashboard/ProfileTab';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CACHED_BALANCE_KEY = 'abotpera.cached_balance';
-const OFFLINE_BALANCE_KEY = 'abotpera.offline_balance';
+const CACHED_BALANCE_KEY = 'pijin.cached_balance';
+const OFFLINE_BALANCE_KEY = 'pijin.offline_balance';
 const TABS: TabType[] = ['home', 'notifications', 'scan', 'transactions', 'profile'];
 
 export function DashboardScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  const { activeAccount, logout } = useAuth();
+  const { activeAccount, login, logout, jwt } = useAuth();
   const shortId = activeAccount?.shortId || '0000';
   const publicKey = activeAccount?.stellarPublicKey || '';
 
   // Get live balance
-  const { balancePhp, refresh: refreshBalance } = useVaultBalance(shortId, publicKey);
+  const { balancePhp, resolvedShortId, refresh: refreshBalance } = useVaultBalance(shortId, publicKey);
+
+  // Auto-heal local account storage if shortId was missing or set to default placeholder '0000'
+  useEffect(() => {
+    if (
+      resolvedShortId &&
+      resolvedShortId !== '0000' &&
+      (!activeAccount?.shortId || activeAccount.shortId === '0000') &&
+      activeAccount?.stellarPublicKey
+    ) {
+      console.log(
+        `[DashboardScreen] Auto-healing local account storage: shortId missing/placeholder. ` +
+        `Setting to resolved shortId: ${resolvedShortId}`
+      );
+      login(activeAccount.stellarPublicKey, resolvedShortId, jwt || '');
+    }
+  }, [resolvedShortId, activeAccount, login, jwt]);
 
   // States
   const [isOnline, setIsOnline] = useState(connectionService.currentState.isOnlineMode);
@@ -50,7 +66,7 @@ export function DashboardScreen({ navigation }: any) {
   const isManualOverrideRef = useRef(false);
   const [cachedBalance, setCachedBalance] = useState<number>(0.00);
   const [isPollingBalance, setIsPollingBalance] = useState(false);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [offlineBalance, setOfflineBalance] = useState<number>(0.00);
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -85,13 +101,13 @@ export function DashboardScreen({ navigation }: any) {
   useEffect(() => {
     const initData = async () => {
       try {
-        const hasReset = await AsyncStorage.getItem('abotpera.initial_reset_v2');
+        const hasReset = await AsyncStorage.getItem('pijin.initial_reset_v2');
         if (!hasReset) {
           setCachedBalance(0.00);
           await AsyncStorage.setItem(CACHED_BALANCE_KEY, '0.00');
           setOfflineBalance(0.00);
           await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
-          await AsyncStorage.setItem('abotpera.initial_reset_v2', 'true');
+          await AsyncStorage.setItem('pijin.initial_reset_v2', 'true');
         } else {
           const storedBalance = await AsyncStorage.getItem(CACHED_BALANCE_KEY);
           if (storedBalance) {
@@ -159,66 +175,106 @@ export function DashboardScreen({ navigation }: any) {
   }, []);
 
   // Poll for updated balance after a SEP-24 deposit completes.
-  // Strategy: re-fetch every 4 s up to 8 times (≈ 30 s). Stop early
-  // when the balance changes; alert the user if it never changes.
+  // Strategy: re-fetch with a progressive backoff setTimeout chain (up to 15 attempts).
+  // Stop early when the balance changes; alert the user if it never changes.
+  const startingBalanceRef = useRef<number | null>(null);
+
   const startBalancePolling = useCallback((previousBalance: number | null) => {
     if (pollingRef.current) {
-      clearInterval(pollingRef.current);
+      clearTimeout(pollingRef.current);
+      pollingRef.current = null;
     }
+    
     setIsPollingBalance(true);
-    let attempts = 0;
-    const MAX_ATTEMPTS = 8;
+    const startBalance = previousBalance ?? cachedBalance ?? 0;
+    startingBalanceRef.current = startBalance;
+    
+    console.log(
+      `[DashboardScreen] startBalancePolling initialized | previousBalance=${previousBalance} | ` +
+      `cachedBalance=${cachedBalance} | startingBalanceRef=${startBalance}`
+    );
+    
+    let attempt = 0;
+    const POLLING_DELAYS_MS = [
+      4000, 4000, 5000, 5000, 6000, 6000, 7000, 7000, 8000, 8000, 9000, 9000, 10000, 10000, 10000
+    ];
+    const MAX_ATTEMPTS = POLLING_DELAYS_MS.length;
 
-    pollingRef.current = setInterval(async () => {
-      attempts += 1;
+    const poll = async () => {
+      attempt += 1;
+      const delay = POLLING_DELAYS_MS[attempt - 1] ?? 10000;
+      console.log(
+        `[DashboardScreen] Polling balance: attempt ${attempt}/${MAX_ATTEMPTS} | ` +
+        `startingBalance=${startingBalanceRef.current} | currentBalance=${balancePhp} | ` +
+        `nextDelay=${delay}ms`
+      );
+
       try {
         await refreshBalance();
-      } catch {
-        // refreshBalance updates state internally; errors are swallowed here.
+      } catch (err) {
+        console.warn(`[DashboardScreen] Balance refresh failed on attempt ${attempt}:`, err);
       }
 
-      // balancePhp is updated asynchronously via the useVaultBalance hook.
-      // We check it in the next render cycle via the useEffect below.
-      // Stop polling after max attempts.
-      if (attempts >= MAX_ATTEMPTS) {
-        clearInterval(pollingRef.current!);
-        pollingRef.current = null;
+      if (attempt >= MAX_ATTEMPTS) {
+        console.log(`[DashboardScreen] Polling reached MAX_ATTEMPTS (${MAX_ATTEMPTS}). Polling stopped.`);
         setIsPollingBalance(false);
+        pollingRef.current = null;
         Alert.alert(
           'Deposit Still Processing',
           'Your deposit is still being processed by the anchor — check back in a moment.',
         );
+        return;
       }
-    }, 4000);
-  }, [refreshBalance]);
+
+      pollingRef.current = setTimeout(poll, delay);
+    };
+
+    // Schedule the first poll
+    pollingRef.current = setTimeout(poll, POLLING_DELAYS_MS[0]);
+  }, [refreshBalance, cachedBalance, balancePhp]);
 
   // Detect when balancePhp changes after polling starts and stop the loop.
-  const prevBalanceRef = useRef<number | null>(null);
   useEffect(() => {
     if (!isPollingBalance) return;
-    if (balancePhp !== null && prevBalanceRef.current !== null && balancePhp !== prevBalanceRef.current) {
-      // Balance changed — stop polling.
+    
+    console.log(
+      `[DashboardScreen] Balance check effect | isPollingBalance=true | ` +
+      `startingBalance=${startingBalanceRef.current} | currentBalance=${balancePhp}`
+    );
+
+    if (
+      balancePhp !== null &&
+      startingBalanceRef.current !== null &&
+      balancePhp !== startingBalanceRef.current
+    ) {
+      console.log(
+        `[DashboardScreen] Success! Balance changed from ${startingBalanceRef.current} ` +
+        `to ${balancePhp}. Halting polling.`
+      );
       if (pollingRef.current) {
-        clearInterval(pollingRef.current);
+        clearTimeout(pollingRef.current);
         pollingRef.current = null;
       }
       setIsPollingBalance(false);
     }
-    prevBalanceRef.current = balancePhp;
   }, [balancePhp, isPollingBalance]);
 
   // Listen for ON_DEPOSIT_COMPLETE emitted by Sep24WebviewScreen on close.
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('ON_DEPOSIT_COMPLETE', () => {
+      console.log('[DashboardScreen] Received ON_DEPOSIT_COMPLETE event. Triggering startBalancePolling...');
       startBalancePolling(balancePhp);
     });
     return () => sub.remove();
   }, [startBalancePolling, balancePhp]);
 
-  // Cleanup poll interval on unmount.
+  // Cleanup poll timeout on unmount.
   useEffect(() => {
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (pollingRef.current) {
+        console.log('[DashboardScreen] Unmounting component. Cleaning up active polling timeout.');
+        clearTimeout(pollingRef.current);
+      }
     };
   }, []);
 
@@ -254,7 +310,7 @@ export function DashboardScreen({ navigation }: any) {
   const handleStateTransition = (targetOnline: boolean) => {
     setIsTransitioning(true);
     setIsOnline(targetOnline);
-    AsyncStorage.setItem('abotpera.is_online', targetOnline ? 'true' : 'false');
+    AsyncStorage.setItem('pijin.is_online', targetOnline ? 'true' : 'false');
 
     // Persist the existing balance as-is when toggling modes.
     setCachedBalance((prev) => {
@@ -302,13 +358,13 @@ export function DashboardScreen({ navigation }: any) {
   const handleAddMockQueueItem = useCallback(async () => {
     if (!isOnline) {
       const mockPayload = {
-        type: 'ABOTPERA_OFFLINE_PAYMENT' as const,
+        type: 'PIJIN_OFFLINE_PAYMENT' as const,
         version: 2 as const,
         amount: 150.0,
         currency: 'PHP' as const,
         customerShortId: shortId,
         merchantShortId: '9999',
-        smsBody: 'ABOTPERA_PAY_150_9999_MOCK',
+        smsBody: 'PIJIN_PAY_150_9999_MOCK',
         createdAt: new Date().toISOString(),
         expiresInMinutes: 10,
       };
@@ -370,6 +426,7 @@ export function DashboardScreen({ navigation }: any) {
           <View style={styles.tabPanel}>
             <HomeTab
               shortId={shortId}
+              publicKey={publicKey}
               isOnline={isOnline}
               isOnlineDisabled={!hasInternet}
               cachedBalance={cachedBalance}
