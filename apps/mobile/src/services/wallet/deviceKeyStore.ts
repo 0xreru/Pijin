@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { Keypair } from '@stellar/stellar-base';
 
-const DEVICE_SECRET_KEY = 'abotpera.device.secret';
+const DEVICE_SECRET_KEY = 'pijin.device.secret';
 const FRIENDBOT_URL = 'https://friendbot.stellar.org';
 const RETRY_DELAY_MS = 2_000;
 

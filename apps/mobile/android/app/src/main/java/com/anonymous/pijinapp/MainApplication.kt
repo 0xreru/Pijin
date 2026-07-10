@@ -1,4 +1,4 @@
-package com.anonymous.abotperaapp
+package com.anonymous.pijinapp
 
 import android.app.Application
 import android.content.res.Configuration

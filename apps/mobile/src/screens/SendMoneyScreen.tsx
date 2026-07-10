@@ -22,7 +22,7 @@ import { useVaultBalance } from '../hooks/useVaultBalance';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CACHED_BALANCE_KEY = 'abotpera.cached_balance';
+const CACHED_BALANCE_KEY = 'pijin.cached_balance';
 
 const MOCK_CONTACTS = [
   { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP' },
@@ -56,11 +56,11 @@ export function SendMoneyScreen({ route, navigation }: any) {
   useEffect(() => {
     const getCached = async () => {
       try {
-        const onlineStr = await AsyncStorage.getItem('abotpera.is_online');
+        const onlineStr = await AsyncStorage.getItem('pijin.is_online');
         const online = onlineStr !== 'false';
         setIsOnline(online);
 
-        const key = online ? CACHED_BALANCE_KEY : 'abotpera.offline_balance';
+        const key = online ? CACHED_BALANCE_KEY : 'pijin.offline_balance';
         const stored = await AsyncStorage.getItem(key);
         if (stored) {
           setWalletBalance(parseFloat(stored));

@@ -30,7 +30,7 @@ export function ScanQRScreen({ navigation }: any) {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    AsyncStorage.getItem('abotpera.is_online').then((val) => {
+    AsyncStorage.getItem('pijin.is_online').then((val) => {
       setIsOnline(val !== 'false');
     });
   }, []);
@@ -109,7 +109,7 @@ export function ScanQRScreen({ navigation }: any) {
   };
 
   const handleSimulatorScanTap = async () => {
-    const isOnlineStr = await AsyncStorage.getItem('abotpera.is_online');
+    const isOnlineStr = await AsyncStorage.getItem('pijin.is_online');
     const isAppOnline = isOnlineStr !== 'false';
     if (isAppOnline) {
       handleBarCodeScanned({ data: '09171234567:150.00:Dinner at Jollibee' });

@@ -21,10 +21,10 @@ import * as schema from './schema';
  * Open the native SQLite database file.
  *
  * `enableChangeListener: true` — required for useLiveQuery reactivity.
- * The file `abotpera.db` is created automatically on first run inside
+ * The file `pijin.db` is created automatically on first run inside
  * the app's private storage directory on the device.
  */
-const expoDb = openDatabaseSync('abotpera.db', {
+const expoDb = openDatabaseSync('pijin.db', {
   enableChangeListener: true,
 });
 

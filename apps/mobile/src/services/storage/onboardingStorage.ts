@@ -1,16 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
-const ONBOARDING_COMPLETE_KEY = 'abotpera.onboarding_complete';
-const PIN_KEY = 'abotpera.user_pin';
-const PIN_SECURE_KEY = 'abotpera.user_pin_secure';
-const PHONE_NUMBER_KEY = 'abotpera.user_phone';
-const FIRST_NAME_KEY = 'abotpera.user_first_name';
-const LAST_NAME_KEY = 'abotpera.user_last_name';
-const EMAIL_KEY = 'abotpera.user_email';
+const ONBOARDING_COMPLETE_KEY = 'pijin.onboarding_complete';
+const PIN_KEY = 'pijin.user_pin';
+const PIN_SECURE_KEY = 'pijin.user_pin_secure';
+const PHONE_NUMBER_KEY = 'pijin.user_phone';
+const FIRST_NAME_KEY = 'pijin.user_first_name';
+const LAST_NAME_KEY = 'pijin.user_last_name';
+const EMAIL_KEY = 'pijin.user_email';
 // Stores a JSON array of every phone that has completed registration on this device.
 // Used by the local mock for checkUserExists until a real backend endpoint exists.
-const REGISTERED_PHONES_KEY = 'abotpera.registered_phones';
+const REGISTERED_PHONES_KEY = 'pijin.registered_phones';
 
 export async function setOnboardingComplete(complete: boolean): Promise<void> {
   await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, complete ? 'true' : 'false');

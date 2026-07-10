@@ -64,7 +64,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
 
   useEffect(() => {
     const checkState = async () => {
-      const onlineStr = await AsyncStorage.getItem('abotpera.is_online');
+      const onlineStr = await AsyncStorage.getItem('pijin.is_online');
       setIsOnlineMode(onlineStr !== 'false');
     };
     checkState();
@@ -206,7 +206,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         });
 
         const payload: OfflinePaymentPayload = {
-          type: 'ABOTPERA_OFFLINE_PAYMENT',
+          type: 'PIJIN_OFFLINE_PAYMENT',
           version: 2,
           amount: amount,
           currency: 'PHP',

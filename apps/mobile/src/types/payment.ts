@@ -1,5 +1,5 @@
 export type OfflinePaymentPayload = {
-  type: 'ABOTPERA_OFFLINE_PAYMENT';
+  type: 'PIJIN_OFFLINE_PAYMENT';
   version: 2;
   amount: number;
   currency: 'PHP';
@@ -13,7 +13,7 @@ export type OfflinePaymentPayload = {
 
 /** @deprecated MVP v1 JSON-only payloads */
 export type LegacyOfflinePaymentPayload = {
-  type: 'ABOTPERA_OFFLINE_PAYMENT';
+  type: 'PIJIN_OFFLINE_PAYMENT';
   amount: number;
   currency: 'PHP';
   customerPublicKey?: string;

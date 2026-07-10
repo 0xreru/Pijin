@@ -26,9 +26,9 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="abotpera"/>
-        <data android:scheme="com.anonymous.abotperaapp"/>
-        <data android:scheme="exp+abotpera-app"/>
+        <data android:scheme="pijin"/>
+        <data android:scheme="com.anonymous.pijin"/>
+        <data android:scheme="exp+pijin"/>
       </intent-filter>
     </activity>
   </application>

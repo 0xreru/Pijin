@@ -39,7 +39,7 @@ class ConnectionService {
       const isConnected = netState.isConnected ?? true;
 
       // 2. Get initial cached online/offline mode from AsyncStorage
-      const cachedOnlineStr = await AsyncStorage.getItem('abotpera.is_online');
+      const cachedOnlineStr = await AsyncStorage.getItem('pijin.is_online');
       
       // If we don't have a cached value, default to true
       const initialOnlineMode = cachedOnlineStr !== 'false';
@@ -68,7 +68,7 @@ class ConnectionService {
           // Connection restored:
           // Check what was stored in AsyncStorage. If user hadn't manually opted for offline mode,
           // restore to online mode automatically.
-          AsyncStorage.getItem('abotpera.is_online').then((val) => {
+          AsyncStorage.getItem('pijin.is_online').then((val) => {
             const desiredOnline = val !== 'false';
             if (desiredOnline) {
               this.setOnlineState(true);
@@ -77,7 +77,7 @@ class ConnectionService {
         }
 
         if (nextOnlineMode !== current.isOnlineMode) {
-          AsyncStorage.setItem('abotpera.is_online', nextOnlineMode ? 'true' : 'false');
+          AsyncStorage.setItem('pijin.is_online', nextOnlineMode ? 'true' : 'false');
         }
 
         this.stateSubject.next({
@@ -98,7 +98,7 @@ class ConnectionService {
       return;
     }
 
-    await AsyncStorage.setItem('abotpera.is_online', online ? 'true' : 'false');
+    await AsyncStorage.setItem('pijin.is_online', online ? 'true' : 'false');
     this.stateSubject.next({
       ...current,
       isOnlineMode: online,
