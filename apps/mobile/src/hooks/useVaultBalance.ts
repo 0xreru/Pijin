@@ -6,6 +6,7 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
   const [balancePhp, setBalancePhp] = useState<number | null>(null);
   const [balanceXlm, setBalanceXlm] = useState<number | null>(null);
   const [resolvedShortId, setResolvedShortId] = useState<string | null>(null);
+  const [offlineBalancePhp, setOfflineBalancePhp] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,6 +16,7 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
       setBalancePhp(null);
       setBalanceXlm(null);
       setResolvedShortId(null);
+      setOfflineBalancePhp(null);
       setError(null);
       return;
     }
@@ -33,13 +35,15 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
 
       console.log(
         `[useVaultBalance] API response success | duration=${duration}ms | ` +
-        `balancePHP=${result.balancePHP} | balanceStroops=${result.balanceStroops} | ` +
-        `shortId=${result.shortId} | stellarPublicKey=${result.stellarPublicKey}`
+        `balancePHP=${result.balancePHP} | offlineBalancePHP=${result.offlineBalancePHP ?? 0} | ` +
+        `balanceStroops=${result.balanceStroops} | shortId=${result.shortId} | ` +
+        `stellarPublicKey=${result.stellarPublicKey}`
       );
 
       setBalancePhp(result.balancePHP);
       setBalanceXlm(stroopsToXlm(result.balanceStroops));
       setResolvedShortId(result.shortId);
+      setOfflineBalancePhp(result.offlineBalancePHP ?? 0);
     } catch (err) {
       const duration = Date.now() - startTime;
       const errorMessage = err instanceof Error ? err.message : 'Unable to load vault balance.';
@@ -47,6 +51,7 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
       
       setBalancePhp(null);
       setBalanceXlm(null);
+      setOfflineBalancePhp(null);
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -57,5 +62,5 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
     refresh();
   }, [refresh]);
 
-  return { balancePhp, balanceXlm, resolvedShortId, isLoading, error, refresh };
+  return { balancePhp, balanceXlm, resolvedShortId, offlineBalancePhp, isLoading, error, refresh };
 }
