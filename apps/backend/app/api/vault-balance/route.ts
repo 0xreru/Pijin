@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { pijinContract } from "@/lib/pijin-contract";
 import { Horizon } from "@stellar/stellar-sdk";
 
+const HORIZON_URL = process.env.SOROBAN_RPC_URL?.replace("soroban-testnet", "horizon-testnet") ?? "https://horizon-testnet.stellar.org";
+const server = new Horizon.Server(HORIZON_URL);
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -44,7 +47,6 @@ export async function GET(req: NextRequest) {
     let balancePHP: number = 0;
 
     try {
-      const server = new Horizon.Server(process.env.SOROBAN_RPC_URL?.replace("soroban-testnet", "horizon-testnet") ?? "https://horizon-testnet.stellar.org");
       const account = await server.loadAccount(stellarPublicKey);
       
       const issuer = process.env.PHPC_ISSUER_PUBKEY ?? "GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY";
