@@ -17,8 +17,8 @@ export async function buildCustomerOfflineQr(amount: string, merchantShortId: st
   if (!account?.shortId) {
     throw new Error('Customer short ID is missing.');
   }
-  if (account.role !== 'CUSTOMER') {
-    throw new Error('Only customer accounts can generate offline QR payloads.');
+  if (account.role !== 'USER' && account.role !== 'CUSTOMER') {
+    throw new Error('Only USER accounts can generate offline QR payloads.');
   }
 
   const shortNonce = generateShortNonce();
