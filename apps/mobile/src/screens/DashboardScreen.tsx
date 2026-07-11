@@ -313,11 +313,11 @@ export function DashboardScreen({ navigation }: any) {
   // Automatically trigger smart sync when online mode is active and shortId is loaded
   useEffect(() => {
     if (isOnline && shortId !== '0000') {
-      syncService.syncTransactions(shortId)
+      syncService.syncTransactions(shortId, publicKey)
         .then(() => refreshBalance())
         .catch((err) => console.warn('[DashboardScreen] Sync failed:', err));
     }
-  }, [isOnline, shortId]);
+  }, [isOnline, shortId, publicKey]);
 
   // Switch transition handler
   const handleStateTransition = (targetOnline: boolean) => {
@@ -355,7 +355,7 @@ export function DashboardScreen({ navigation }: any) {
     setSyncing(true);
     try {
       await syncService.flush();
-      await syncService.syncTransactions(shortId);
+      await syncService.syncTransactions(shortId, publicKey);
       await refreshBalance();
       setSyncing(false);
       Alert.alert(
@@ -366,7 +366,7 @@ export function DashboardScreen({ navigation }: any) {
       setSyncing(false);
       Alert.alert('Sync Failed', 'An error occurred during synchronization.');
     }
-  }, [queueCount, refreshBalance, shortId]);
+  }, [queueCount, refreshBalance, shortId, publicKey]);
 
   const handleAddMockQueueItem = useCallback(async () => {
     if (!isOnline) {

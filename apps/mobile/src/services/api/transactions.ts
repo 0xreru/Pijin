@@ -29,3 +29,33 @@ export async function getUserSettlements(
   return result.data;
 }
 
+export interface TransactionHistoryItem {
+  id: string;
+  type: 'SEND' | 'RECEIVE' | 'TRANSFER' | 'WITHDRAWAL';
+  title: string;
+  amount: string;
+  assetCode: string;
+  status: string;
+  timestamp: string;
+  txHash?: string;
+}
+
+interface WalletHistoryResponse {
+  transactions: TransactionHistoryItem[];
+}
+
+export async function getWalletHistory(
+  shortId: string,
+  publicKey: string
+): Promise<TransactionHistoryItem[]> {
+  const query = new URLSearchParams({ shortId, publicKey });
+  const result = await apiRequest<WalletHistoryResponse>(
+    `/api/wallet/history?${query.toString()}`
+  );
+  if (!result || !Array.isArray(result.transactions)) {
+    throw new Error('[getWalletHistory] API responded with invalid transactions list');
+  }
+  return result.transactions;
+}
+
+
