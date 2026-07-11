@@ -19,7 +19,7 @@ import {
   xlmToStroops,
   HORIZON_URL,
 } from '../../constants/stellar';
-import { signTransactionXdr } from '../wallet/walletConnector';
+import { getOrGenerateDeviceKeypair } from '../wallet/deviceKeyStore';
 
 // Ensure Buffer is available globally for XDR serialization in Hermes.
 if (typeof global.Buffer === 'undefined') {
@@ -162,11 +162,17 @@ export async function depositToVault(input: {
   markStage('wallet-sign');
   let signedXdrBase64: string;
   try {
-    signedXdrBase64 = await signTransactionXdr(
-      safeBase64Xdr,
-      input.customerPublicKey,
-      STELLAR_NETWORK_PASSPHRASE
-    );
+    const deviceKeypair = await getOrGenerateDeviceKeypair();
+    const devicePublicKey = deviceKeypair.publicKey();
+    if (devicePublicKey !== input.customerPublicKey) {
+      throw new Error(
+        `Keypair mismatch: Device public key is ${devicePublicKey}, but input public key is ${input.customerPublicKey}`
+      );
+    }
+
+    const signedTx = TransactionBuilder.fromXDR(safeBase64Xdr, STELLAR_NETWORK_PASSPHRASE) as Transaction;
+    signedTx.sign(deviceKeypair);
+    signedXdrBase64 = encodeTransactionEnvelopeBase64(signedTx);
   } catch (error) {
     throw new Error(`Deposit stage wallet-sign failed: ${String(error)}`);
   }
