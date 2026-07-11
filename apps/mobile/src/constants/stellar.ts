@@ -9,6 +9,10 @@ export const STELLAR_NETWORK_PASSPHRASE =
   env('EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE') ??
   'Public Global Stellar Network ; September 2015';
 
+export const HORIZON_URL = STELLAR_NETWORK_PASSPHRASE.includes('Public Global')
+  ? 'https://horizon.stellar.org'
+  : 'https://horizon-testnet.stellar.org';
+
 export const SOROBAN_RPC_URL =
   env('EXPO_PUBLIC_SOROBAN_RPC_URL') ?? 'https://rpc.lightsail.network';
 
