@@ -18,6 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
+import { useAuth } from '../context/AuthContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 52;
@@ -26,6 +27,7 @@ const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
 
 export function LoadOfflineFundsScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
+  const { activeAccount } = useAuth();
   const { balance } = route.params || { balance: 25000 };
 
   // States
@@ -188,6 +190,8 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
           type: 'transfer',
           tag: 'WALLET',
           description: `Moved ₱${numericVal.toFixed(2)} from online wallet to offline vault.`,
+          stellarPublicKey: activeAccount?.stellarPublicKey,
+          shortId: activeAccount?.shortId,
         },
         {
           title: 'Received from Online Wallet',
@@ -195,6 +199,8 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
           type: 'transfer',
           tag: 'OFFLINE',
           description: `Received ₱${numericVal.toFixed(2)} from online wallet.`,
+          stellarPublicKey: activeAccount?.stellarPublicKey,
+          shortId: activeAccount?.shortId,
         },
       ]);
       // Emit event to deduct online balance and add to offline balance

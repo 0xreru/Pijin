@@ -17,7 +17,7 @@ import { LogoutConfirmationModal } from '../components/ui/LogoutConfirmationModa
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { db } from '../db/client';
 import { transactions as transactionsTable, paymentQueue as paymentQueueTable } from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, or } from 'drizzle-orm';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { syncService } from '../services/syncService';
 import { BottomNavBar, TabType } from '../components/ui/BottomNavBar';
@@ -79,7 +79,15 @@ export function DashboardScreen({ navigation }: any) {
 
   // Live Queries for automatic, reactive UI updates
   const { data: transactions = [] } = useLiveQuery(
-    db.select().from(transactionsTable).orderBy(desc(transactionsTable.createdAt))
+    db.select()
+      .from(transactionsTable)
+      .where(
+        or(
+          eq(transactionsTable.stellarPublicKey, publicKey),
+          eq(transactionsTable.shortId, shortId)
+        )
+      )
+      .orderBy(desc(transactionsTable.createdAt))
   );
 
   const { data: pendingPayments = [] } = useLiveQuery(
@@ -267,17 +275,27 @@ export function DashboardScreen({ navigation }: any) {
         pollingRef.current = null;
       }
       setIsPollingBalance(false);
+
+      // Trigger a sync of transaction history so it reflects immediately
+      if (isOnline && shortId !== '0000') {
+        syncService.syncTransactions(shortId, publicKey)
+          .catch((err) => console.warn('[DashboardScreen] Post-polling transaction sync failed:', err));
+      }
     }
-  }, [balancePhp, isPollingBalance]);
+  }, [balancePhp, isPollingBalance, isOnline, shortId, publicKey]);
 
   // Listen for ON_DEPOSIT_COMPLETE emitted by Sep24WebviewScreen on close.
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('ON_DEPOSIT_COMPLETE', () => {
-      console.log('[DashboardScreen] Received ON_DEPOSIT_COMPLETE event. Triggering startBalancePolling...');
+      console.log('[DashboardScreen] Received ON_DEPOSIT_COMPLETE event. Triggering startBalancePolling and sync...');
       startBalancePolling(balancePhp);
+      if (isOnline && shortId !== '0000') {
+        syncService.syncTransactions(shortId, publicKey)
+          .catch((err) => console.warn('[DashboardScreen] ON_DEPOSIT_COMPLETE sync failed:', err));
+      }
     });
     return () => sub.remove();
-  }, [startBalancePolling, balancePhp]);
+  }, [startBalancePolling, balancePhp, isOnline, shortId, publicKey]);
 
   // Cleanup poll timeout on unmount.
   useEffect(() => {

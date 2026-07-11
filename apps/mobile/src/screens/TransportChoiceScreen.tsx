@@ -45,6 +45,11 @@ export function TransportChoiceScreen({ route, navigation }: any) {
     }
 
     try {
+      const { loadStoredAccount } = require('../services/storage/accountStorage');
+      const account = await loadStoredAccount();
+      const customerShortId = payload?.customerShortId || account?.shortId;
+      const customerPubKey = payload?.customerPubKey || account?.stellarPublicKey;
+
       await db.transaction(async (trx) => {
         await enqueuePayment(payload, trx);
         
@@ -54,6 +59,8 @@ export function TransportChoiceScreen({ route, navigation }: any) {
           type: 'outgoing',
           tag: 'OFFLINE',
           description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
+          stellarPublicKey: customerPubKey,
+          shortId: customerShortId,
         }, trx);
       });
 
