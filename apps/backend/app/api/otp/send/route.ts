@@ -1,3 +1,81 @@
+/**
+ * @swagger
+ * /api/otp/send:
+ *   post:
+ *     tags:
+ *       - OTP
+ *     summary: Send a 6-digit OTP via SMS
+ *     description: |
+ *       Generates a cryptographically secure 6-digit OTP using `crypto.randomInt`,
+ *       stores it in **Upstash Redis** with a 5-minute TTL keyed on the normalised
+ *       E.164 phone number (`pijin:otp:<phone>`), and dispatches the code via the
+ *       **Textbee SMS gateway**.
+ *
+ *       #### Rate Limiting
+ *       **Sliding window — 3 requests per 5 minutes** per `(IP + phone)` pair.
+ *       Keyed as `pijin:api:otp:ratelimit`. Exceeding the limit returns `429`.
+ *
+ *       #### Philippine number normalisation
+ *       - `09XXXXXXXXX` (11 digits) → `+639XXXXXXXXX`
+ *       - `63XXXXXXXXXX` (12 digits) → `+63XXXXXXXXXX`
+ *       - Any other format is prefixed with `+` if not already present.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [phoneNumber]
+ *             properties:
+ *               phoneNumber:
+ *                 type: string
+ *                 description: Recipient phone number. Accepts local PH format (09XX) or E.164.
+ *                 example: "09171234567"
+ *     responses:
+ *       '200':
+ *         description: OTP generated and SMS dispatched successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "OTP sent successfully."
+ *       '400':
+ *         description: Missing `phoneNumber` in request body.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Phone number is required."
+ *       '429':
+ *         description: Rate limit exceeded. The client must wait before requesting another OTP.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Too many OTP requests. Please wait a few minutes."
+ *       '500':
+ *         description: Internal server error (Redis or Textbee failure).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Internal Server Error"
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";

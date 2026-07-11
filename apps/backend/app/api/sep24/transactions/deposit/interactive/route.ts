@@ -1,4 +1,101 @@
 /**
+ * @swagger
+ * /api/sep24/transactions/deposit/interactive:
+ *   post:
+ *     tags:
+ *       - Anchor (SEP-24)
+ *     summary: Initiate an interactive SEP-24 deposit
+ *     description: |
+ *       **Step 1 of the SEP-24 interactive deposit flow.**
+ *
+ *       The wallet sends a SEP-10 JWT in the `Authorization: Bearer` header along with
+ *       the desired `asset_code`. This handler:
+ *       1. Verifies the JWT and extracts the user's Stellar account (`sub` claim).
+ *       2. Creates an `AnchorTransaction` record in the DB with `status: incomplete`.
+ *       3. Mints a **short-lived 15-minute interactive URL JWT** (signed with a _separate_ secret
+ *          from the SEP-10 JWT — a leaked webview URL cannot be replayed as a session credential).
+ *       4. Returns the interactive URL (opened in a wallet webview) and the transaction UUID.
+ *
+ *       The wallet then opens the returned `url` in a webview. The `/deposit` frontend page
+ *       verifies the token, collects KYC/amount details, and calls `/api/anchor/simulate-payment`
+ *       to execute the actual Stellar payment.
+ *
+ *       #### Supported content types
+ *       - `application/json`
+ *       - `multipart/form-data`
+ *       - `application/x-www-form-urlencoded`
+ *
+ *       #### Supported assets
+ *       `PHPC`, `USDC`
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [asset_code]
+ *             properties:
+ *               asset_code:
+ *                 type: string
+ *                 description: The asset to deposit. Case-insensitive (normalised to uppercase).
+ *                 enum: [PHPC, USDC]
+ *                 example: "PHPC"
+ *               memo:
+ *                 type: string
+ *                 description: Optional memo to attach to the anchor transaction record.
+ *               memo_type:
+ *                 type: string
+ *                 description: Optional memo type (e.g. "text", "id").
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [asset_code]
+ *             properties:
+ *               asset_code:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: Interactive deposit initiated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 type:
+ *                   type: string
+ *                   example: "interactive_customer_info_needed"
+ *                 url:
+ *                   type: string
+ *                   format: uri
+ *                   description: Interactive webview URL to open in the wallet. Contains a short-lived JWT.
+ *                   example: "https://pijin-api.vercel.app/deposit?transaction_id=abc&token=eyJ..."
+ *                 id:
+ *                   type: string
+ *                   format: uuid
+ *                   description: The UUID of the created AnchorTransaction. Use this to poll `/api/sep24/transaction?id=<id>`.
+ *       '400':
+ *         description: Missing or unsupported `asset_code`.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '401':
+ *         description: Missing, malformed, or expired SEP-10 bearer token.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '500':
+ *         description: Internal server error (missing env var or DB failure).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
  * @file app/api/sep24/transactions/deposit/interactive/route.ts
  *
  * SEP-24: Interactive Deposit Initiation

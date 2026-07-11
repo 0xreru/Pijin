@@ -1,4 +1,137 @@
 /**
+ * @swagger
+ * /api/anchor/simulate-payment:
+ *   post:
+ *     tags:
+ *       - Anchor (SEP-24)
+ *     summary: Execute anchor Stellar payment (SEP-24 settlement step)
+ *     description: |
+ *       Called by the interactive deposit webview after the user confirms their fiat
+ *       (GCash) payment. This is the anchor's **"central bank" transfer step**:
+ *
+ *       1. Validates `transaction_id` and `amount`.
+ *       2. Loads the `AnchorTransaction` from Prisma (must exist and not already be `completed`).
+ *       3. Resolves the correct **distributor keypair** for the asset (PHPC/USDC) from env vars.
+ *       4. Builds a Stellar `Payment` operation using the **issuer public key** for the asset
+ *          (required so Horizon can validate the trustline — issuer ≠ distributor).
+ *       5. Signs with the distributor secret and submits to Horizon Testnet.
+ *       6. Updates the DB record to `completed` with `amountIn` / `amountOut`.
+ *
+ *       On Stellar submission failure (bad trustline, insufficient funds, etc.) the DB
+ *       record is updated to `error` and a `422 Unprocessable Entity` is returned with
+ *       the Horizon `result_codes` for debugging.
+ *
+ *       **⚠️ Not protected by SEP-10 auth** — called from the server-rendered webview which
+ *       has already validated the short-lived SEP-24 interactive JWT. Add CSRF/rate-limit
+ *       protection before mainnet.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [transaction_id, amount]
+ *             properties:
+ *               transaction_id:
+ *                 type: string
+ *                 format: uuid
+ *                 description: UUID of the AnchorTransaction created by the deposit initiation step.
+ *                 example: "550e8400-e29b-41d4-a716-446655440000"
+ *               amount:
+ *                 type: string
+ *                 description: Amount to send in human-readable decimal form (e.g. "100.00"). Normalised to 7 decimal places internally.
+ *                 example: "100.00"
+ *     responses:
+ *       '200':
+ *         description: Stellar transaction submitted and DB updated to `completed`.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 stellar_tx_hash:
+ *                   type: string
+ *                   description: The confirmed Stellar transaction hash.
+ *                   example: "a1b2c3d4..."
+ *                 amount:
+ *                   type: string
+ *                   example: "100.0000000"
+ *                 asset_code:
+ *                   type: string
+ *                   example: "PHPC"
+ *                 destination:
+ *                   type: string
+ *                   description: Recipient Stellar public key (the user's wallet).
+ *       '400':
+ *         description: Missing or invalid `transaction_id` or `amount`.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *       '404':
+ *         description: AnchorTransaction not found for the given `transaction_id`.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *       '409':
+ *         description: Transaction has already been settled (status is already `completed`).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "This transaction has already been settled."
+ *       '422':
+ *         description: Stellar submission failed (bad trustline, insufficient distributor funds, Testnet congestion).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                 detail:
+ *                   type: string
+ *                   description: Horizon result_codes JSON string for debugging.
+ *       '500':
+ *         description: Internal server error (missing env var, DB error, or unexpected failure).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ */
+
+/**
  * @file app/api/anchor/simulate-payment/route.ts
  *
  * SEP-24: Settlement Engine — "Central Bank" Transfer

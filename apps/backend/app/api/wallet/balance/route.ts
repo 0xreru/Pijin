@@ -1,3 +1,101 @@
+/**
+ * @swagger
+ * /api/wallet/balance:
+ *   get:
+ *     tags:
+ *       - Wallet & Balances
+ *     summary: Get on-chain Stellar wallet balance (online wallet)
+ *     description: |
+ *       Fetches the **Horizon Testnet** balance for a given Stellar account and
+ *       asset code. Queries the `balances` array on the account record and locates
+ *       the trustline matching the requested asset and its known issuer address.
+ *
+ *       **Supported assets:**
+ *       | Code | Testnet Issuer |
+ *       |------|---------------|
+ *       | PHPC | `GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY` |
+ *       | USDC | `GDQGJU5JTW5IFCGS6JZTIGK57IKPW4N4LJWWEN7F3K3GSEJEYPVJ3BYA` |
+ *
+ *       **Graceful degradation:**
+ *       - Account not found on Horizon (unfunded) → `{ balance: "0.00" }` (not an error).
+ *       - Trustline not established → `{ balance: "0.00" }` (not an error).
+ *
+ *       #### Rate Limiting
+ *       **Sliding window — 10 requests per 10 seconds** per IP address.
+ *       Keyed as `pijin:api:balance`.
+ *     parameters:
+ *       - in: query
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^G[A-Z2-7]{55}$'
+ *         description: The Stellar Ed25519 public key of the account to query.
+ *         example: "GABC1234..."
+ *       - in: query
+ *         name: assetCode
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [PHPC, USDC]
+ *         description: The asset code to query. Case-insensitive (normalised to uppercase).
+ *         example: "PHPC"
+ *     responses:
+ *       '200':
+ *         description: Balance retrieved (or zero if account/trustline not found).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 balance:
+ *                   type: string
+ *                   description: Decimal balance string as returned by Horizon (e.g. "100.0000000").
+ *                   example: "250.5000000"
+ *       '400':
+ *         description: Missing or invalid query parameters.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *               examples:
+ *                 missingKey: { value: { error: "Missing required query parameter: publicKey" } }
+ *                 badKey: { value: { error: "Invalid Stellar public key format." } }
+ *                 missingAsset: { value: { error: "Missing required query parameter: assetCode" } }
+ *                 badAsset: { value: { error: "Unsupported asset code: 'XLM'. Supported assets: PHPC, USDC" } }
+ *       '429':
+ *         description: Rate limit exceeded.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Too many requests. Please try again later."
+ *       '502':
+ *         description: Horizon network error (non-404).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to load account from Stellar network."
+ *       '500':
+ *         description: Unexpected internal server error.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { Horizon } from "@stellar/stellar-sdk";
 import { Ratelimit } from "@upstash/ratelimit";
@@ -11,7 +109,7 @@ const ratelimit = new Ratelimit({
   redis: Redis.fromEnv(),
   limiter: Ratelimit.slidingWindow(10, "10 s"),
   analytics: false,
-  prefix: "omnifi:api:balance",
+  prefix: "pijin:api:balance",
 });
 
 // Horizon Testnet server instance

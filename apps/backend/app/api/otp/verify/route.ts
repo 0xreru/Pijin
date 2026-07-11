@@ -1,3 +1,83 @@
+/**
+ * @swagger
+ * /api/otp/verify:
+ *   post:
+ *     tags:
+ *       - OTP
+ *     summary: Verify a 6-digit OTP code
+ *     description: |
+ *       Fetches the stored OTP from **Upstash Redis** for the given phone number
+ *       and compares it (string-safe, handling Upstash's numeric auto-parsing) against
+ *       the provided `code`.
+ *
+ *       On success the OTP is **immediately deleted** from Redis (`DEL key`) to
+ *       prevent replay attacks — each code can only be used once.
+ *
+ *       Returns `400` if the OTP has expired (TTL elapsed) or was never sent.
+ *       Returns `401` if the code is present but incorrect.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [phoneNumber, code]
+ *             properties:
+ *               phoneNumber:
+ *                 type: string
+ *                 description: The phone number the OTP was sent to. Accepts local PH or E.164 format.
+ *                 example: "09171234567"
+ *               code:
+ *                 type: string
+ *                 description: The 6-digit OTP the user entered.
+ *                 example: "482931"
+ *     responses:
+ *       '200':
+ *         description: OTP verified successfully. Code is consumed and deleted.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Phone number verified."
+ *       '400':
+ *         description: Missing fields, or OTP has expired / was never sent.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *               examples:
+ *                 - missing: { error: "Phone number and code are required." }
+ *                 - expired: { error: "OTP has expired or was never sent. Please request a new one." }
+ *       '401':
+ *         description: Incorrect OTP code.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Invalid verification code."
+ *       '500':
+ *         description: Internal server error.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Internal Server Error"
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 

@@ -1,3 +1,101 @@
+/**
+ * @swagger
+ * /api/vault-balance:
+ *   get:
+ *     tags:
+ *       - Wallet & Balances
+ *     summary: Get Soroban vault balance (offline wallet)
+ *     description: |
+ *       Queries the Pijin **Soroban smart contract** (`get_vault`) to return the
+ *       on-chain offline vault balance for a user. The vault stores the spendable
+ *       balance managed by the offline P2P payment engine.
+ *
+ *       You can look up the account by either:
+ *       - `shortId` — resolves to a `stellarPublicKey` via the Prisma `Account` table, **or**
+ *       - `stellarPublicKey` / `publicKey` — queried directly.
+ *
+ *       The raw Soroban result is in **stroops** (1/10,000,000 of a token unit).
+ *       The response includes both the raw stroops and the human-readable `balancePHP`.
+ *     parameters:
+ *       - in: query
+ *         name: shortId
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: The user's 6-character Base62 short ID (e.g. `aB3x9Q`). Mutually exclusive with `stellarPublicKey`.
+ *         example: "aB3x9Q"
+ *       - in: query
+ *         name: stellarPublicKey
+ *         required: false
+ *         schema:
+ *           type: string
+ *           pattern: '^G[A-Z2-7]{55}$'
+ *         description: Stellar Ed25519 public key. Also accepted as `publicKey`.
+ *         example: "GABC1234..."
+ *     responses:
+ *       '200':
+ *         description: Vault balance retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 stellarPublicKey:
+ *                   type: string
+ *                   example: "GABC1234..."
+ *                 shortId:
+ *                   type: string
+ *                   nullable: true
+ *                   example: "aB3x9Q"
+ *                 balanceStroops:
+ *                   type: string
+ *                   description: Raw vault balance in stroops (serialised BigInt to avoid JS precision loss).
+ *                   example: "1000000000"
+ *                 balancePHP:
+ *                   type: number
+ *                   description: Human-readable balance (stroops / 10,000,000).
+ *                   example: 100.0
+ *       '400':
+ *         description: Neither `shortId` nor `stellarPublicKey` provided, or invalid public key format.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *       '404':
+ *         description: Account not found for the given `shortId`.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *       '502':
+ *         description: Soroban RPC call to the Stellar network failed.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to read vault balance from Stellar network."
+ *       '500':
+ *         description: Unexpected internal server error.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { pijinContract } from "@/lib/pijin-contract";

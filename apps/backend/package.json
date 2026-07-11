@@ -20,15 +20,18 @@
     "dotenv": "^17.4.2",
     "jsonwebtoken": "^9.0.3",
     "next": "16.2.6",
+    "next-swagger-doc": "^0.4.1",
     "pg": "^8.21.0",
     "pijin_core": "*",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "swagger-ui-react": "^5.32.8"
   },
   "devDependencies": {
     "@types/node": "^20.19.41",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
+    "@types/swagger-ui-react": "^5.18.0",
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",

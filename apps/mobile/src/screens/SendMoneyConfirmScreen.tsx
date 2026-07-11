@@ -351,7 +351,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
             <Text style={[styles.detailValue, { color: '#10B981' }]}>₱0.00 (Waived)</Text>
           </View>
           <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>OmniFi Service Fee</Text>
+            <Text style={styles.detailLabel}>Pijin Service Fee</Text>
             <Text style={styles.detailValue}>₱{formatCurrency(fee)}</Text>
           </View>
           <View style={styles.cardSeparator} />

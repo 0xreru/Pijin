@@ -1,3 +1,81 @@
+/**
+ * @swagger
+ * /api/engine/settle:
+ *   post:
+ *     tags:
+ *       - Offline Engine
+ *     summary: QStash settlement worker — executes Soroban spend_offline
+ *     description: |
+ *       **⚠️ Internal endpoint — do not call directly in production.**
+ *
+ *       Triggered exclusively by **Upstash QStash** after `/api/sms/webhook` enqueues
+ *       a job. The handler is wrapped with `verifySignatureAppRouter` which validates
+ *       the QStash HMAC signature on every request — any unsigned call is rejected
+ *       before business logic executes.
+ *
+ *       #### Processing pipeline
+ *       1. Parse the `smsPayload` (colon-delimited, 6 parts: `tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature`).
+ *       2. Create a `PENDING` `Settlement` DB record (unique on `nonce` — duplicate QStash deliveries are silently skipped with `DUPLICATE_SKIPPED`).
+ *       3. Hydrate sender/receiver accounts and token config from Prisma in parallel.
+ *       4. **Pre-flight local firewall**: Reconstruct the XDR tuple and verify the Ed25519 signature _locally_ before burning gas on a Soroban call.
+ *       5. Call `pijinContract.spend_offline(...)` via the Soroban RPC.
+ *       6. Sign and submit the assembled transaction with the relayer keypair.
+ *       7. Update the DB record to `SETTLED` / `FAILED` and dispatch SMS notifications to both parties.
+ *
+ *       #### QStash retry behaviour
+ *       - Returns **200** for all business-logic failures (bad sig, unknown account, inactive token) — QStash will NOT retry.
+ *       - Returns **500** only for infrastructure failures (DB down, RPC unreachable) — QStash WILL retry automatically.
+ *
+ *       **Required header:** `upstash-signature` (injected by QStash, verified server-side).
+ *     security:
+ *       - QStashSignature: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [smsPayload]
+ *             properties:
+ *               smsPayload:
+ *                 type: string
+ *                 description: Colon-delimited payment payload forwarded from the SMS webhook.
+ *                 example: "1:aB3x9Q:Zx7mNk:3v5K:bm9uY2U=:c2ln=="
+ *               senderPhone:
+ *                 type: string
+ *                 description: Sender's phone number for failure SMS notifications.
+ *                 example: "+639171234567"
+ *     responses:
+ *       '200':
+ *         description: |
+ *           Processing completed (regardless of business outcome). Check `status` field.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [SETTLED, FAILED, DUPLICATE_SKIPPED]
+ *                 txHash:
+ *                   type: string
+ *                   nullable: true
+ *                 amountStroops:
+ *                   type: string
+ *                   description: Serialised BigInt amount in stroops.
+ *                 reason:
+ *                   type: string
+ *                   description: Failure reason (only present when status is FAILED).
+ *       '500':
+ *         description: Infrastructure failure (DB or Stellar RPC unavailable). QStash will retry.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ */
 import { NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
