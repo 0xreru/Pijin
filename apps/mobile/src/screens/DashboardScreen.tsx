@@ -43,7 +43,7 @@ export function DashboardScreen({ navigation }: any) {
   const publicKey = activeAccount?.stellarPublicKey || '';
 
   // Get live balance
-  const { balancePhp, resolvedShortId, refresh: refreshBalance } = useVaultBalance(shortId, publicKey);
+  const { balancePhp, resolvedShortId, offlineBalancePhp, refresh: refreshBalance } = useVaultBalance(shortId, publicKey);
 
   // Auto-heal local account storage if shortId was missing or set to default placeholder '0000'
   useEffect(() => {
@@ -316,6 +316,14 @@ export function DashboardScreen({ navigation }: any) {
       AsyncStorage.setItem(CACHED_BALANCE_KEY, balancePhp.toString());
     }
   }, [balancePhp]);
+
+  // Update cached offline balance whenever live balance is fetched successfully
+  useEffect(() => {
+    if (offlineBalancePhp !== null) {
+      setOfflineBalance(offlineBalancePhp);
+      AsyncStorage.setItem(OFFLINE_BALANCE_KEY, offlineBalancePhp.toString());
+    }
+  }, [offlineBalancePhp]);
 
   // Network connection listener using RxJS connectionService
   useEffect(() => {

@@ -6,6 +6,7 @@ type VaultBalanceResponse = {
   shortId: string | null;
   balanceStroops: string;
   balancePHP: number;
+  offlineBalancePHP?: number;
 };
 
 export async function getVaultBalance(params: {
