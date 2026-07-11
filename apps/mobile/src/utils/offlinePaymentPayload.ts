@@ -26,8 +26,32 @@ export function parseOfflinePaymentPayload(raw: string): OfflinePaymentPayload {
 }
 
 function parseColonSmsPayload(smsBody: string): OfflinePaymentPayload {
-  const [customerShortId, merchantShortId, amountStr] = smsBody.split(':');
-  const amount = Number.parseInt(amountStr ?? '', 10);
+  const parts = smsBody.split(':');
+  let customerShortId: string;
+  let merchantShortId: string;
+  let amount: number;
+
+  if (parts.length === 6) {
+    const [tokenIdStr, custId, merchId, amountBase62] = parts;
+    customerShortId = custId;
+    merchantShortId = merchId;
+    
+    try {
+      const { decodeBase62 } = require('./crypto');
+      const amountStroops = decodeBase62(amountBase62);
+      amount = Number(amountStroops) / 10000000;
+    } catch (e) {
+      amount = 0;
+    }
+  } else if (parts.length === 5) {
+    const [custId, merchId, amountStr] = parts;
+    customerShortId = custId;
+    merchantShortId = merchId;
+    amount = Number.parseInt(amountStr ?? '', 10);
+  } else {
+    throw new Error('SMS payload must have 5 or 6 colon-separated parts.');
+  }
+
   if (!customerShortId || !merchantShortId || !Number.isFinite(amount) || amount <= 0) {
     throw new Error('SMS payload is missing customer, merchant, or amount.');
   }
