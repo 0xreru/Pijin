@@ -158,8 +158,9 @@ class SyncService {
 
       // Fetch user settlements from backend for comparison
       let settledNonces = new Set<string>();
+      let account: any = null;
       try {
-        const account = await loadStoredAccount();
+        account = await loadStoredAccount();
         if (account?.shortId) {
           const serverSettlements = await getUserSettlements(account.shortId);
           settledNonces = new Set(serverSettlements.map(s => s.nonce).filter(Boolean));
@@ -210,6 +211,8 @@ class SyncService {
             type:        'settlement',
             tag:         'WALLET',
             description: `Settled ${successCount} offline payment(s) totalling ₱${totalAmount.toFixed(2)} on the Stellar network.`,
+            stellarPublicKey: account?.stellarPublicKey,
+            shortId: account?.shortId,
           });
         } catch (txErr) {
           console.error('[SyncService] Failed to log settlement transaction:', txErr);
@@ -237,7 +240,7 @@ class SyncService {
       const latest50 = serverHistory.slice(0, 50);
 
       // Upsert into local SQLite
-      await upsertHistoryTransactions(latest50);
+      await upsertHistoryTransactions(latest50, shortId, publicKey);
       console.log(`[SyncService] Smart sync complete. Upserted ${latest50.length} records.`);
     } catch (err) {
       console.warn('[SyncService] Smart sync failed:', err);

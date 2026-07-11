@@ -21,12 +21,14 @@ import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { ensureMigration } from '../services/storage/migration';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
+import { useAuth } from '../context/AuthContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const VIEWFINDER_SIZE = SCREEN_WIDTH * 0.82;
 
 export function ScanQRScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const { activeAccount } = useAuth();
   const isFocused = useIsFocused();
   const [isOnline, setIsOnline] = useState(true);
 
@@ -89,6 +91,8 @@ export function ScanQRScreen({ navigation }: any) {
           type: 'incoming',
           tag: 'OFFLINE',
           description: `Scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. Awaiting sync to Stellar network.`,
+          stellarPublicKey: activeAccount?.stellarPublicKey,
+          shortId: activeAccount?.shortId,
         });
 
         await enqueuePayment(parsed);

@@ -29,18 +29,32 @@ export async function runMigrations(): Promise<void> {
     // Replaces: src/services/storage/transactionStorage.ts
     await db.run(sql`
       CREATE TABLE IF NOT EXISTS transactions (
-        id          TEXT    PRIMARY KEY NOT NULL,
-        title       TEXT    NOT NULL,
-        subtitle    TEXT    NOT NULL,
-        amount      INTEGER NOT NULL,
-        type        TEXT    NOT NULL,
-        tag         TEXT    NOT NULL,
-        date_group  TEXT    NOT NULL,
-        time_ago    TEXT    NOT NULL,
-        description TEXT    NOT NULL,
-        created_at  TEXT    NOT NULL
+        id                  TEXT    PRIMARY KEY NOT NULL,
+        stellar_public_key  TEXT,
+        short_id            TEXT,
+        title               TEXT    NOT NULL,
+        subtitle            TEXT    NOT NULL,
+        amount              INTEGER NOT NULL,
+        type                TEXT    NOT NULL,
+        tag                 TEXT    NOT NULL,
+        date_group          TEXT    NOT NULL,
+        time_ago            TEXT    NOT NULL,
+        description         TEXT    NOT NULL,
+        created_at          TEXT    NOT NULL
       )
     `);
+
+    // Dynamic column additions if the table already existed on the client device
+    try {
+      await db.run(sql`ALTER TABLE transactions ADD COLUMN stellar_public_key TEXT`);
+    } catch (e) {
+      // Column might already exist, ignore
+    }
+    try {
+      await db.run(sql`ALTER TABLE transactions ADD COLUMN short_id TEXT`);
+    } catch (e) {
+      // Column might already exist, ignore
+    }
 
     // ── payment_queue table ────────────────────────────────────────────────
     // Replaces: src/services/storage/paymentQueueStorage.ts

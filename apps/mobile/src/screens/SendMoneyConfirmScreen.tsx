@@ -184,6 +184,8 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
           type: 'outgoing',
           tag: 'WALLET',
           description: `You paid ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} service fee via Pijin.`,
+          stellarPublicKey: activeAccount?.stellarPublicKey,
+          shortId: activeAccount?.shortId,
         });
       } catch (err) {
         console.error('Failed to log online transaction:', err);
