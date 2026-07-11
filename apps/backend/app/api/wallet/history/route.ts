@@ -1,3 +1,111 @@
+/**
+ * @swagger
+ * /api/wallet/history:
+ *   get:
+ *     tags:
+ *       - Wallet & Balances
+ *     summary: Get unified transaction history
+ *     description: |
+ *       Aggregates transaction history from **two data sources in parallel**:
+ *
+ *       1. **Offline Settlements** (`Settlement` table) — SMS-based P2P transactions
+ *          routed through the offline engine. Maps to `SEND` / `RECEIVE` types.
+ *       2. **SEP-24 Anchor Transactions** (`AnchorTransaction` table) — Online
+ *          GCash deposits and withdrawals. Maps to `TRANSFER` / `WITHDRAWAL` types.
+ *
+ *       Results are merged, sorted by timestamp (newest first), and capped at **50 items**.
+ *       BigInt `amountStroops` values are converted to decimal strings using pure BigInt
+ *       arithmetic to guarantee precision (no floating-point loss).
+ *
+ *       #### Rate Limiting
+ *       **Sliding window — 10 requests per 10 seconds** per IP address.
+ *       Keyed as `pijin:api:history`.
+ *     parameters:
+ *       - in: query
+ *         name: shortId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The user's 6-character Base62 short ID. Used to query offline settlements.
+ *         example: "aB3x9Q"
+ *       - in: query
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^G[A-Z2-7]{55}$'
+ *         description: The user's Stellar public key. Used to query SEP-24 anchor transactions.
+ *         example: "GABC1234..."
+ *     responses:
+ *       '200':
+ *         description: Unified transaction list returned successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         description: Unique transaction ID (DB row ID or anchor UUID).
+ *                       type:
+ *                         type: string
+ *                         enum: [SEND, RECEIVE, TRANSFER, WITHDRAWAL]
+ *                       title:
+ *                         type: string
+ *                         example: "Sent to aB3x9Q"
+ *                       amount:
+ *                         type: string
+ *                         description: Decimal string. Debits (SEND/WITHDRAWAL) are prefixed with `-`.
+ *                         example: "-50.5"
+ *                       assetCode:
+ *                         type: string
+ *                         example: "PHPC"
+ *                       status:
+ *                         type: string
+ *                         example: "SETTLED"
+ *                       timestamp:
+ *                         type: string
+ *                         format: date-time
+ *                       txHash:
+ *                         type: string
+ *                         nullable: true
+ *                         description: Stellar transaction hash (only present for settled offline payments).
+ *       '400':
+ *         description: Missing required `shortId` or `publicKey` parameter.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Missing required parameter(s): shortId, publicKey"
+ *       '429':
+ *         description: Rate limit exceeded.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Too many requests. Please try again later."
+ *       '502':
+ *         description: Database query failed.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to fetch transaction history."
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Ratelimit } from "@upstash/ratelimit";
@@ -16,7 +124,7 @@ const ratelimit = new Ratelimit({
   redis: Redis.fromEnv(),
   limiter: Ratelimit.slidingWindow(10, "10 s"),
   analytics: false,
-  prefix: "omnifi:api:history",
+  prefix: "pijin:api:history",
 });
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,99 @@
+/**
+ * @swagger
+ * /api/sms/webhook:
+ *   post:
+ *     tags:
+ *       - SMS Gateway
+ *     summary: Textbee SMS inbound webhook — offline payment ingress
+ *     description: |
+ *       Receives inbound SMS messages from the **Textbee Android gateway** and
+ *       enqueues them to **Upstash QStash** for durable, retryable settlement processing.
+ *
+ *       #### Dual-Layer Authentication Shield
+ *       Every request must pass **at least one** of:
+ *       1. **Layer A — HMAC-SHA256** (`x-signature` or `x-textbee-signature` header):
+ *          Server recomputes the HMAC of the raw body against `TEXTBEE_WEBHOOK_SECRET`
+ *          and compares using `crypto.timingSafeEqual` (prevents timing attacks).
+ *       2. **Layer B — URL Secret** (`?secret=<TEXTBEE_WEBHOOK_SECRET>` query param):
+ *          Fallback for Android SMS apps that may alter whitespace/encoding in the body.
+ *
+ *       #### Rate Limiting
+ *       **Sliding window — 3 requests per 60 seconds** per sender phone number.
+ *       Keyed as `pijin:sms:webhook`. Exceeding returns 200 `{ status: "Rate Limited" }`.
+ *
+ *       #### Event Filtering
+ *       Only `event: "MESSAGE_RECEIVED"` events are forwarded to QStash. All other
+ *       event types (delivery receipts, etc.) return 200 `{ status: "Ignored" }`.
+ *
+ *       #### Payload format validation
+ *       The SMS message body must match the 6-part colon-delimited format:
+ *       `<tokenId>:<senderShortId>:<receiverShortId>:<amountBase62>:<nonce>:<signature>`
+ *
+ *       On success, QStash job is published to `/api/engine/settle` with a `deduplicationId`
+ *       of `<senderShortId>_<nonce>` to prevent duplicate on-chain transactions.
+ *     security:
+ *       - TextbeeHmac: []
+ *     parameters:
+ *       - in: query
+ *         name: secret
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: URL-based fallback secret (equals `TEXTBEE_WEBHOOK_SECRET`). Used when HMAC header is unavailable.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               event:
+ *                 type: string
+ *                 example: "MESSAGE_RECEIVED"
+ *               data:
+ *                 type: object
+ *                 properties:
+ *                   sender:
+ *                     type: string
+ *                     description: Sender's phone number (E.164).
+ *                     example: "+639171234567"
+ *                   message:
+ *                     type: string
+ *                     description: Raw SMS body (must be a valid 6-part Pijin payload).
+ *                     example: "1:aB3x9Q:Zx7mNk:3v5K:bm9uY2U=:c2ln=="
+ *     responses:
+ *       '200':
+ *         description: Request processed (check `status` field for outcome).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 status:
+ *                   type: string
+ *                   enum: [Buffered, Ignored, Rate Limited]
+ *       '400':
+ *         description: Invalid JSON body, missing sender/message fields, or malformed payload.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *       '401':
+ *         description: Both HMAC verification and URL secret check failed.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Unauthorized"
+ */
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { Ratelimit } from '@upstash/ratelimit';
@@ -18,7 +114,7 @@ const ratelimit = new Ratelimit({
     redis: Redis.fromEnv(),
     limiter: Ratelimit.slidingWindow(3, '60 s'),
     analytics: false,
-    prefix: 'omnifi:sms:webhook',
+    prefix: 'pijin:sms:webhook',
 });
 
 const qstash = new Client({

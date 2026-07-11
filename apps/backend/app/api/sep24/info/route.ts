@@ -1,4 +1,58 @@
 /**
+ * @swagger
+ * /api/sep24/info:
+ *   get:
+ *     tags:
+ *       - Anchor (SEP-24)
+ *     summary: SEP-24 anchor capability advertisement
+ *     description: |
+ *       Returns the anchor's public capability manifest per the
+ *       [SEP-24 /info spec](https://stellar.org/protocol/sep-24#info).
+ *
+ *       Wallets and clients **must** call this endpoint first to discover which assets
+ *       are supported for deposit/withdrawal, any min/max amounts, and whether
+ *       fee disclosure is enabled.
+ *
+ *       **This endpoint is intentionally unauthenticated** — it is a public discovery
+ *       document analogous to the `stellar.toml` file but specific to SEP-24.
+ *
+ *       **Currently supported assets:** `PHPC`, `USDC` (both deposit and withdrawal).
+ *       Fee disclosure is disabled (`fee.enabled: false`) — fees are shown inside
+ *       the interactive webview.
+ *     responses:
+ *       '200':
+ *         description: Capability manifest returned successfully.
+ *         headers:
+ *           Access-Control-Allow-Origin:
+ *             schema: { type: string, example: '*' }
+ *           Cache-Control:
+ *             schema: { type: string, example: 'public, max-age=300, stale-while-revalidate=60' }
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 deposit:
+ *                   type: object
+ *                   description: Map of asset codes to deposit configuration.
+ *                   example:
+ *                     PHPC: { enabled: true }
+ *                     USDC: { enabled: true }
+ *                 withdraw:
+ *                   type: object
+ *                   description: Map of asset codes to withdrawal configuration.
+ *                   example:
+ *                     PHPC: { enabled: true }
+ *                     USDC: { enabled: true }
+ *                 fee:
+ *                   type: object
+ *                   properties:
+ *                     enabled:
+ *                       type: boolean
+ *                       example: false
+ */
+
+/**
  * @file app/api/sep24/info/route.ts
  *
  * SEP-24: Hosted Deposit and Withdrawal — /info Endpoint

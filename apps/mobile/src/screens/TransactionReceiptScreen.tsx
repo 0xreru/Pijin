@@ -71,7 +71,7 @@ export function TransactionReceiptScreen({ route, navigation }: any) {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `OmniFi Pijin Transaction Receipt\nAmount: ${amount}\nFrom: ${accountName}\nDate: ${dateStr}\nReference ID: ${referenceId}`,
+        message: `Pijin Transaction Receipt\nAmount: ${amount}\nFrom: ${accountName}\nDate: ${dateStr}\nReference ID: ${referenceId}`,
       });
     } catch (error) {
       console.error('Sharing failed:', error);

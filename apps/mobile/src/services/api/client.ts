@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { getApiBaseUrl } from '../../constants/api';
 
-const JWT_KEY = 'omnifi.auth.jwt';
+const JWT_KEY = 'pijin.auth.jwt';
 
 export async function getStoredJwt(): Promise<string | null> {
   try {

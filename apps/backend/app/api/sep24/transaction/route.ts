@@ -1,4 +1,117 @@
 /**
+ * @swagger
+ * /api/sep24/transaction:
+ *   get:
+ *     tags:
+ *       - Anchor (SEP-24)
+ *     summary: Get SEP-24 transaction status (polling)
+ *     description: |
+ *       Returns the current status of a single SEP-24 anchor transaction.
+ *       Wallets call this endpoint repeatedly (polling) after receiving the
+ *       interactive URL from the deposit initiation endpoint.
+ *
+ *       #### Authentication
+ *       Requires a valid **SEP-10 JWT** (`Authorization: Bearer <token>`).
+ *       The JWT's `sub` claim (authenticated Stellar public key) is compared against
+ *       the `stellarAccount` field on the DB record — users can only read their own transactions.
+ *
+ *       #### Security note
+ *       Returns `404` for **both** "not found" and "account mismatch" cases to prevent
+ *       authenticated attackers from discovering valid transaction IDs belonging to other users.
+ *
+ *       #### Status lifecycle
+ *       | Status | Meaning |
+ *       |--------|---------|
+ *       | `incomplete` | User has not yet completed the interactive form |
+ *       | `pending_user_transfer_start` | User submitted form; awaiting fiat transfer |
+ *       | `pending_external` | Anchor received payment; broadcasting to Stellar |
+ *       | `completed` | Stellar transaction confirmed |
+ *       | `error` | Permanent failure |
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: The UUID of the anchor transaction (returned by the deposit initiation endpoint).
+ *         example: "550e8400-e29b-41d4-a716-446655440000"
+ *     responses:
+ *       '200':
+ *         description: Transaction found and belongs to the authenticated account.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 transaction:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     kind:
+ *                       type: string
+ *                       enum: [deposit, withdrawal]
+ *                     status:
+ *                       type: string
+ *                       example: "pending_external"
+ *                     amount_in:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "100.0000000"
+ *                     amount_out:
+ *                       type: string
+ *                       nullable: true
+ *                     amount_fee:
+ *                       type: string
+ *                       nullable: true
+ *                     stellar_account:
+ *                       type: string
+ *                     asset_code:
+ *                       type: string
+ *                       example: "PHPC"
+ *                     started_at:
+ *                       type: string
+ *                       format: date-time
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                     memo:
+ *                       type: string
+ *                       nullable: true
+ *                     memo_type:
+ *                       type: string
+ *                       nullable: true
+ *       '400':
+ *         description: Missing `id` query parameter.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '401':
+ *         description: Missing, malformed, or expired SEP-10 bearer token.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '404':
+ *         description: Transaction not found, or it belongs to a different account.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '500':
+ *         description: Internal server error.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
  * @file app/api/sep24/transaction/route.ts
  *
  * SEP-24: Transaction Status Polling Endpoint

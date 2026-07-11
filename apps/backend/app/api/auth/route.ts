@@ -1,4 +1,142 @@
 /**
+ * @swagger
+ * /api/auth:
+ *   get:
+ *     tags:
+ *       - Authentication (SEP-10)
+ *     summary: Issue a SEP-10 challenge transaction (Step 1)
+ *     description: |
+ *       **Step 1 of the SEP-10 handshake.**
+ *
+ *       The client presents its Stellar account `G…` address and receives back
+ *       a signed challenge transaction XDR. The client must add its own Ed25519
+ *       signature to this XDR and return it via `POST /api/auth`.
+ *
+ *       The challenge contains a cryptographically random 48-byte nonce embedded
+ *       in a `manage_data` operation and tight timebounds
+ *       (`[now, now + SEP10_AUTH_TIMEOUT]`).
+ *     parameters:
+ *       - in: query
+ *         name: account
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^G[A-Z2-7]{55}$'
+ *         description: The client's Stellar Ed25519 public key (G… address).
+ *         example: GABC1234...XYZ
+ *       - in: query
+ *         name: memo
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Optional plain-text memo to embed in the challenge (used by exchange sub-accounts / muxed accounts).
+ *     responses:
+ *       '200':
+ *         description: Challenge transaction issued successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 transaction:
+ *                   type: string
+ *                   description: Base64-encoded XDR of the signed challenge transaction.
+ *                   example: "AAAAAgAAAA..."
+ *                 network_passphrase:
+ *                   type: string
+ *                   example: "Test SDF Network ; September 2015"
+ *       '400':
+ *         description: Missing or invalid `account` query parameter.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             examples:
+ *               missing:
+ *                 value: { error: "Bad Request", message: "Missing required query parameter: 'account'" }
+ *               invalid:
+ *                 value: { error: "Bad Request", message: "Invalid Stellar account address: GABC" }
+ *       '500':
+ *         description: Server misconfiguration (missing env var or bad signing seed).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *   post:
+ *     tags:
+ *       - Authentication (SEP-10)
+ *     summary: Exchange signed challenge for a JWT bearer token (Step 2)
+ *     description: |
+ *       **Step 2 of the SEP-10 handshake.**
+ *
+ *       The client returns the challenge XDR now signed by its own keypair.
+ *       The server:
+ *       1. Decodes and structurally validates the XDR (`readChallengeTx`).
+ *       2. Fetches the client account's signer set from Horizon.
+ *       3. Verifies the cumulative signing weight meets the medium threshold (`verifyChallengeTxThreshold`).
+ *       4. Mints a short-lived HS256 JWT (`{ sub, iss, iat, exp, memo? }`).
+ *
+ *       Supports both `application/json` and `multipart/form-data` /
+ *       `application/x-www-form-urlencoded` request bodies for compatibility
+ *       with older wallets and the Stellar Demo Wallet.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [transaction]
+ *             properties:
+ *               transaction:
+ *                 type: string
+ *                 description: Base64-encoded XDR of the challenge transaction now signed by the client keypair.
+ *                 example: "AAAAAgAAAA..."
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [transaction]
+ *             properties:
+ *               transaction:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: Challenge verified. JWT bearer token issued.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: HS256-signed JWT. Pass as `Authorization: Bearer <token>` to protected endpoints.
+ *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *       '400':
+ *         description: Missing or unparseable `transaction` field in body.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '401':
+ *         description: |
+ *           Challenge verification failed. Common causes:
+ *           - Expired timebounds (challenge older than `SEP10_AUTH_TIMEOUT` seconds).
+ *           - Invalid server signature (tampered or forged challenge).
+ *           - Insufficient signing weight (client didn't sign correctly).
+ *           - Malformed XDR.
+ *           - Stellar account is unfunded or does not exist on-chain.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '500':
+ *         description: Server misconfiguration.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
  * @file app/api/auth/route.ts
  *
  * SEP-10: Stellar Web Authentication

@@ -1,0 +1,319 @@
+/* ── OmniFi Dark Theme for Swagger UI ──────────────────────────────────────── */
+:root {
+  --omnifi-bg: #0d0f1a;
+  --omnifi-surface: #13162a;
+  --omnifi-border: #1e2340;
+  --omnifi-accent: #6c63ff;
+  --omnifi-accent2: #00d4aa;
+  --omnifi-text: #e2e8f0;
+  --omnifi-muted: #8892b0;
+  --omnifi-get: #00d4aa;
+  --omnifi-post: #6c63ff;
+  --omnifi-put: #f59e0b;
+  --omnifi-delete: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--omnifi-bg);
+  color: var(--omnifi-text);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ── Top header banner ──────────────────────────────────────────────────────── */
+.api-docs-header {
+  background: linear-gradient(135deg, #0d0f1a 0%, #1a1040 50%, #0d1a2a 100%);
+  border-bottom: 1px solid var(--omnifi-border);
+  padding: 32px 48px 24px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.api-docs-logo {
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(135deg, var(--omnifi-accent), var(--omnifi-accent2));
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 18px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.api-docs-title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #fff 0%, var(--omnifi-accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.api-docs-title p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--omnifi-muted);
+}
+
+.api-docs-badge {
+  margin-left: auto;
+  background: rgba(108, 99, 255, 0.15);
+  border: 1px solid rgba(108, 99, 255, 0.4);
+  color: var(--omnifi-accent);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Swagger UI overrides ───────────────────────────────────────────────────── */
+.swagger-ui {
+  background: transparent;
+}
+
+.swagger-ui .wrapper {
+  padding: 0 32px 48px;
+  max-width: 1200px;
+}
+
+.swagger-ui .info {
+  display: none; /* we render our own header */
+}
+
+.swagger-ui .scheme-container {
+  background: var(--omnifi-surface);
+  border: 1px solid var(--omnifi-border);
+  border-radius: 10px;
+  margin: 24px 0;
+  padding: 16px 24px;
+  box-shadow: none;
+}
+
+/* Operation blocks */
+.swagger-ui .opblock {
+  background: var(--omnifi-surface) !important;
+  border: 1px solid var(--omnifi-border) !important;
+  border-radius: 10px !important;
+  margin: 8px 0 !important;
+  box-shadow: none !important;
+}
+
+.swagger-ui .opblock:hover {
+  border-color: var(--omnifi-accent) !important;
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary {
+  border-color: var(--omnifi-get) !important;
+}
+
+.swagger-ui .opblock.opblock-post .opblock-summary {
+  border-color: var(--omnifi-post) !important;
+}
+
+.swagger-ui .opblock.opblock-put .opblock-summary {
+  border-color: var(--omnifi-put) !important;
+}
+
+.swagger-ui .opblock.opblock-delete .opblock-summary {
+  border-color: var(--omnifi-delete) !important;
+}
+
+.swagger-ui .opblock-summary {
+  background: transparent !important;
+}
+
+/* Method badges */
+.swagger-ui .opblock-summary-method {
+  border-radius: 6px !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  min-width: 68px !important;
+  text-align: center !important;
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary-method {
+  background: var(--omnifi-get) !important;
+  color: #0d0f1a !important;
+}
+
+.swagger-ui .opblock.opblock-post .opblock-summary-method {
+  background: var(--omnifi-post) !important;
+}
+
+.swagger-ui .opblock.opblock-put .opblock-summary-method {
+  background: var(--omnifi-put) !important;
+  color: #0d0f1a !important;
+}
+
+.swagger-ui .opblock.opblock-delete .opblock-summary-method {
+  background: var(--omnifi-delete) !important;
+}
+
+/* Tag sections */
+.swagger-ui .opblock-tag {
+  border-bottom: 1px solid var(--omnifi-border) !important;
+  color: var(--omnifi-text) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  padding: 16px 0 10px !important;
+}
+
+.swagger-ui .opblock-tag:hover {
+  background: transparent !important;
+}
+
+/* Text colours */
+.swagger-ui,
+.swagger-ui p,
+.swagger-ui li,
+.swagger-ui span,
+.swagger-ui label,
+.swagger-ui td,
+.swagger-ui th {
+  color: var(--omnifi-text) !important;
+}
+
+.swagger-ui .opblock-summary-path {
+  color: var(--omnifi-text) !important;
+  font-weight: 500 !important;
+}
+
+.swagger-ui .opblock-summary-description {
+  color: var(--omnifi-muted) !important;
+}
+
+/* Tables */
+.swagger-ui table {
+  background: transparent !important;
+}
+
+.swagger-ui .response-col_status {
+  color: var(--omnifi-accent2) !important;
+  font-weight: 700 !important;
+}
+
+.swagger-ui tr.response {
+  background: transparent !important;
+}
+
+/* Inputs */
+.swagger-ui input,
+.swagger-ui textarea,
+.swagger-ui select {
+  background: var(--omnifi-bg) !important;
+  border: 1px solid var(--omnifi-border) !important;
+  color: var(--omnifi-text) !important;
+  border-radius: 6px !important;
+}
+
+.swagger-ui input:focus,
+.swagger-ui textarea:focus {
+  border-color: var(--omnifi-accent) !important;
+  outline: none !important;
+}
+
+/* Buttons */
+.swagger-ui .btn {
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+  transition: opacity 0.2s !important;
+}
+
+.swagger-ui .btn:hover {
+  opacity: 0.85 !important;
+}
+
+.swagger-ui .btn.execute {
+  background: var(--omnifi-accent) !important;
+  border-color: var(--omnifi-accent) !important;
+}
+
+.swagger-ui .btn.cancel {
+  background: transparent !important;
+  border-color: var(--omnifi-delete) !important;
+  color: var(--omnifi-delete) !important;
+}
+
+.swagger-ui .btn.authorize {
+  background: rgba(0, 212, 170, 0.1) !important;
+  border-color: var(--omnifi-accent2) !important;
+  color: var(--omnifi-accent2) !important;
+}
+
+/* Code / JSON blocks */
+.swagger-ui .microlight {
+  background: #0a0c18 !important;
+  border-radius: 6px !important;
+  padding: 12px !important;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+  font-size: 12px !important;
+}
+
+/* Auth modal */
+.swagger-ui .dialog-ux .modal-ux {
+  background: var(--omnifi-surface) !important;
+  border: 1px solid var(--omnifi-border) !important;
+  border-radius: 14px !important;
+}
+
+.swagger-ui .dialog-ux .modal-ux-header {
+  border-color: var(--omnifi-border) !important;
+}
+
+/* Model section */
+.swagger-ui section.models {
+  border: 1px solid var(--omnifi-border) !important;
+  border-radius: 10px !important;
+  background: var(--omnifi-surface) !important;
+}
+
+.swagger-ui .model-container {
+  background: var(--omnifi-bg) !important;
+  border-radius: 6px !important;
+}
+
+/* Loading state */
+.api-docs-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  gap: 16px;
+  color: var(--omnifi-muted);
+}
+
+.api-docs-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--omnifi-border);
+  border-top-color: var(--omnifi-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.api-docs-error {
+  margin: 48px auto;
+  max-width: 480px;
+  padding: 24px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 10px;
+  text-align: center;
+  color: #ef4444;
+}

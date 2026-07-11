@@ -1,4 +1,50 @@
 /**
+ * @swagger
+ * /.well-known/stellar.toml:
+ *   get:
+ *     tags:
+ *       - SEP-1 (Stellar TOML)
+ *     summary: Stellar anchor identity file (SEP-1)
+ *     description: |
+ *       Returns the anchor's machine-readable TOML configuration as defined by
+ *       [SEP-1](https://stellar.org/protocol/sep-1). Browser wallets (Freighter,
+ *       Demo Wallet) fetch this file cross-origin to discover the anchor's
+ *       `WEB_AUTH_ENDPOINT`, `SIGNING_KEY`, `TRANSFER_SERVER_SEP0024`, and
+ *       supported `[[CURRENCIES]]`.
+ *
+ *       The response is dynamically generated from environment variables at
+ *       request time — key rotations propagate automatically after a redeploy.
+ *     responses:
+ *       '200':
+ *         description: TOML document served successfully.
+ *         headers:
+ *           Access-Control-Allow-Origin:
+ *             schema: { type: string, example: '*' }
+ *           Cache-Control:
+ *             schema: { type: string, example: 'public, max-age=3600, stale-while-revalidate=600' }
+ *         content:
+ *           text/plain:
+ *             example: |
+ *               NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+ *               WEB_AUTH_ENDPOINT="https://pijin-api.vercel.app/api/auth"
+ *               SIGNING_KEY="GABC..."
+ *               TRANSFER_SERVER_SEP0024="https://pijin-api.vercel.app/api/sep24"
+ *       '500':
+ *         description: Missing or invalid environment variable (e.g. bad SEP-10 signing seed).
+ *         content:
+ *           text/plain:
+ *             example: "# Error generating stellar.toml\n# [SEP-10] Missing required environment variable: SECRET_SEP10_SIGNING_SEED"
+ *   options:
+ *     tags:
+ *       - SEP-1 (Stellar TOML)
+ *     summary: CORS preflight for stellar.toml
+ *     description: Handles the OPTIONS preflight required by browser-based wallets before fetching the TOML.
+ *     responses:
+ *       '204':
+ *         description: Preflight accepted.
+ */
+
+/**
  * @file app/.well-known/stellar.toml/route.ts
  *
  * Stellar TOML (stellar.toml) Endpoint
