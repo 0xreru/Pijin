@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,6 +13,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,20 +25,27 @@ import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
+const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
 
-const MOCK_CONTACTS = [
-  { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP', stellarPublicKey: 'GBUJTODQVYB3LL7O4GHFHIDNDC6PSNIZZJ5AZRLTLYGQMOOAMJRX3272' },
-  { name: 'Harvey Specter', shortId: 'M-HRV1', initials: 'HS', stellarPublicKey: 'GDKS3RSILTRHMR7A2JXBUW7MLE4VEVXYRE5QFXT4SBSPJIVOFL6A4MLR' },
-  { name: 'Mike Ross', shortId: 'M-MIK1', initials: 'MR', stellarPublicKey: 'GB4Z5AJKZXNOJEY4BYN2B73PGXN7OBK5U57T6YDJXRKGEUMUD7HECM2L' },
-  { name: 'Rachel Zane', shortId: 'M-RCH1', initials: 'RZ', stellarPublicKey: 'GC54R2WY76AUCQV2ZKGRT3ZYN24N2KTX5BHB5NPGQZZSUJF74ZR23LRK' },
-  { name: 'Louis Litt', shortId: 'M-LOU1', initials: 'LL', stellarPublicKey: 'GDTEXCJMY6MNQZT5WOVHFDI2SXPF3FLRXQL3KLJYFDVAKEJDYJRKE2DL' },
-  { name: 'Rell Dev', shortId: 'PVAPqf', initials: 'RD', stellarPublicKey: 'GBZDGJP2PMIVCPXDAUP5KH5SGHIZ4UYOETSN2TZYOB3UCJ7B6QNNKIJ7' },
-];
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type RecipientInfo = {
+  shortId: string;
+  stellarPublicKey: string;
+  offlineDeviceKey: string | null;
+  displayName: string;
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export function SendMoneyScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
   const { activeAccount } = useAuth();
-  
+
   // Balance state
   const [isOnline, setIsOnline] = useState(true);
   const [walletBalance, setWalletBalance] = useState<number>(25000.00);
@@ -47,12 +55,19 @@ export function SendMoneyScreen({ route, navigation }: any) {
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
+  // Resolved recipient (fetched from the backend)
+  const [resolvedRecipient, setResolvedRecipient] = useState<RecipientInfo | null>(null);
+
   // Error states
   const [recipientShortIdError, setRecipientShortIdError] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
 
-  // Modal state
-  const [contactsModalVisible, setContactsModalVisible] = useState(false);
+  // Search modal state
+  const [searchModalVisible, setSearchModalVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResult, setSearchResult] = useState<RecipientInfo | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Fetch cached balance and network status on mount
   useEffect(() => {
@@ -82,6 +97,15 @@ export function SendMoneyScreen({ route, navigation }: any) {
     const rxShortId = route?.params?.recipientShortId;
     if (rxShortId) {
       setRecipientShortId(rxShortId);
+      // If also passed with a known key from QR, prefill resolved recipient
+      if (route?.params?.receiverPubKey) {
+        setResolvedRecipient({
+          shortId: rxShortId,
+          stellarPublicKey: route.params.receiverPubKey,
+          offlineDeviceKey: route.params.offlineDeviceKey ?? null,
+          displayName: route.params.recipientName ?? rxShortId,
+        });
+      }
     } else {
       const qrData = route?.params?.qrData;
       if (qrData) {
@@ -116,12 +140,67 @@ export function SendMoneyScreen({ route, navigation }: any) {
     });
   };
 
+  // ── Live lookup: call /api/users/lookup?shortId=… ─────────────────────────
+  const lookupRecipient = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResult(null);
+      setSearchError(null);
+      return;
+    }
+    setIsSearching(true);
+    setSearchError(null);
+    setSearchResult(null);
+    try {
+      const isPhone = /^\d+$/.test(q) && q.length >= 7;
+      const paramKey = isPhone ? 'phone' : 'shortId';
+      const res = await fetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`);
+      if (res.status === 404) {
+        setSearchError('No account found with that Short ID or phone number.');
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error ?? `Lookup failed (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      if (!data.found) {
+        setSearchError('No account found with that Short ID or phone number.');
+        return;
+      }
+      setSearchResult({
+        shortId: data.shortId,
+        stellarPublicKey: data.stellarPublicKey,
+        offlineDeviceKey: data.offlineDeviceKey ?? null,
+        displayName: data.displayName,
+      });
+    } catch (e: any) {
+      console.error('[SendMoney] Recipient lookup error:', e);
+      setSearchError(e?.message ?? 'Failed to look up recipient. Check your connection.');
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  const handleSearchConfirm = () => {
+    if (!searchResult) return;
+    setResolvedRecipient(searchResult);
+    setRecipientShortId(searchResult.shortId);
+    setRecipientShortIdError(null);
+    setSearchModalVisible(false);
+    setSearchQuery('');
+    setSearchResult(null);
+  };
+
   const handleContinue = () => {
     let hasError = false;
 
-    // Validate recipient short ID
+    // Validate recipient — must have been resolved via lookup
     if (!recipientShortId.trim()) {
       setRecipientShortIdError('Recipient Short ID is required');
+      hasError = true;
+    } else if (!resolvedRecipient) {
+      setRecipientShortIdError('Please use the search button to look up a valid recipient');
       hasError = true;
     } else {
       setRecipientShortIdError(null);
@@ -141,18 +220,15 @@ export function SendMoneyScreen({ route, navigation }: any) {
 
     if (hasError) return;
 
-    // Navigate to confirmation page
+    // Navigate to confirmation — pass the REAL keys fetched from the backend
     navigation.navigate('SendMoneyConfirm', {
-      recipientShortId: recipientShortId.trim(),
+      recipientShortId: resolvedRecipient!.shortId,
+      recipientName: resolvedRecipient!.displayName,
+      receiverPubKey: resolvedRecipient!.stellarPublicKey,
+      offlineDeviceKey: resolvedRecipient!.offlineDeviceKey,
       amount: numAmount,
       note: note.trim(),
     });
-  };
-
-  const handleContactSelect = (selectedShortId: string) => {
-    setRecipientShortId(selectedShortId);
-    setRecipientShortIdError(null);
-    setContactsModalVisible(false);
   };
 
   return (
@@ -162,13 +238,13 @@ export function SendMoneyScreen({ route, navigation }: any) {
     >
       <View style={[styles.container, { paddingTop: Math.max(insets.top, 20) }]}>
         <StatusBar barStyle="dark-content" />
-        
+
         <ConnectionWatcher navigation={navigation} currentMode={isOnline ? 'online' : 'offline'} />
-        
+
         {/* Header */}
         <View style={styles.headerRow}>
-          <TouchableOpacity 
-            style={styles.backButton} 
+          <TouchableOpacity
+            style={styles.backButton}
             onPress={() => navigation.goBack()}
             activeOpacity={0.7}
           >
@@ -177,7 +253,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
           <Text style={styles.headerTitle}>Send money</Text>
         </View>
 
-        <ScrollView 
+        <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
@@ -196,30 +272,31 @@ export function SendMoneyScreen({ route, navigation }: any) {
                     styles.textInput,
                     isPrefilledFromQR && styles.disabledTextInput
                   ]}
-                  placeholder="ex. M-1B44"
+                  placeholder="Search by Short ID or phone…"
                   placeholderTextColor="#8C98A6"
-                  value={recipientShortId}
-                  onChangeText={(text) => {
-                    if (!isPrefilledFromQR) {
-                      setRecipientShortId(text);
-                      if (recipientShortIdError) setRecipientShortIdError(null);
-                    }
-                  }}
-                  autoCapitalize="characters"
-                  editable={!isPrefilledFromQR}
-                  selectTextOnFocus={!isPrefilledFromQR}
+                  value={resolvedRecipient
+                    ? `${resolvedRecipient.displayName} (${resolvedRecipient.shortId})`
+                    : recipientShortId}
+                  editable={false}
+                  selectTextOnFocus={false}
                 />
                 {isPrefilledFromQR ? (
                   <View style={styles.iconContainer}>
                     <Ionicons name="lock-closed-outline" size={20} color="#8C98A6" />
                   </View>
                 ) : (
-                  <TouchableOpacity 
-                    onPress={() => setContactsModalVisible(true)} 
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchQuery('');
+                      setSearchResult(null);
+                      setSearchError(null);
+                      setSearchModalVisible(true);
+                    }}
                     style={styles.iconButton}
                     activeOpacity={0.7}
+                    id="btn-search-recipient"
                   >
-                    <Ionicons name="book-outline" size={22} color="#04295A" />
+                    <Ionicons name="search-outline" size={22} color="#04295A" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -242,7 +319,6 @@ export function SendMoneyScreen({ route, navigation }: any) {
                   placeholderTextColor="#8C98A6"
                   value={amount}
                   onChangeText={(text) => {
-                    // Clean text to numeric only
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     setAmount(cleaned);
                     if (amountError) setAmountError(null);
@@ -284,7 +360,6 @@ export function SendMoneyScreen({ route, navigation }: any) {
             </View>
           </View>
 
-
           {/* Service Fee Info Banner */}
           <View style={styles.feeDisclaimer}>
             <Ionicons name="information-circle-outline" size={16} color="#707984" />
@@ -294,10 +369,11 @@ export function SendMoneyScreen({ route, navigation }: any) {
           </View>
 
           {/* Continue Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.continueButton}
             onPress={handleContinue}
             activeOpacity={0.8}
+            id="btn-send-money-continue"
           >
             <Text style={styles.continueButtonText}>Continue  →</Text>
           </TouchableOpacity>
@@ -314,8 +390,8 @@ export function SendMoneyScreen({ route, navigation }: any) {
           {/* Pijin Branding */}
           <View style={styles.footerBranding}>
             <Text style={styles.pijinLogo}>p i j i n</Text>
-            <TouchableOpacity 
-              onPress={() => Alert.alert('Get help', 'Support channels and FAQs are coming soon!')} 
+            <TouchableOpacity
+              onPress={() => Alert.alert('Get help', 'Support channels and FAQs are coming soon!')}
               activeOpacity={0.7}
             >
               <Text style={styles.getHelpLink}>Get help</Text>
@@ -323,19 +399,19 @@ export function SendMoneyScreen({ route, navigation }: any) {
           </View>
         </ScrollView>
 
-        {/* Contacts Modal */}
+        {/* ── Recipient Search Modal ─────────────────────────────────────────── */}
         <Modal
-          visible={contactsModalVisible}
+          visible={searchModalVisible}
           transparent={true}
           animationType="slide"
-          onRequestClose={() => setContactsModalVisible(false)}
+          onRequestClose={() => setSearchModalVisible(false)}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select Recipient</Text>
-                <TouchableOpacity 
-                  onPress={() => setContactsModalVisible(false)}
+                <Text style={styles.modalTitle}>Find Recipient</Text>
+                <TouchableOpacity
+                  onPress={() => setSearchModalVisible(false)}
                   style={styles.closeButton}
                   activeOpacity={0.7}
                 >
@@ -343,24 +419,77 @@ export function SendMoneyScreen({ route, navigation }: any) {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.contactsList} showsVerticalScrollIndicator={false}>
-                {MOCK_CONTACTS.map((contact, idx) => (
+              {/* Search Input */}
+              <View style={styles.searchInputWrapper}>
+                <Ionicons name="search-outline" size={18} color="#8C98A6" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Short ID (e.g. PVAPqf) or phone…"
+                  placeholderTextColor="#8C98A6"
+                  value={searchQuery}
+                  autoFocus={true}
+                  onChangeText={(t) => {
+                    setSearchQuery(t);
+                    setSearchResult(null);
+                    setSearchError(null);
+                  }}
+                  autoCapitalize="none"
+                  returnKeyType="search"
+                  onSubmitEditing={() => lookupRecipient(searchQuery)}
+                />
+                <TouchableOpacity
+                  style={styles.searchGoButton}
+                  onPress={() => lookupRecipient(searchQuery)}
+                  activeOpacity={0.8}
+                  id="btn-lookup-recipient"
+                >
+                  {isSearching
+                    ? <ActivityIndicator size="small" color="#FFFFFF" />
+                    : <Text style={styles.searchGoText}>Search</Text>}
+                </TouchableOpacity>
+              </View>
+
+              {/* Results */}
+              <ScrollView style={styles.searchResults} showsVerticalScrollIndicator={false}>
+                {searchError && (
+                  <View style={styles.searchErrorBox}>
+                    <Ionicons name="alert-circle-outline" size={18} color="#EF4444" />
+                    <Text style={styles.searchErrorText}>{searchError}</Text>
+                  </View>
+                )}
+
+                {searchResult && (
                   <TouchableOpacity
-                    key={idx}
-                    style={styles.contactItem}
-                    onPress={() => handleContactSelect(contact.shortId)}
-                    activeOpacity={0.7}
+                    style={styles.searchResultItem}
+                    onPress={handleSearchConfirm}
+                    activeOpacity={0.8}
                   >
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{contact.initials}</Text>
+                    <View style={styles.searchResultAvatar}>
+                      <Text style={styles.searchResultAvatarText}>
+                        {searchResult.displayName.slice(0, 2).toUpperCase()}
+                      </Text>
                     </View>
-                    <View style={styles.contactInfo}>
-                      <Text style={styles.contactName}>{contact.name}</Text>
-                      <Text style={styles.contactPhone}>ID: {contact.shortId}</Text>
+                    <View style={styles.searchResultInfo}>
+                      <Text style={styles.searchResultName}>{searchResult.displayName}</Text>
+                      <Text style={styles.searchResultId}>ID: {searchResult.shortId}</Text>
+                      <Text style={styles.searchResultKey} numberOfLines={1}>
+                        {searchResult.stellarPublicKey.slice(0, 12)}…{searchResult.stellarPublicKey.slice(-8)}
+                      </Text>
                     </View>
-                    <Ionicons name="chevron-forward-outline" size={20} color="#D1D5DB" />
+                    <View style={styles.searchResultSelectBadge}>
+                      <Text style={styles.searchResultSelectText}>Select</Text>
+                    </View>
                   </TouchableOpacity>
-                ))}
+                )}
+
+                {!isSearching && !searchResult && !searchError && (
+                  <View style={styles.searchHint}>
+                    <Ionicons name="information-circle-outline" size={18} color="#8C98A6" />
+                    <Text style={styles.searchHintText}>
+                      Enter a Short ID (e.g. PVAPqf) or a registered phone number
+                    </Text>
+                  </View>
+                )}
               </ScrollView>
             </View>
           </View>
@@ -442,7 +571,7 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#04295A',
     paddingVertical: 8,
@@ -530,7 +659,7 @@ const styles = StyleSheet.create({
     color: '#04295A',
     letterSpacing: 8,
     marginBottom: 8,
-    left: 4, // Visual balance for letter-spacing offset
+    left: 4,
   },
   getHelpLink: {
     fontSize: 13,
@@ -538,6 +667,7 @@ const styles = StyleSheet.create({
     color: '#04295A',
     textDecorationLine: 'underline',
   },
+  // ── Modal ─────────────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -547,14 +677,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    maxHeight: '60%',
+    maxHeight: '75%',
     padding: 24,
+    paddingBottom: 40,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#EFF1F5',
     paddingBottom: 12,
@@ -567,43 +698,122 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: 4,
   },
-  contactsList: {
-    marginBottom: 10,
-  },
-  contactItem: {
+  // ── Search Input ──────────────────────────────────────────────────────────
+  searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFF1F5',
+    backgroundColor: '#EFF1F5',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    height: 48,
   },
-  avatar: {
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#04295A',
+  },
+  searchGoButton: {
+    backgroundColor: '#04295A',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  searchGoText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  // ── Search Results ────────────────────────────────────────────────────────
+  searchResults: {
+    flexGrow: 0,
+  },
+  searchErrorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    gap: 8,
+  },
+  searchErrorText: {
+    flex: 1,
+    color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F7FF',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#04295A',
+  },
+  searchResultAvatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#E5EDF6',
+    backgroundColor: '#04295A',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
-  avatarText: {
-    fontSize: 14,
+  searchResultAvatarText: {
+    fontSize: 16,
     fontWeight: '800',
-    color: '#04295A',
+    color: '#FFFFFF',
   },
-  contactInfo: {
+  searchResultInfo: {
     flex: 1,
   },
-  contactName: {
+  searchResultName: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#04295A',
     marginBottom: 2,
   },
-  contactPhone: {
+  searchResultId: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  searchResultKey: {
+    fontSize: 10,
+    color: '#94A3B8',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginTop: 2,
+  },
+  searchResultSelectBadge: {
+    backgroundColor: '#04295A',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  searchResultSelectText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  searchHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+  },
+  searchHintText: {
+    flex: 1,
+    color: '#8C98A6',
     fontSize: 13,
-    color: '#707984',
     fontWeight: '500',
   },
 });
-
