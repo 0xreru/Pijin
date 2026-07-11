@@ -50,13 +50,16 @@ export function DashboardScreen({ navigation }: any) {
       resolvedShortId &&
       resolvedShortId !== '0000' &&
       (!activeAccount?.shortId || activeAccount.shortId === '0000') &&
-      activeAccount?.stellarPublicKey
+      activeAccount?.stellarPublicKey &&
+      jwt
     ) {
       console.log(
         `[DashboardScreen] Auto-healing local account storage: shortId missing/placeholder. ` +
         `Setting to resolved shortId: ${resolvedShortId}`
       );
-      login(activeAccount.stellarPublicKey, resolvedShortId, jwt || '');
+      void login(activeAccount.stellarPublicKey, resolvedShortId, jwt).catch((err) => {
+        console.warn('[DashboardScreen] Auto-heal login failed:', err);
+      });
     }
   }, [resolvedShortId, activeAccount, login, jwt]);
 
