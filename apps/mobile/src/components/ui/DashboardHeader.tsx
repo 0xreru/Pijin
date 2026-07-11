@@ -16,7 +16,7 @@ export function DashboardHeader({ shortId, isOnline, onLogoutPress }: DashboardH
           <Ionicons name="shield-checkmark" size={24} color="#001E42" />
         </View>
         <View style={styles.userInfo}>
-          <Text style={styles.greeting}>Hello, Juan Cruz</Text>
+          <Text style={styles.greeting}>Short Id: {shortId}</Text>
           <View style={styles.statusRow}>
             <View style={[styles.statusDot, { backgroundColor: isOnline ? '#10B981' : '#EF4444' }]} />
             <Text style={styles.statusText}>

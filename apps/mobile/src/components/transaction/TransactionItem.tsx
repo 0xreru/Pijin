@@ -19,7 +19,7 @@ export function TransactionItem({
   type,
   timestamp,
 }: TransactionItemProps) {
-  const isIncoming = type === 'incoming' || type === 'settlement';
+  const isIncoming = type === 'incoming' || type === 'settlement' || (type === 'transfer' && amount > 0);
 
   // Format currency
   const formatAmount = (val: number) => {
