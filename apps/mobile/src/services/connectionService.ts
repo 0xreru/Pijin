@@ -1,6 +1,7 @@
 import { BehaviorSubject } from 'rxjs';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ensureMigration } from './storage/migration';
 
 export interface ConnectionState {
   isConnected: boolean;
@@ -34,12 +35,13 @@ class ConnectionService {
     if (this.isInitialized) return;
 
     try {
+      await ensureMigration();
       // 1. Fetch initial network connection state
       const netState = await NetInfo.fetch();
       const isConnected = netState.isConnected ?? true;
 
       // 2. Get initial cached online/offline mode from AsyncStorage
-      const cachedOnlineStr = await AsyncStorage.getItem('pijin.is_online');
+      const cachedOnlineStr = await AsyncStorage.getItem('pijn.is_online');
       
       // If we don't have a cached value, default to true
       const initialOnlineMode = cachedOnlineStr !== 'false';
@@ -68,7 +70,7 @@ class ConnectionService {
           // Connection restored:
           // Check what was stored in AsyncStorage. If user hadn't manually opted for offline mode,
           // restore to online mode automatically.
-          AsyncStorage.getItem('pijin.is_online').then((val) => {
+          AsyncStorage.getItem('pijn.is_online').then((val) => {
             const desiredOnline = val !== 'false';
             if (desiredOnline) {
               this.setOnlineState(true);
@@ -77,7 +79,7 @@ class ConnectionService {
         }
 
         if (nextOnlineMode !== current.isOnlineMode) {
-          AsyncStorage.setItem('pijin.is_online', nextOnlineMode ? 'true' : 'false');
+          AsyncStorage.setItem('pijn.is_online', nextOnlineMode ? 'true' : 'false');
         }
 
         this.stateSubject.next({
@@ -98,7 +100,7 @@ class ConnectionService {
       return;
     }
 
-    await AsyncStorage.setItem('pijin.is_online', online ? 'true' : 'false');
+    await AsyncStorage.setItem('pijn.is_online', online ? 'true' : 'false');
     this.stateSubject.next({
       ...current,
       isOnlineMode: online,

@@ -13,6 +13,7 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen, ScanQRScreen, TransportChoiceScreen, SendMoneyScreen, SendMoneyConfirmScreen, GenerateQRScreen } from './src/screens';
 import { Sep24WebviewScreen } from './src/screens/Sep24WebviewScreen';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
+import { ensureMigration } from './src/services/storage/migration';
 
 type RootStackParamList = {
   Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 } | undefined;
@@ -121,6 +122,12 @@ export default function App() {
   // runMigrations() is idempotent — safe to run on every app launch.
   useEffect(() => {
     isMountedRef.current = true;
+    
+    // Ensure all storage migrations run first
+    ensureMigration().catch(err => {
+      console.error('[App] Storage migration failed:', err);
+    });
+
     runMigrations()
       .then(() => {
         if (isMountedRef.current) {
