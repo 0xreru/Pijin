@@ -21,6 +21,7 @@ import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
+import { ensureMigration } from '../services/storage/migration';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
@@ -64,7 +65,8 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
 
   useEffect(() => {
     const checkState = async () => {
-      const onlineStr = await AsyncStorage.getItem('abotpera.is_online');
+      await ensureMigration();
+      const onlineStr = await AsyncStorage.getItem('pijn.is_online');
       setIsOnlineMode(onlineStr !== 'false');
     };
     checkState();
@@ -206,7 +208,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         });
 
         const payload: OfflinePaymentPayload = {
-          type: 'ABOTPERA_OFFLINE_PAYMENT',
+          type: 'PIJIN_OFFLINE_PAYMENT',
           version: 2,
           amount: amount,
           currency: 'PHP',

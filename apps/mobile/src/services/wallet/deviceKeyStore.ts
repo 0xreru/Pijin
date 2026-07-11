@@ -1,9 +1,11 @@
 import * as SecureStore from 'expo-secure-store';
 import { Keypair } from '@stellar/stellar-base';
+import { ensureMigration } from '../storage/migration';
 
-const DEVICE_SECRET_KEY = 'abotpera.device.secret';
+const DEVICE_SECRET_KEY = 'pijn.device.secret';
 const FRIENDBOT_URL = 'https://friendbot.stellar.org';
 const RETRY_DELAY_MS = 2_000;
+
 
 /**
  * Funds a new Testnet account via Friendbot with automatic retry logic.
@@ -57,6 +59,7 @@ async function fundWithFriendbot(publicKey: string, retries = 3): Promise<void> 
 
 export async function getOrGenerateDeviceKeypair(): Promise<Keypair> {
   try {
+    await ensureMigration();
     // Check if this phone already has an offline key stored in the secure enclave.
     const secret = await SecureStore.getItemAsync(DEVICE_SECRET_KEY);
 

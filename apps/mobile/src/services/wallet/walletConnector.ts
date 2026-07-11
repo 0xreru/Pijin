@@ -113,12 +113,12 @@ async function getSignClient(): Promise<SignClient> {
       relayUrl: WALLETCONNECT_RELAY_URL,
       logger: 'fatal',
       metadata: {
-        name: 'AbotPera',
-        description: 'AbotPera mobile wallet connection',
-        url: 'https://abotpera.app',
+        name: 'Pijin',
+        description: 'Pijin mobile wallet connection',
+        url: 'https://pijin.app',
         icons: [],
         redirect: {
-          native: 'abotpera://',
+          native: 'pijin://',
         },
       },
     }).then((client) => {
@@ -327,7 +327,7 @@ async function signTransactionXdrInternal(
 
   const signedRaw = extractSignedXdr(response);
   const signed = normalizeXdr(signedRaw);
-  Linking.openURL('abotpera://').catch(() => {
+  Linking.openURL('pijin://').catch(() => {
     // Keep silent, app may already be foreground.
   });
 

@@ -185,7 +185,15 @@ export function OnboardingScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: e164 }),
       });
-      const json = await response.json();
+
+      const responseText = await response.text();
+      let json: any = {};
+      try {
+        json = responseText ? JSON.parse(responseText) : {};
+      } catch (parseErr) {
+        json = { error: responseText || `Request failed with status ${response.status}` };
+      }
+
       if (!response.ok || !json.success) {
         throw new Error(json.error ?? 'Failed to send OTP. Please try again.');
       }
@@ -212,7 +220,15 @@ export function OnboardingScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: e164, code }),
       });
-      const json = await response.json();
+
+      const responseText = await response.text();
+      let json: any = {};
+      try {
+        json = responseText ? JSON.parse(responseText) : {};
+      } catch (parseErr) {
+        json = { error: responseText || `Request failed with status ${response.status}` };
+      }
+
       if (!response.ok || !json.success) {
         throw new Error(json.error ?? 'Invalid OTP. Please try again.');
       }

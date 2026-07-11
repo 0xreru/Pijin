@@ -27,6 +27,14 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Invalid Stellar Public Key format" }, { status: 400 });
       }
       stellarPublicKey = publicKeyParam;
+
+      // Look up account to get the associated short ID
+      const account = await prisma.account.findUnique({
+        where: { stellarPublicKey },
+      });
+      if (account) {
+        shortIdFound = account.shortId;
+      }
     } else {
       return NextResponse.json({ error: "Please provide either 'shortId' or 'stellarPublicKey' query parameter" }, { status: 400 });
     }

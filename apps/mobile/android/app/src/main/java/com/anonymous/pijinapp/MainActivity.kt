@@ -1,4 +1,4 @@
-package com.anonymous.abotperaapp
+package com.anonymous.pijinapp
 
 import android.os.Build
 import android.os.Bundle

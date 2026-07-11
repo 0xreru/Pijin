@@ -33,7 +33,7 @@ function parseColonSmsPayload(smsBody: string): OfflinePaymentPayload {
   }
 
   return {
-    type: 'ABOTPERA_OFFLINE_PAYMENT',
+    type: 'PIJIN_OFFLINE_PAYMENT',
     version: 2,
     amount,
     currency: 'PHP',
@@ -46,7 +46,7 @@ function parseColonSmsPayload(smsBody: string): OfflinePaymentPayload {
 }
 
 function validateV2Payload(parsed: Record<string, unknown>): OfflinePaymentPayload {
-  if (parsed.type !== 'ABOTPERA_OFFLINE_PAYMENT') {
+  if (parsed.type !== 'PIJIN_OFFLINE_PAYMENT') {
     throw new Error('Payment QR has an unsupported type.');
   }
   if (typeof parsed.amount !== 'number' || parsed.amount <= 0) {
@@ -60,7 +60,7 @@ function validateV2Payload(parsed: Record<string, unknown>): OfflinePaymentPaylo
   }
 
   return {
-    type: 'ABOTPERA_OFFLINE_PAYMENT',
+    type: 'PIJIN_OFFLINE_PAYMENT',
     version: 2,
     amount: parsed.amount,
     currency: 'PHP',
