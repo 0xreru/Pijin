@@ -26,11 +26,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
 
 const MOCK_CONTACTS = [
-  { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP' },
-  { name: 'Harvey Specter', shortId: 'M-HRV1', initials: 'HS' },
-  { name: 'Mike Ross', shortId: 'M-MIK1', initials: 'MR' },
-  { name: 'Rachel Zane', shortId: 'M-RCH1', initials: 'RZ' },
-  { name: 'Louis Litt', shortId: 'M-LOU1', initials: 'LL' },
+  { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP', stellarPublicKey: 'GBUJTODQVYB3LL7O4GHFHIDNDC6PSNIZZJ5AZRLTLYGQMOOAMJRX3272' },
+  { name: 'Harvey Specter', shortId: 'M-HRV1', initials: 'HS', stellarPublicKey: 'GDKS3RSILTRHMR7A2JXBUW7MLE4VEVXYRE5QFXT4SBSPJIVOFL6A4MLR' },
+  { name: 'Mike Ross', shortId: 'M-MIK1', initials: 'MR', stellarPublicKey: 'GB4Z5AJKZXNOJEY4BYN2B73PGXN7OBK5U57T6YDJXRKGEUMUD7HECM2L' },
+  { name: 'Rachel Zane', shortId: 'M-RCH1', initials: 'RZ', stellarPublicKey: 'GC54R2WY76AUCQV2ZKGRT3ZYN24N2KTX5BHB5NPGQZZSUJF74ZR23LRK' },
+  { name: 'Louis Litt', shortId: 'M-LOU1', initials: 'LL', stellarPublicKey: 'GDTEXCJMY6MNQZT5WOVHFDI2SXPF3FLRXQL3KLJYFDVAKEJDYJRKE2DL' },
+  { name: 'Rell Dev', shortId: 'PVAPqf', initials: 'RD', stellarPublicKey: 'GBZDGJP2PMIVCPXDAUP5KH5SGHIZ4UYOETSN2TZYOB3UCJ7B6QNNKIJ7' },
 ];
 
 export function SendMoneyScreen({ route, navigation }: any) {
