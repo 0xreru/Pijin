@@ -18,6 +18,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
+import { ensureMigration } from '../services/storage/migration';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 
@@ -30,9 +31,12 @@ export function ScanQRScreen({ navigation }: any) {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    AsyncStorage.getItem('pijin.is_online').then((val) => {
+    const checkState = async () => {
+      await ensureMigration();
+      const val = await AsyncStorage.getItem('pijn.is_online');
       setIsOnline(val !== 'false');
-    });
+    };
+    checkState();
   }, []);
   
   const [permission, requestPermission] = useCameraPermissions();
@@ -109,7 +113,8 @@ export function ScanQRScreen({ navigation }: any) {
   };
 
   const handleSimulatorScanTap = async () => {
-    const isOnlineStr = await AsyncStorage.getItem('pijin.is_online');
+    await ensureMigration();
+    const isOnlineStr = await AsyncStorage.getItem('pijn.is_online');
     const isAppOnline = isOnlineStr !== 'false';
     if (isAppOnline) {
       handleBarCodeScanned({ data: '09171234567:150.00:Dinner at Jollibee' });

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ensureMigration } from '../services/storage/migration';
 import { useAuth } from '../context/AuthContext';
 import { useVaultBalance } from '../hooks/useVaultBalance';
 import { LogoutConfirmationModal } from '../components/ui/LogoutConfirmationModal';
@@ -31,8 +32,8 @@ import { TransactionsTab } from './dashboard/TransactionsTab';
 import { ProfileTab } from './dashboard/ProfileTab';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CACHED_BALANCE_KEY = 'pijin.cached_balance';
-const OFFLINE_BALANCE_KEY = 'pijin.offline_balance';
+const CACHED_BALANCE_KEY = 'pijn.cached_balance';
+const OFFLINE_BALANCE_KEY = 'pijn.offline_balance';
 const TABS: TabType[] = ['home', 'notifications', 'scan', 'transactions', 'profile'];
 
 export function DashboardScreen({ navigation }: any) {
@@ -67,6 +68,7 @@ export function DashboardScreen({ navigation }: any) {
   const [cachedBalance, setCachedBalance] = useState<number>(0.00);
   const [isPollingBalance, setIsPollingBalance] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
   const [offlineBalance, setOfflineBalance] = useState<number>(0.00);
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -101,13 +103,14 @@ export function DashboardScreen({ navigation }: any) {
   useEffect(() => {
     const initData = async () => {
       try {
-        const hasReset = await AsyncStorage.getItem('pijin.initial_reset_v2');
+        await ensureMigration();
+        const hasReset = await AsyncStorage.getItem('pijn.initial_reset_v2');
         if (!hasReset) {
           setCachedBalance(0.00);
           await AsyncStorage.setItem(CACHED_BALANCE_KEY, '0.00');
           setOfflineBalance(0.00);
           await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
-          await AsyncStorage.setItem('pijin.initial_reset_v2', 'true');
+          await AsyncStorage.setItem('pijn.initial_reset_v2', 'true');
         } else {
           const storedBalance = await AsyncStorage.getItem(CACHED_BALANCE_KEY);
           if (storedBalance) {
@@ -201,6 +204,7 @@ export function DashboardScreen({ navigation }: any) {
     const MAX_ATTEMPTS = POLLING_DELAYS_MS.length;
 
     const poll = async () => {
+      if (!mountedRef.current) return;
       attempt += 1;
       const delay = POLLING_DELAYS_MS[attempt - 1] ?? 10000;
       console.log(
@@ -209,11 +213,15 @@ export function DashboardScreen({ navigation }: any) {
         `nextDelay=${delay}ms`
       );
 
+      if (!mountedRef.current) return;
       try {
         await refreshBalance();
       } catch (err) {
+        if (!mountedRef.current) return;
         console.warn(`[DashboardScreen] Balance refresh failed on attempt ${attempt}:`, err);
       }
+
+      if (!mountedRef.current) return;
 
       if (attempt >= MAX_ATTEMPTS) {
         console.log(`[DashboardScreen] Polling reached MAX_ATTEMPTS (${MAX_ATTEMPTS}). Polling stopped.`);
@@ -271,9 +279,11 @@ export function DashboardScreen({ navigation }: any) {
   // Cleanup poll timeout on unmount.
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       if (pollingRef.current) {
         console.log('[DashboardScreen] Unmounting component. Cleaning up active polling timeout.');
         clearTimeout(pollingRef.current);
+        pollingRef.current = null;
       }
     };
   }, []);
@@ -310,7 +320,7 @@ export function DashboardScreen({ navigation }: any) {
   const handleStateTransition = (targetOnline: boolean) => {
     setIsTransitioning(true);
     setIsOnline(targetOnline);
-    AsyncStorage.setItem('pijin.is_online', targetOnline ? 'true' : 'false');
+    AsyncStorage.setItem('pijn.is_online', targetOnline ? 'true' : 'false');
 
     // Persist the existing balance as-is when toggling modes.
     setCachedBalance((prev) => {
