@@ -118,8 +118,14 @@ async function handler(req: Request): Promise<Response> {
 
     // Hydrate Stellar public keys + Token record (parallel)
     const [senderAccount, receiverAccount, token] = await Promise.all([
-        prisma.account.findUnique({ where: { shortId: senderShortId } }),
-        prisma.account.findUnique({ where: { shortId: receiverShortId } }),
+        prisma.account.findUnique({
+            where: { shortId: senderShortId },
+            select: { stellarPublicKey: true, phoneNumber: true, offlineDeviceKey: true },
+        }),
+        prisma.account.findUnique({
+            where: { shortId: receiverShortId },
+            select: { stellarPublicKey: true, phoneNumber: true, offlineDeviceKey: true },
+        }),
         prisma.token.findUnique({ where: { id: tokenId } }),
     ]).catch(async (err) => {
         console.error('[Settle] DB hydration failed (infra error):', err);
@@ -129,8 +135,8 @@ async function handler(req: Request): Promise<Response> {
         });
         return [null, null, null] as const;
     }) as [
-        { stellarPublicKey: string; phoneNumber?: string | null } | null,
-        { stellarPublicKey: string; phoneNumber?: string | null } | null,
+        { stellarPublicKey: string; phoneNumber?: string | null; offlineDeviceKey?: string | null } | null,
+        { stellarPublicKey: string; phoneNumber?: string | null; offlineDeviceKey?: string | null } | null,
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
 
