@@ -13,6 +13,7 @@ import {
   StatusBar,
   DeviceEventEmitter,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -130,15 +131,43 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
                     }),
                   ]),
                 ]),
-              ]).start(() => {
+              ]).start(async () => {
                 setIsLoading(true);
-                // Reset swipe anim for next launch
                 swipeAnim.setValue(0);
 
-                setTimeout(() => {
+                try {
+                  const { getOrGenerateDeviceKeypair } = require('../services/wallet/deviceKeyStore');
+                  const { depositToVault, waitForTransaction } = require('../services/soroban/deposit');
+
+                  if (!activeAccount?.stellarPublicKey) {
+                    throw new Error('No active account public key found.');
+                  }
+
+                  const deviceKeypair = await getOrGenerateDeviceKeypair();
+                  const result = await depositToVault({
+                    customerPublicKey: activeAccount.stellarPublicKey,
+                    offlineDevicePublicKey: deviceKeypair.publicKey(),
+                    amountPhp: currentAmount,
+                  });
+
+                  if (result?.hash) {
+                    await waitForTransaction(result.hash);
+                  }
+
                   setIsLoading(false);
                   setModalVisible(true);
-                }, 1800);
+                } catch (err: any) {
+                  setIsLoading(false);
+                  Alert.alert(
+                    'Deposit Failed',
+                    err?.message || 'An unexpected error occurred during deposit.'
+                  );
+                  Animated.timing(swipeAnim, {
+                    toValue: 0,
+                    duration: 350,
+                    useNativeDriver: false,
+                  }).start();
+                }
               });
             });
           }
@@ -205,6 +234,8 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
       ]);
       // Emit event to deduct online balance and add to offline balance
       DeviceEventEmitter.emit('ON_LOAD_OFFLINE_FUNDS', numericVal);
+      // Trigger polling on DashboardScreen
+      DeviceEventEmitter.emit('ON_DEPOSIT_COMPLETE');
     } catch (err) {
       console.error('Failed to log load offline funds transaction:', err);
     } finally {

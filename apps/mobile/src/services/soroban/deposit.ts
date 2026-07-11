@@ -8,6 +8,7 @@ import {
   Address,
   nativeToScVal,
   Contract,
+  StrKey,
 } from '@stellar/stellar-sdk';
 
 import {
@@ -73,7 +74,8 @@ function assertContractConfig(): void {
  */
 export async function depositToVault(input: {
   customerPublicKey: string;
-  amountXlm: number;
+  offlineDevicePublicKey: string;
+  amountPhp: number;
   onStage?: (stage: DepositStage) => void;
 }): Promise<{ hash?: string }> {
   assertContractConfig();
@@ -98,6 +100,9 @@ export async function depositToVault(input: {
 
   // ── 2. Build unsigned transaction ──────────────────────────────────────
   markStage('build-xdr');
+  const pubkeyRaw = StrKey.decodeEd25519PublicKey(input.offlineDevicePublicKey);
+  const pubkeyScVal = xdr.ScVal.scvBytes(Buffer.from(pubkeyRaw));
+
   let tx: Transaction = new TransactionBuilder(sourceAccount, {
     fee: '1000',
     networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
@@ -107,7 +112,8 @@ export async function depositToVault(input: {
         'deposit',
         new Address(input.customerPublicKey).toScVal(),
         new Address(TOKEN_ID).toScVal(),
-        nativeToScVal(xlmToStroops(input.amountXlm), { type: 'i128' })
+        pubkeyScVal,
+        nativeToScVal(xlmToStroops(input.amountPhp), { type: 'i128' })
       )
     )
     .setTimeout(180)
