@@ -1,7 +1,7 @@
 import { Horizon, StrKey } from '@stellar/stellar-sdk';
-import { STELLAR_HORIZON_MAINNET_URL } from '../../constants/network';
+import { HORIZON_URL } from '../../constants/stellar';
 
-const horizonServer = new Horizon.Server(STELLAR_HORIZON_MAINNET_URL);
+const horizonServer = new Horizon.Server(HORIZON_URL);
 
 export type StellarBalance = {
   assetType: string;

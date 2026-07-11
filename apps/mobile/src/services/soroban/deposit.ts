@@ -17,8 +17,8 @@ import {
   STELLAR_NETWORK_PASSPHRASE,
   TOKEN_ID,
   xlmToStroops,
+  HORIZON_URL,
 } from '../../constants/stellar';
-import { STELLAR_HORIZON_MAINNET_URL } from '../../constants/network';
 import { signTransactionXdr } from '../wallet/walletConnector';
 
 // Ensure Buffer is available globally for XDR serialization in Hermes.
@@ -246,7 +246,7 @@ async function resolveAccountSequence(publicKey: string): Promise<string> {
 
 async function fetchHorizonSequence(publicKey: string): Promise<string | null> {
   try {
-    const response = await fetch(`${STELLAR_HORIZON_MAINNET_URL}/accounts/${publicKey}`);
+    const response = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
     if (response.status === 404) return null;
     if (!response.ok) return null;
     const data = (await response.json()) as { sequence?: unknown };
