@@ -18,8 +18,8 @@ import { TransactionList } from '../../components/transaction/TransactionList';
 import { QueueIndicator } from '../../components/ui/QueueIndicator';
 import { DepositButton } from '../../components/ui/DepositButton';
 import type { AssetCode } from '../../services/stellar/trustlineService';
-import { startSep24Deposit } from '../../services/stellar/anchorService';
-import { getOrGenerateDeviceKeypair } from '../../services/wallet/deviceKeyStore';
+import { startSep24Deposit, Keypair as StellarKeypair } from '../../services/stellar/anchorService';
+import { getMainWalletSecret } from '../../services/storage/onboardingStorage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -83,13 +83,14 @@ export const HomeTab = memo(function HomeTab({
   // from the parent may be empty if the account was stored without it.
   useEffect(() => {
     let cancelled = false;
-    getOrGenerateDeviceKeypair()
-      .then((kp) => {
-        if (!cancelled) setStellarPublicKey(kp.publicKey());
+    getMainWalletSecret()
+      .then((secret) => {
+        const resolvedPublicKey = secret ? StellarKeypair.fromSecret(secret).publicKey() : publicKey;
+        if (!cancelled) setStellarPublicKey(resolvedPublicKey ?? null);
       })
-      .catch((err) => console.warn('[HomeTab] Could not load device keypair:', err));
+      .catch((err) => console.warn('[HomeTab] Could not load main wallet keypair:', err));
     return () => { cancelled = true; };
-  }, []);
+  }, [publicKey]);
 
   /**
    * Called by DepositButton once the JIT trustline is confirmed.
@@ -98,8 +99,12 @@ export const HomeTab = memo(function HomeTab({
    */
   const handleDepositSuccess = async (assetCode: AssetCode) => {
     try {
-      // 1. Get the offline signing key
-      const keypair = await getOrGenerateDeviceKeypair();
+      // 1. Get the main wallet key for SEP-10 auth and deposit initiation.
+      const mainWalletSecret = await getMainWalletSecret();
+      if (!mainWalletSecret) {
+        throw new Error('Main wallet not found. Please sign in again.');
+      }
+      const keypair = StellarKeypair.fromSecret(mainWalletSecret);
 
       // 2. Start the SEP-24 flow (Auth & Deposit initiation)
       const { url, transactionId } = await startSep24Deposit(assetCode, keypair);

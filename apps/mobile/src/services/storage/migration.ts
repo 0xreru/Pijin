@@ -19,6 +19,7 @@ const ASYNC_KEYS = [
 const SECURE_KEYS = [
   'device.secret',
   'user_pin_secure',
+  'main_wallet.secret',
 ];
 
 let migrationPromise: Promise<void> | null = null;

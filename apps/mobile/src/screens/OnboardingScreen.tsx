@@ -31,10 +31,11 @@ import {
   saveUserLastName,
   saveUserEmail,
   saveRegisteredPhone,
+  saveMainWalletSecret,
 } from '../services/storage/onboardingStorage';
 import { checkUserExists, registerAccount } from '../services/api/accounts';
 import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
-import { getSep10Token } from '../services/stellar/anchorService';
+import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import { StatusBar } from 'expo-status-bar';
 
@@ -42,6 +43,7 @@ import { StatusBar } from 'expo-status-bar';
 // Environment
 // ---------------------------------------------------------------------------
 const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
+const FRIENDBOT_RETRY_DELAY_MS = 2_000;
 
 
 // Enable LayoutAnimation on Android
@@ -290,6 +292,39 @@ export function OnboardingScreen() {
     }
   };
 
+  const fundMainWallet = async (publicKey: string, retries = 3): Promise<void> => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(`${API_URL}/api/friendbot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publicKey }),
+        });
+
+        if (response.ok) {
+          return;
+        }
+
+        const body = await response.text().catch(() => '');
+        if (response.status < 500) {
+          throw new Error(body || `Friendbot request failed with status ${response.status}`);
+        }
+
+        console.warn(`[Friendbot Proxy] HTTP ${response.status} on attempt ${attempt}: ${body}`);
+      } catch (error) {
+        if (attempt === retries) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[Friendbot Proxy] Attempt ${attempt} failed: ${message}`);
+      }
+
+      if (attempt < retries) {
+        await new Promise<void>((resolve) => setTimeout(resolve, FRIENDBOT_RETRY_DELAY_MS));
+      }
+    }
+  };
+
   const handleEnterPijin = async () => {
     setIsRegistering(true);
     try {
@@ -304,12 +339,15 @@ export function OnboardingScreen() {
       // SEP-10 auth, trustlines, etc. Registered as `stellarPublicKey`.
       // Using a different key from the device key prevents replay attacks
       // where a captured offline key could be used for on-chain operations.
-      const { Keypair: StellarKeypair } = await import('@stellar/stellar-base');
-      const stellarKeypair = StellarKeypair.random();
-      const stellarPublicKey = stellarKeypair.publicKey();
+      const mainWalletKeypair = StellarKeypair.random();
+      const stellarPublicKey = mainWalletKeypair.publicKey();
+      await saveMainWalletSecret(mainWalletKeypair.secret());
+      await fundMainWallet(stellarPublicKey);
 
-      // Register the account on the backend with two DISTINCT keys
-      const account = await registerAccount({
+      // Register the account on the backend with two DISTINCT keys.
+      // The Stellar wallet key is the on-chain balance address; the device key
+      // is only for offline signing.
+      const registrationPayload = {
         stellarPublicKey,
         offlineDeviceKey,
         pin,
@@ -317,10 +355,11 @@ export function OnboardingScreen() {
         firstName,
         lastName,
         email,
-      });
+      };
+      const account = await registerAccount(registrationPayload);
 
-      // Get the SEP-10 authentication JWT token using the device keypair
-      const token = await getSep10Token(deviceKeypair);
+      // Get the SEP-10 authentication JWT token using the funded main wallet.
+      const token = await getSep10Token(mainWalletKeypair);
 
       // Save onboarding complete and phone
       await saveRegisteredPhone(phoneNumber);

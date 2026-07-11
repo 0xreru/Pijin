@@ -23,7 +23,7 @@ import {
   hasTrustline,
   ensureTrustline,
 } from '../services/stellar/trustlineService';
-import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
+import { getMainWalletSecret } from '../services/storage/onboardingStorage';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -39,8 +39,7 @@ export interface UseJitTrustlineOptions {
   /** The user's Stellar public key. */
   publicKey: string | null | undefined;
   /**
-   * Optional: supply an already-loaded keypair to skip SecureStore lookup.
-   * If omitted, the hook will call `getOrGenerateDeviceKeypair()` on demand.
+   * Optional: supply an already-loaded main wallet keypair to skip SecureStore lookup.
    */
   keypair?: Keypair;
 }
@@ -98,7 +97,11 @@ export function useJitTrustline({
     try {
       // Resolve the keypair — prefer the prop, fall back to SecureStore.
       console.log('[JIT] 4. Resolving keypair…');
-      const keypair = providedKeypair ?? (await getOrGenerateDeviceKeypair());
+      const mainWalletSecret = providedKeypair ? null : await getMainWalletSecret();
+      const keypair = providedKeypair ?? (mainWalletSecret ? Keypair.fromSecret(mainWalletSecret) : null);
+      if (!keypair) {
+        throw new Error('Main wallet not found. Please sign in again.');
+      }
       console.log('[JIT] 5. Keypair resolved — publicKey:', keypair.publicKey());
 
       console.log('[JIT] 6. Calling hasTrustline on Horizon…');

@@ -9,6 +9,7 @@ const PHONE_NUMBER_KEY = 'pijn.user_phone';
 const FIRST_NAME_KEY = 'pijn.user_first_name';
 const LAST_NAME_KEY = 'pijn.user_last_name';
 const EMAIL_KEY = 'pijn.user_email';
+const MAIN_WALLET_SECRET_KEY = 'pijn.main_wallet.secret';
 // Stores a JSON array of every phone that has completed registration on this device.
 // Used by the local mock for checkUserExists until a real backend endpoint exists.
 const REGISTERED_PHONES_KEY = 'pijn.registered_phones';
@@ -62,6 +63,29 @@ export async function clearUserPinSecure(): Promise<void> {
     await SecureStore.deleteItemAsync(PIN_SECURE_KEY);
   } catch {
     // Ignore — key may not exist
+  }
+}
+
+export async function saveMainWalletSecret(secret: string): Promise<void> {
+  await ensureMigration();
+  await SecureStore.setItemAsync(MAIN_WALLET_SECRET_KEY, secret);
+}
+
+export async function getMainWalletSecret(): Promise<string | null> {
+  try {
+    await ensureMigration();
+    return await SecureStore.getItemAsync(MAIN_WALLET_SECRET_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function clearMainWalletSecret(): Promise<void> {
+  try {
+    await ensureMigration();
+    await SecureStore.deleteItemAsync(MAIN_WALLET_SECRET_KEY);
+  } catch {
+    // Ignore - key may not exist
   }
 }
 
