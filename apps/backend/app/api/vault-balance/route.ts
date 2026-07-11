@@ -68,12 +68,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    let offlineBalancePHP: number = 0;
+    try {
+      const tokenAddress = process.env.TOKEN_ID ?? "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+      const vaultTx = await pijinContract.get_vault({
+        user: stellarPublicKey,
+        token: tokenAddress,
+      });
+      const offlineStroops = vaultTx.result;
+      offlineBalancePHP = Number(offlineStroops) / 10_000_000;
+    } catch (err) {
+      console.error("[Vault Balance API] Failed to fetch offline vault balance:", err);
+    }
+
     return NextResponse.json({
       success: true,
       stellarPublicKey,
       shortId: shortIdFound,
       balanceStroops: balanceStroops.toString(),
       balancePHP,
+      offlineBalancePHP,
     });
 
   } catch (error) {
