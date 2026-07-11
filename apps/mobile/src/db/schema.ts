@@ -21,6 +21,8 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const transactions = sqliteTable('transactions', {
   id:          text('id').primaryKey(),
+  stellarPublicKey: text('stellar_public_key'),
+  shortId:     text('short_id'),
   title:       text('title').notNull(),
   subtitle:    text('subtitle').notNull(),
   amount:      integer('amount').notNull(),
