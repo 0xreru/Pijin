@@ -14,6 +14,7 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
       console.log('[useVaultBalance] Skipping refresh: no shortId or stellarPublicKey provided.');
       setBalancePhp(null);
       setBalanceXlm(null);
+      setResolvedShortId(null);
       setError(null);
       return;
     }
