@@ -27,8 +27,8 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="pijin"/>
-        <data android:scheme="com.anonymous.pijin"/>
-        <data android:scheme="exp+pijin"/>
+        <data android:scheme="com.anonymous.pijinapp"/>
+        <data android:scheme="exp+pijin-app"/>
       </intent-filter>
     </activity>
   </application>
