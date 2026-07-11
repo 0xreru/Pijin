@@ -74,7 +74,7 @@ export const TransactionsTab = memo(function TransactionsTab({ mockTxs, insets }
   };
 
   const formatPhp = useCallback((val: number, type: string) => {
-    const isIncoming = type === 'incoming' || type === 'settlement';
+    const isIncoming = type === 'incoming' || type === 'settlement' || (type === 'transfer' && val > 0);
     const formatted = phpFormatter.format(Math.abs(val));
     return isIncoming ? `+ ${formatted}` : `- ${formatted}`;
   }, []);

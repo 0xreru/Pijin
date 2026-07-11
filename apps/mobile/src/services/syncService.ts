@@ -29,9 +29,9 @@ import {
   markSyncError,
 } from '../db/services/paymentQueueDb';
 import type { PaymentQueueRow } from '../db/schema';
-import { addTransaction, upsertServerTransactions } from '../db/services/transactionDb';
+import { addTransaction, upsertServerTransactions, upsertHistoryTransactions } from '../db/services/transactionDb';
 import { loadStoredAccount } from './storage/accountStorage';
-import { getUserSettlements } from './api/transactions';
+import { getUserSettlements, getWalletHistory } from './api/transactions';
 import { getApiBaseUrl } from '../constants/api';
 
 // ---------------------------------------------------------------------------
@@ -225,19 +225,19 @@ class SyncService {
   }
 
   /**
-   * Fetches latest settlements from backend and upserts them locally (smart sync).
+   * Fetches latest history from backend and upserts them locally (smart sync).
    * Limit to latest 50 records.
    */
-  async syncTransactions(shortId: string): Promise<void> {
+  async syncTransactions(shortId: string, publicKey: string): Promise<void> {
     try {
       console.log(`[SyncService] Starting smart sync for account ${shortId}...`);
-      const serverSettlements = await getUserSettlements(shortId);
+      const serverHistory = await getWalletHistory(shortId, publicKey);
       
       // Keep only latest 50 records
-      const latest50 = serverSettlements.slice(0, 50);
+      const latest50 = serverHistory.slice(0, 50);
 
       // Upsert into local SQLite
-      await upsertServerTransactions(shortId, latest50);
+      await upsertHistoryTransactions(latest50);
       console.log(`[SyncService] Smart sync complete. Upserted ${latest50.length} records.`);
     } catch (err) {
       console.warn('[SyncService] Smart sync failed:', err);

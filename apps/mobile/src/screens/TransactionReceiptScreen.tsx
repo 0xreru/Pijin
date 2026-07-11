@@ -20,22 +20,53 @@ export function TransactionReceiptScreen({ route, navigation }: any) {
   // Destructure route params (or fallback to mock reference values if params are empty)
   const { transaction } = route.params || {};
   
+  const isRealTx = !!transaction;
   const amount = transaction?.amountPhp || '₱25,000.00';
   const title = transaction?.title || 'Deposited from G-Xchange Inc. / Gcash';
   const description = transaction?.description || 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.';
   
-  // Extract account name from title/description or default
-  const accountName = 'PEARSON SPECTER LITT';
-  const accountType = 'G-Xchange Inc. / Gcash';
-  const accountNumber = '1000988884782910993';
-  
-  const dateStr = transaction?.dateGroup 
-    ? `${transaction.dateGroup}, 06:13 PM` 
-    : 'June 03, 2026, 06:13 PM';
-    
-  const referenceId = '134F 5748 DU30';
-  const traceNo = '9837211';
-  const gcashRefNo = '9837211';
+  // Extract variables depending on transaction type
+  const isIncoming = transaction 
+    ? (transaction.type === 'incoming' || transaction.type === 'settlement' || (transaction.type === 'transfer' && transaction.amount > 0)) 
+    : true;
+
+  // Header Title
+  const headerTitle = isRealTx 
+    ? (transaction.type === 'transfer' ? 'Funds Transferred' : (isIncoming ? 'Money Received' : 'Money Sent'))
+    : 'Deposited money from';
+
+  // Subtitle/Date
+  const dateStr = transaction?.subtitle || 'June 03, 2026, 06:13 PM';
+
+  // Let's determine counterparty info
+  let accountName = 'PEARSON SPECTER LITT';
+  let accountType = 'G-Xchange Inc. / Gcash';
+  let accountNumber = '1000988884782910993';
+
+  if (isRealTx) {
+    accountName = transaction.title;
+    accountType = transaction.tag === 'OFFLINE' ? 'Offline Vault' : 'Online Wallet';
+    accountNumber = transaction.id;
+  }
+
+  // Reference IDs
+  let referenceId = '134F 5748 DU30';
+  let traceNo = '9837211';
+  let gcashRefNo = '9837211';
+  const hasGcashDetails = !isRealTx;
+
+  if (isRealTx) {
+    referenceId = transaction.id;
+    // Extract transaction hash if present in description
+    if (transaction.description && transaction.description.startsWith('Stellar Tx Hash: ')) {
+      const hash = transaction.description.replace('Stellar Tx Hash: ', '');
+      traceNo = hash.substring(0, 12) + '...';
+      gcashRefNo = hash;
+    } else {
+      traceNo = 'N/A';
+      gcashRefNo = 'N/A';
+    }
+  }
 
   const handleShare = async () => {
     try {
@@ -54,7 +85,7 @@ export function TransactionReceiptScreen({ route, navigation }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} activeOpacity={0.7}>
           <Ionicons name="arrow-undo-outline" size={28} color="#000000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Deposited money from</Text>
+        <Text style={styles.headerTitle}>{headerTitle}</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -66,19 +97,29 @@ export function TransactionReceiptScreen({ route, navigation }: any) {
               <Text style={styles.nameText}>{accountName}</Text>
             </View>
             
-            {/* GCash Logo + Overlaid Badge */}
+            {/* Logo/Icon Wrapper */}
             <View style={styles.logoWrapper}>
               <View style={styles.logoCircleShadow}>
-                <Image
-                  source={require('../../assets/logos/gcash-logo.png')}
-                  style={styles.gcashLogo}
-                  resizeMode="contain"
-                />
+                {hasGcashDetails ? (
+                  <Image
+                    source={require('../../assets/logos/gcash-logo.png')}
+                    style={styles.gcashLogo}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Ionicons 
+                    name={isIncoming ? "arrow-down" : "arrow-up"} 
+                    size={24} 
+                    color="#04295A" 
+                  />
+                )}
               </View>
               {/* Overlay Down Arrow Badge */}
-              <View style={styles.badgeOverlay}>
-                <Ionicons name="arrow-down" size={10} color="#FFFFFF" />
-              </View>
+              {hasGcashDetails && (
+                <View style={styles.badgeOverlay}>
+                  <Ionicons name="arrow-down" size={10} color="#FFFFFF" />
+                </View>
+              )}
             </View>
           </View>
 
@@ -102,33 +143,56 @@ export function TransactionReceiptScreen({ route, navigation }: any) {
         <View style={styles.tableContainer}>
           {/* Section 1 */}
           <View style={styles.tableRow}>
-            <Text style={styles.tableLabel}>Account type</Text>
+            <Text style={styles.tableLabel}>{isRealTx ? 'Transaction source' : 'Account type'}</Text>
             <Text style={styles.tableValue}>{accountType}</Text>
           </View>
           <View style={styles.tableRow}>
-            <Text style={styles.tableLabel}>Account Number</Text>
-            <Text style={styles.tableValue}>{accountNumber}</Text>
+            <Text style={styles.tableLabel}>{isRealTx ? 'Transaction ID' : 'Account Number'}</Text>
+            <Text style={[styles.tableValue, { maxWidth: '60%' }]} numberOfLines={1}>{accountNumber}</Text>
           </View>
           <View style={styles.tableRow}>
-            <Text style={styles.tableLabel}>Account Name</Text>
+            <Text style={styles.tableLabel}>{isRealTx ? 'Transaction details' : 'Account Name'}</Text>
             <Text style={styles.tableValue}>{accountName}</Text>
           </View>
 
           <View style={styles.divider} />
 
           {/* Section 2 */}
-          <View style={styles.tableRow}>
-            <Text style={styles.tableLabel}>Reference ID</Text>
-            <Text style={styles.tableValue}>{referenceId}</Text>
-          </View>
-          <View style={styles.tableRow}>
-            <Text style={styles.tableLabel}>Trace No</Text>
-            <Text style={styles.tableValue}>{traceNo}</Text>
-          </View>
-          <View style={styles.tableRow}>
-            <Text style={styles.tableLabel}>Gcash Ref. No</Text>
-            <Text style={styles.tableValue}>{gcashRefNo}</Text>
-          </View>
+          {hasGcashDetails ? (
+            <>
+              <View style={styles.tableRow}>
+                <Text style={styles.tableLabel}>Reference ID</Text>
+                <Text style={styles.tableValue}>{referenceId}</Text>
+              </View>
+              <View style={styles.tableRow}>
+                <Text style={styles.tableLabel}>Trace No</Text>
+                <Text style={styles.tableValue}>{traceNo}</Text>
+              </View>
+              <View style={styles.tableRow}>
+                <Text style={styles.tableLabel}>Gcash Ref. No</Text>
+                <Text style={styles.tableValue}>{gcashRefNo}</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.tableRow}>
+                <Text style={styles.tableLabel}>Transaction status</Text>
+                <Text style={[styles.tableValue, { color: '#10B981', fontWeight: '800' }]}>
+                  {transaction.description && transaction.description.startsWith('Status: ') 
+                    ? transaction.description.replace('Status: ', '') 
+                    : 'Completed'}
+                </Text>
+              </View>
+              {transaction.description && transaction.description.startsWith('Stellar Tx Hash: ') && (
+                <View style={styles.tableRow}>
+                  <Text style={styles.tableLabel}>Stellar Hash</Text>
+                  <Text style={[styles.tableValue, { maxWidth: '60%' }]} numberOfLines={1}>
+                    {transaction.description.replace('Stellar Tx Hash: ', '')}
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
 
           <View style={styles.divider} />
         </View>

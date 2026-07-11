@@ -220,3 +220,69 @@ export async function upsertServerTransactions(
     throw error;
   }
 }
+
+/**
+ * Atomic upsert of server history transactions into local SQLite database.
+ */
+export async function upsertHistoryTransactions(
+  historyTxs: any[]
+): Promise<void> {
+  try {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    
+    await db.transaction(async (trx) => {
+      for (const hTx of historyTxs) {
+        const amountNum = parseFloat(hTx.amount);
+        let type: 'incoming' | 'outgoing' | 'transfer' = 'incoming';
+        if (hTx.type === 'SEND' || hTx.type === 'WITHDRAWAL') {
+          type = 'outgoing';
+        } else if (hTx.type === 'TRANSFER') {
+          type = 'transfer';
+        }
+        
+        const now = new Date(hTx.timestamp);
+        const dateGroup = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2, '0')}, ${now.getFullYear()}`;
+        const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const subtitle = `${dateGroup.split(',')[0]} at ${timeStr}`;
+
+        const txId = `TX-SVR-${hTx.id}`;
+
+        // Prepare row
+        const rowData: NewTransactionRow = {
+          id: txId,
+          title: hTx.title,
+          subtitle,
+          amount: amountNum,
+          type,
+          tag: 'WALLET',
+          dateGroup,
+          timeAgo: 'Synced',
+          description: hTx.txHash ? `Stellar Tx Hash: ${hTx.txHash}` : `Status: ${hTx.status}`,
+          createdAt: hTx.timestamp,
+        };
+
+        // Check if row already exists
+        const existing = await trx
+          .select()
+          .from(transactions)
+          .where(eq(transactions.id, txId))
+          .limit(1);
+
+        if (existing.length > 0) {
+          // Update the existing row
+          await trx
+            .update(transactions)
+            .set(rowData)
+            .where(eq(transactions.id, txId));
+        } else {
+          // Insert new row
+          await trx.insert(transactions).values(rowData);
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[transactionDb] Failed to upsert history transactions:', error);
+    throw error;
+  }
+}
+
