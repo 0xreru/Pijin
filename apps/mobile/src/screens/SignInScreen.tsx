@@ -14,10 +14,16 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
-import { getUserPin, getUserPinSecure, getUserPhone } from '../services/storage/onboardingStorage';
-import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
+import {
+  getMainWalletSecret,
+  getUserPin,
+  getUserPinSecure,
+  getUserPhone,
+  saveUserPin,
+  saveUserPinSecure,
+} from '../services/storage/onboardingStorage';
 import { checkUserExists } from '../services/api/accounts';
-import { getSep10Token } from '../services/stellar/anchorService';
+import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
 
@@ -88,9 +94,8 @@ export function SignInScreen() {
             if (checkRes.exists && checkRes.pin) {
               pinToCompare = checkRes.pin;
               // Restore both local stores so future logins are offline-capable.
-              const storage = await import('../services/storage/onboardingStorage');
-              await storage.saveUserPin(pinToCompare);
-              await storage.saveUserPinSecure(pinToCompare);
+              await saveUserPin(pinToCompare);
+              await saveUserPinSecure(pinToCompare);
             }
           } catch (networkErr) {
             console.warn('[SignIn] Could not fetch PIN from backend:', networkErr);
@@ -115,16 +120,25 @@ export function SignInScreen() {
         return;
       }
 
-      // PIN is correct. Obtain keypair and check backend status.
-      const keypair = await getOrGenerateDeviceKeypair();
-      const publicKey = keypair.publicKey();
+      // PIN is correct. Load the persisted main wallet for SEP-10 auth.
+      const mainWalletSecret = await getMainWalletSecret();
+      const mainWalletKeypair = mainWalletSecret ? StellarKeypair.fromSecret(mainWalletSecret) : null;
+      const mainWalletPublicKey = mainWalletKeypair?.publicKey();
 
       try {
         // Online check & authentication
         const checkRes = await checkUserExists(phoneNumber);
 
         if (checkRes.exists && checkRes.stellarPublicKey && checkRes.shortId) {
-          const token = await getSep10Token(keypair);
+          if (!mainWalletKeypair || mainWalletPublicKey !== checkRes.stellarPublicKey) {
+            Alert.alert(
+              'Main Wallet Missing',
+              'This device does not have the saved main wallet for this account. Please restore or re-onboard the account on this device.',
+            );
+            setIsValidating(false);
+            return;
+          }
+          const token = await getSep10Token(mainWalletKeypair);
           await login(checkRes.stellarPublicKey, checkRes.shortId, token);
         } else {
           // Phone number not found in DB
@@ -141,7 +155,7 @@ export function SignInScreen() {
 
         // Offline fallback: load cached account from local storage
         const stored = await loadStoredAccount();
-        if (stored && stored.stellarPublicKey === publicKey) {
+        if (stored && mainWalletPublicKey && stored.stellarPublicKey === mainWalletPublicKey) {
           // Proceed offline with empty/old token
           await login(stored.stellarPublicKey, stored.shortId, '');
         } else {

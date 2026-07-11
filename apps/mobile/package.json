@@ -57,7 +57,7 @@
     "warn-once": "^0.1.1"
   },
   "devDependencies": {
-    "@expo/cli": "^57.0.4",
+    "@expo/cli": "^0.22.0",
     "@types/react": "~18.3.12",
     "drizzle-kit": "^0.31.10",
     "typescript": "~5.9.2"

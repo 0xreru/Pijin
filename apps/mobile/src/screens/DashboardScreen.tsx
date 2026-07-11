@@ -123,7 +123,7 @@ export function DashboardScreen({ navigation }: any) {
         if (!hasReset) {
           setCachedBalance(0.00);
           await AsyncStorage.setItem(CACHED_BALANCE_KEY, '0.00');
-          setOfflineBalance(0.00);
+          setServerOfflineBalance(0.00);
           await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
           await AsyncStorage.setItem('pijn.initial_reset_v2', 'true');
         } else {

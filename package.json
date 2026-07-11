@@ -7,11 +7,6 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0"
   },
-  "overrides": {
-    "react-native": "0.76.9",
-    "expo": "52.0.49",
-    "expo-media-library": "17.0.5"
-  },
   "scripts": {
     "prepare": "node -e \"if (process.env.CI !== 'true') { require('child_process').execSync('husky', {stdio: 'inherit'}) }\"",
     "lint-staged": "lint-staged",
@@ -24,12 +19,16 @@
       "apps/backend/**/*.{js,jsx}": [],
       "apps/mobile/**/*.{js,jsx,ts,tsx}": [],
       "contracts/**/*.rs": "cargo fmt --"
-    },
+  },
   "overrides": {
-    "metro": "^0.81.0",
-    "metro-cache": "^0.81.0",
-    "metro-config": "^0.81.0",
-    "metro-core": "^0.81.0",
-    "metro-resolver": "^0.81.0"
+    "react-native": "0.76.9",
+    "expo": "52.0.49",
+    "expo-media-library": "17.0.5",
+    "metro": "0.80.12",
+    "metro-cache": "0.80.12",
+    "metro-config": "0.80.12",
+    "metro-core": "0.80.12",
+    "metro-resolver": "0.80.12",
+    "metro-transform-worker": "0.80.12"
   }
 }
