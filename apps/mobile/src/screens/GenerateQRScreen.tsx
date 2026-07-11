@@ -54,7 +54,17 @@ export function GenerateQRScreen({ route, navigation }: any) {
   let relayMerchant = '';
   if (mode === 'relay' && qrData) {
     const parts = qrData.split(':');
-    if (parts.length === 5) {
+    if (parts.length === 6) {
+      relayCustomer = parts[1];
+      relayMerchant = parts[2];
+      try {
+        const { decodeBase62 } = require('../utils/crypto');
+        const amountStroops = decodeBase62(parts[3]);
+        relayAmount = (Number(amountStroops) / 10000000).toString();
+      } catch (e) {
+        relayAmount = parts[3];
+      }
+    } else if (parts.length === 5) {
       relayCustomer = parts[0];
       relayMerchant = parts[1];
       relayAmount = parts[2];
