@@ -161,7 +161,8 @@ export async function clearTransactions(): Promise<void> {
  */
 export async function upsertServerTransactions(
   shortId: string,
-  serverTxs: any[] // Use any to avoid circular import if needed, or cast internally
+  serverTxs: any[], // Use any to avoid circular import if needed, or cast internally
+  publicKey?: string
 ): Promise<void> {
   try {
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -185,6 +186,8 @@ export async function upsertServerTransactions(
         // Prepare row
         const rowData: NewTransactionRow = {
           id: txId,
+          stellarPublicKey: publicKey || null,
+          shortId,
           title,
           subtitle,
           amount: isIncoming ? amountNum : -amountNum,
@@ -225,7 +228,9 @@ export async function upsertServerTransactions(
  * Atomic upsert of server history transactions into local SQLite database.
  */
 export async function upsertHistoryTransactions(
-  historyTxs: any[]
+  historyTxs: any[],
+  shortId: string,
+  publicKey: string
 ): Promise<void> {
   try {
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -250,6 +255,8 @@ export async function upsertHistoryTransactions(
         // Prepare row
         const rowData: NewTransactionRow = {
           id: txId,
+          stellarPublicKey: publicKey,
+          shortId,
           title: hTx.title,
           subtitle,
           amount: amountNum,
