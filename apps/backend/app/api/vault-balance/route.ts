@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { pijinContract } from "@/lib/pijin-contract";
+import { Horizon } from "@stellar/stellar-sdk";
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,21 +41,30 @@ export async function GET(req: NextRequest) {
     }
 
     let balanceStroops: bigint = BigInt(0);
+    let balancePHP: number = 0;
+
     try {
-      const tx = await pijinContract.get_vault({
-        user: stellarPublicKey,
-        token: process.env.TOKEN_ID ?? ""
+      const server = new Horizon.Server(process.env.SOROBAN_RPC_URL?.replace("soroban-testnet", "horizon-testnet") ?? "https://horizon-testnet.stellar.org");
+      const account = await server.loadAccount(stellarPublicKey);
+      
+      const issuer = process.env.PHPC_ISSUER_PUBKEY ?? "GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY";
+      const trustlineBalance = account.balances.find((b: any) => {
+        if (b.asset_type === "native") return false;
+        return b.asset_code === "PHPC" && b.asset_issuer === issuer;
       });
 
-      if (tx && tx.result !== undefined && tx.result !== null) {
-        balanceStroops = BigInt(tx.result);
+      if (trustlineBalance) {
+        balancePHP = parseFloat(trustlineBalance.balance);
+        balanceStroops = BigInt(Math.round(balancePHP * 10_000_000));
       }
-    } catch (sdkError: any) {
-      console.error("[Vault Viewer] Soroban SDK get_vault call failed:", sdkError);
-      return NextResponse.json({ error: "Failed to read vault balance from Stellar network." }, { status: 502 });
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        console.info(`[Vault Balance API] Account not found on Horizon: ${stellarPublicKey}`);
+      } else {
+        console.error("[Vault Balance API] Horizon loadAccount error:", err);
+        return NextResponse.json({ error: "Failed to read balance from Stellar network." }, { status: 502 });
+      }
     }
-
-    const balancePHP = Number(balanceStroops) / 10_000_000;
 
     return NextResponse.json({
       success: true,
