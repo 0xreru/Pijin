@@ -32,12 +32,42 @@ const TRACK_WIDTH = SCREEN_WIDTH - 40;
 const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
 
 const MOCK_CONTACTS = [
-  { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP' },
-  { name: 'Harvey Specter', shortId: 'M-HRV1', initials: 'HS' },
-  { name: 'Mike Ross', shortId: 'M-MIK1', initials: 'MR' },
-  { name: 'Rachel Zane', shortId: 'M-RCH1', initials: 'RZ' },
-  { name: 'Louis Litt', shortId: 'M-LOU1', initials: 'LL' },
+  { name: 'Donna Paulsen', shortId: 'M-1B44', initials: 'DP', stellarPublicKey: 'GBUJTODQVYB3LL7O4GHFHIDNDC6PSNIZZJ5AZRLTLYGQMOOAMJRX3272' },
+  { name: 'Harvey Specter', shortId: 'M-HRV1', initials: 'HS', stellarPublicKey: 'GDKS3RSILTRHMR7A2JXBUW7MLE4VEVXYRE5QFXT4SBSPJIVOFL6A4MLR' },
+  { name: 'Mike Ross', shortId: 'M-MIK1', initials: 'MR', stellarPublicKey: 'GB4Z5AJKZXNOJEY4BYN2B73PGXN7OBK5U57T6YDJXRKGEUMUD7HECM2L' },
+  { name: 'Rachel Zane', shortId: 'M-RCH1', initials: 'RZ', stellarPublicKey: 'GC54R2WY76AUCQV2ZKGRT3ZYN24N2KTX5BHB5NPGQZZSUJF74ZR23LRK' },
+  { name: 'Louis Litt', shortId: 'M-LOU1', initials: 'LL', stellarPublicKey: 'GDTEXCJMY6MNQZT5WOVHFDI2SXPF3FLRXQL3KLJYFDVAKEJDYJRKE2DL' },
+  { name: 'Rell Dev', shortId: 'PVAPqf', initials: 'RD', stellarPublicKey: 'GBZDGJP2PMIVCPXDAUP5KH5SGHIZ4UYOETSN2TZYOB3UCJ7B6QNNKIJ7' },
 ];
+
+const resolveRecipientPubKey = async (shortId: string): Promise<string> => {
+  // 1. Check static MOCK_CONTACTS
+  const mock = MOCK_CONTACTS.find(c => c.shortId === shortId);
+  if (mock?.stellarPublicKey) {
+    return mock.stellarPublicKey;
+  }
+
+  // 2. Query local transactions table
+  try {
+    const { db } = require('../db/client');
+    const { transactions } = require('../db/schema');
+    const { eq } = require('drizzle-orm');
+    
+    const prevTx = await db
+      .select({ stellarPublicKey: transactions.stellarPublicKey })
+      .from(transactions)
+      .where(eq(transactions.shortId, shortId))
+      .limit(1);
+      
+    if (prevTx && prevTx[0]?.stellarPublicKey) {
+      return prevTx[0].stellarPublicKey;
+    }
+  } catch (e) {
+    console.warn('Failed to query local database for recipient public key:', e);
+  }
+
+  return '';
+};
 
 export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -202,10 +232,20 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         const customerId = account?.shortId || '1234';
         const merchantId = recipientShortId;
 
+        const receiverPubKey = await resolveRecipientPubKey(merchantId);
+        if (!receiverPubKey) {
+          Alert.alert(
+            'Resolution Error',
+            `Could not resolve Stellar public key for recipient Short ID: ${merchantId} offline. Please try adding them to contacts or transact online first.`
+          );
+          setIsProcessing(false);
+          return;
+        }
+
         const { buildOfflineSmsVoucher } = require('../services/offline/buildSmsPayload');
         const voucher = await buildOfflineSmsVoucher({
-          customerShortId: customerId,
-          merchantShortId: merchantId,
+          receiverShortId: merchantId,
+          receiverPubKey,
           amountPhp: amount,
         });
 
@@ -216,6 +256,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
           currency: 'PHP',
           customerShortId: customerId,
           merchantShortId: merchantId,
+          customerPublicKey: activeAccount?.stellarPublicKey || undefined,
           smsBody: voucher.smsBody,
           createdAt: new Date().toISOString(),
           expiresInMinutes: 10,

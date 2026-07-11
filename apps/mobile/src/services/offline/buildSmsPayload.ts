@@ -1,6 +1,6 @@
 import { getOrGenerateDeviceKeypair } from '../wallet/deviceKeyStore';
 import { loadStoredAccount } from '../storage/accountStorage';
-import { phpToStroops, CONTRACT_ID, TOKEN_ID } from '../../constants/stellar';
+import { phpToStroops, CONTRACT_ID, TOKEN_ID, TOKEN_DB_ID } from '../../constants/stellar';
 import { generateOfflineSmsPayload } from '../../utils/crypto';
 
 // ---------------------------------------------------------------------------
@@ -84,8 +84,8 @@ export async function buildOfflineSmsVoucher(
   if (!account?.shortId) {
     throw new Error('Sender short ID is missing. Please register first.');
   }
-  if (account.role !== 'CUSTOMER') {
-    throw new Error('Only CUSTOMER accounts can generate offline SMS vouchers.');
+  if (account.role !== 'USER' && account.role !== 'CUSTOMER') {
+    throw new Error('Only USER accounts can generate offline SMS vouchers.');
   }
 
   // ── 2. Retrieve (or create) the device signing key from the enclave ────────
@@ -95,7 +95,7 @@ export async function buildOfflineSmsVoucher(
   // ── 3. Gather environment configuration ───────────────────────────────────
   const gatewayPubKey   = requireEnv('EXPO_PUBLIC_GATEWAY_PUBLIC_KEY');
   const tokenContractId = CONTRACT_ID  || requireEnv('EXPO_PUBLIC_CONTRACT_ID');
-  const tokenIdStr      = TOKEN_ID     || requireEnv('EXPO_PUBLIC_TOKEN_ID');
+  const tokenIdStr      = TOKEN_DB_ID  || process.env.EXPO_PUBLIC_TOKEN_DB_ID || '1';
 
   // ── 4. Convert amount to stroops (BigInt, 7 decimal places) ───────────────
   const amountStroops = phpToStroops(amountPhp);

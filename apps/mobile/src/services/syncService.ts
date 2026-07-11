@@ -45,22 +45,19 @@ async function postToBackend(
   item: PaymentQueueRow
 ): Promise<{ txHash: string | null; status: string }> {
   const apiBase = getApiBaseUrl();
-  const res = await fetch(`${apiBase}/api/settlements`, {
+  const res = await fetch(`${apiBase}/api/engine/settle`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    // /api/engine/settle expects `smsPayload` (not `smsBody`)
+    // and `senderPhone` for SMS receipt notifications.
     body: JSON.stringify({
-      nonce:           item.nonce,           // dedup key — safe to retry
-      senderShortId:   item.customerShortId,
-      receiverShortId: item.merchantShortId,
-      relayerAddress:  item.relayerAddress ?? null,
-      tokenSymbol:     item.tokenSymbol,
-      amountPhp:       item.amount,          // backend converts to stroops
-      smsBody:         item.smsBody,
+      smsPayload: item.smsBody,
+      senderPhone: null, // No phone available in mobile context; backend handles gracefully
     }),
   });
 
   if (res.status === 409) {
-    // Nonce already processed — treat as success (idempotent)
+    // Duplicate nonce — idempotent success
     return { txHash: null, status: 'SETTLED' };
   }
 
@@ -69,6 +66,12 @@ async function postToBackend(
   }
 
   const data = await res.json();
+
+  // /api/engine/settle returns { status: 'SETTLED' | 'FAILED' | 'DUPLICATE_SKIPPED', txHash? }
+  if (data.status === 'FAILED') {
+    throw new Error(`Settlement failed: ${data.reason ?? 'Unknown reason'}`);
+  }
+
   return { txHash: data.txHash ?? null, status: data.status ?? 'PENDING' };
 }
 
@@ -131,6 +134,9 @@ class SyncService {
    */
   private extractShortNonce(smsBody: string): string | null {
     const parts = smsBody.split(':');
+    if (parts.length === 6) {
+      return parts[4];
+    }
     return parts.length >= 4 ? parts[3] : null;
   }
 

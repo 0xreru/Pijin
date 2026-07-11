@@ -77,6 +77,7 @@
  *                   type: string
  */
 import { NextResponse } from 'next/server';
+import crypto from 'node:crypto';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
 import { pijinContract } from '@/lib/pijin-contract';
@@ -108,8 +109,12 @@ export const dynamic = 'force-dynamic';
 // ---------------------------------------------------------------------------
 
 async function handler(req: Request): Promise<Response> {
-    // Extract tracking ID from broker headers
-    const qstashMessageId = req.headers.get('upstash-message-id') ?? 'unknown';
+    // Extract tracking ID from broker headers.
+    // For direct mobile calls (no QStash), generate a UUID so the unique-
+    // constraint on qstashMessageId doesn't block subsequent requests.
+    const qstashMessageId =
+        req.headers.get('upstash-message-id') ??
+        `direct-${crypto.randomUUID()}`;
 
     // Parse body
     let body: { smsPayload?: string; senderPhone?: string };
@@ -191,8 +196,14 @@ async function handler(req: Request): Promise<Response> {
 
     // Hydrate Stellar public keys + Token record (parallel)
     const [senderAccount, receiverAccount, token] = await Promise.all([
-        prisma.account.findUnique({ where: { shortId: senderShortId } }),
-        prisma.account.findUnique({ where: { shortId: receiverShortId } }),
+        prisma.account.findUnique({
+            where: { shortId: senderShortId },
+            select: { stellarPublicKey: true, phoneNumber: true, offlineDeviceKey: true },
+        }),
+        prisma.account.findUnique({
+            where: { shortId: receiverShortId },
+            select: { stellarPublicKey: true, phoneNumber: true, offlineDeviceKey: true },
+        }),
         prisma.token.findUnique({ where: { id: tokenId } }),
     ]).catch(async (err) => {
         console.error('[Settle] DB hydration failed (infra error):', err);
@@ -202,8 +213,8 @@ async function handler(req: Request): Promise<Response> {
         });
         return [null, null, null] as const;
     }) as [
-        { stellarPublicKey: string; phoneNumber?: string | null } | null,
-        { stellarPublicKey: string; phoneNumber?: string | null } | null,
+        { stellarPublicKey: string; phoneNumber?: string | null; offlineDeviceKey?: string | null } | null,
+        { stellarPublicKey: string; phoneNumber?: string | null; offlineDeviceKey?: string | null } | null,
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
 
@@ -277,7 +288,12 @@ async function handler(req: Request): Promise<Response> {
         ]);
 
         const xdrBytes = xdrTuple.toXDR();
-        const senderKeypair = Keypair.fromPublicKey(senderPublicKey);
+
+        // Prefer the offline device key (generated at onboarding) if available,
+        // otherwise fall back to the Stellar public key for accounts that
+        // pre-date the offline key field.
+        const verificationKey = senderAccount.offlineDeviceKey ?? senderPublicKey;
+        const senderKeypair = Keypair.fromPublicKey(verificationKey);
         
         if (!senderKeypair.verify(xdrBytes, signatureBuffer)) {
             const failReason = 'Local Firewall Rejected: Invalid Ed25519 signature. Dropped to save gas.';
@@ -480,4 +496,25 @@ function isNetworkOrRpcError(err: unknown): boolean {
 // ---------------------------------------------------------------------------
 // Export - wrapped with QStash signature verification
 // ---------------------------------------------------------------------------
-export const POST = verifySignatureAppRouter(handler);
+// ---------------------------------------------------------------------------
+// Export
+//
+// QStash always delivers with an `upstash-signature` header.
+// When the mobile app calls this directly (online sync after offline mode),
+// that header is absent — we skip the QStash HMAC check and rely entirely
+// on the Ed25519 signature verification inside the handler to authenticate
+// the request. This is safe because:
+//   1. The handler cryptographically verifies the device keypair signature.
+//   2. Any payload with an invalid or missing sig is rejected with status 200
+//      (FAILED), never reaching the Soroban contract.
+// ---------------------------------------------------------------------------
+const qstashHandler = verifySignatureAppRouter(handler);
+
+export async function POST(req: Request): Promise<Response> {
+    // QStash always attaches this header — direct mobile calls do not.
+    if (req.headers.has('upstash-signature')) {
+        return qstashHandler(req);
+    }
+    // Direct call from mobile app — run the handler, Ed25519 is the firewall.
+    return handler(req);
+}

@@ -20,6 +20,8 @@ export const CONTRACT_ID = env('EXPO_PUBLIC_CONTRACT_ID') ?? '';
 
 export const TOKEN_ID = env('EXPO_PUBLIC_TOKEN_ID') ?? '';
 
+export const TOKEN_DB_ID = env('EXPO_PUBLIC_TOKEN_DB_ID') ?? '1';
+
 export const STROOPS_PER_XLM = 10_000_000;
 
 export function xlmToStroops(amountXlm: number): bigint {

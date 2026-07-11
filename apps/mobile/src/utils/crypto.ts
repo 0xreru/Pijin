@@ -1,5 +1,4 @@
 import { Buffer } from 'buffer';
-import * as Crypto from 'expo-crypto';
 import { Address, Keypair, xdr, nativeToScVal } from '@stellar/stellar-sdk';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +58,22 @@ export function encodeBase62(num: bigint): string {
   while (n > 0n) {
     result = BASE62_ALPHABET[Number(n % BASE62)] + result;
     n = n / BASE62;
+  }
+  return result;
+}
+
+/**
+ * Decodes a Base62 string back to a BigInt.
+ */
+export function decodeBase62(str: string): bigint {
+  let result = 0n;
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    const index = BASE62_ALPHABET.indexOf(char);
+    if (index === -1) {
+      throw new Error(`decodeBase62: invalid character ${char}`);
+    }
+    result = result * BASE62 + BigInt(index);
   }
   return result;
 }
@@ -154,8 +169,16 @@ export async function generateOfflineSmsPayload(
   } = params;
 
   // ── Step 1: Generate a cryptographically-secure 32-byte nonce ──────────────
-  const nonceBytes = await Crypto.getRandomBytesAsync(32);
-  const nonce32 = new Uint8Array(nonceBytes);
+  const nonce32 = new Uint8Array(32);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(nonce32);
+  } else if (typeof global !== 'undefined' && (global as any).crypto?.getRandomValues) {
+    (global as any).crypto.getRandomValues(nonce32);
+  } else {
+    for (let i = 0; i < 32; i++) {
+      nonce32[i] = Math.floor(Math.random() * 256);
+    }
+  }
 
   // ── Step 2: Serialize the Soroban XDR Tuple ────────────────────────────────
   const xdrBuffer = buildXdrTuple(

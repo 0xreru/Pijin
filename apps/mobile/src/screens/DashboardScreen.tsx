@@ -72,7 +72,7 @@ export function DashboardScreen({ navigation }: any) {
   const [isPollingBalance, setIsPollingBalance] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
-  const [offlineBalance, setOfflineBalance] = useState<number>(0.00);
+  const [serverOfflineBalance, setServerOfflineBalance] = useState<number>(0.00);
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
@@ -94,6 +94,10 @@ export function DashboardScreen({ navigation }: any) {
     db.select().from(paymentQueueTable).where(eq(paymentQueueTable.synced, false))
   );
   const queueCount = pendingPayments.length;
+  const pendingOfflineAmount = useMemo(() => {
+    return pendingPayments.reduce((sum, p) => sum + p.amount, 0);
+  }, [pendingPayments]);
+  const offlineBalance = Math.max(0, serverOfflineBalance - pendingOfflineAmount);
 
   // Switch animation states
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -132,9 +136,9 @@ export function DashboardScreen({ navigation }: any) {
           }
           const storedOffline = await AsyncStorage.getItem(OFFLINE_BALANCE_KEY);
           if (storedOffline) {
-            setOfflineBalance(parseFloat(storedOffline));
+            setServerOfflineBalance(parseFloat(storedOffline));
           } else {
-            setOfflineBalance(0.00);
+            setServerOfflineBalance(0.00);
             await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
           }
         }
@@ -158,7 +162,7 @@ export function DashboardScreen({ navigation }: any) {
         AsyncStorage.setItem(CACHED_BALANCE_KEY, newOnline.toString());
         return newOnline;
       });
-      setOfflineBalance((prevOffline) => {
+      setServerOfflineBalance((prevOffline) => {
         const newOffline = prevOffline + amount;
         AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
         return newOffline;
@@ -174,11 +178,7 @@ export function DashboardScreen({ navigation }: any) {
     });
 
     const subSendOffline = DeviceEventEmitter.addListener('ON_SEND_MONEY_OFFLINE', (amount: number) => {
-      setOfflineBalance((prevOffline) => {
-        const newOffline = Math.max(0, prevOffline - amount);
-        AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
-        return newOffline;
-      });
+      // Handled reactively via Drizzle useLiveQuery + pendingPayments subtraction.
     });
 
     return () => {
@@ -320,7 +320,7 @@ export function DashboardScreen({ navigation }: any) {
   // Update cached offline balance whenever live balance is fetched successfully
   useEffect(() => {
     if (offlineBalancePhp !== null) {
-      setOfflineBalance(offlineBalancePhp);
+      setServerOfflineBalance(offlineBalancePhp);
       AsyncStorage.setItem(OFFLINE_BALANCE_KEY, offlineBalancePhp.toString());
     }
   }, [offlineBalancePhp]);

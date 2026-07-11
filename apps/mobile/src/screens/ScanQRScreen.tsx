@@ -78,8 +78,8 @@ export function ScanQRScreen({ navigation }: any) {
     setScanned(true);
 
     const parts = data.split(':');
-    if (parts.length === 5) {
-      // Signed offline voucher (customerShortId:merchantShortId:amountPhp:nonceB64:signatureB64)
+    if (parts.length === 5 || parts.length === 6) {
+      // Signed offline voucher (tokenId:customerShortId:merchantShortId:amountPhp:nonceB64:signatureB64)
       try {
         const { parseOfflinePaymentPayload } = require('../utils/offlinePaymentPayload');
         const parsed = parseOfflinePaymentPayload(data);
