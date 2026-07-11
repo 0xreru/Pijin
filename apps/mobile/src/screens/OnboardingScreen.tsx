@@ -293,13 +293,25 @@ export function OnboardingScreen() {
   const handleEnterPijin = async () => {
     setIsRegistering(true);
     try {
-      const keypair = await getOrGenerateDeviceKeypair();
-      const publicKey = keypair.publicKey();
+      // ── The OFFLINE device signing key (persisted in secure enclave) ────────
+      // This is the key that signs the Soroban XDR payload for offline payments.
+      // It is registered as `offlineDeviceKey` in the backend DB.
+      const deviceKeypair = await getOrGenerateDeviceKeypair();
+      const offlineDeviceKey = deviceKeypair.publicKey();
 
-      // Register the account on the backend
+      // ── The ONLINE Stellar wallet key (a separate, fresh keypair) ──────────
+      // This is the user's main on-chain address for Stellar asset balances,
+      // SEP-10 auth, trustlines, etc. Registered as `stellarPublicKey`.
+      // Using a different key from the device key prevents replay attacks
+      // where a captured offline key could be used for on-chain operations.
+      const { Keypair: StellarKeypair } = await import('@stellar/stellar-base');
+      const stellarKeypair = StellarKeypair.random();
+      const stellarPublicKey = stellarKeypair.publicKey();
+
+      // Register the account on the backend with two DISTINCT keys
       const account = await registerAccount({
-        stellarPublicKey: publicKey,
-        offlineDeviceKey: publicKey,
+        stellarPublicKey,
+        offlineDeviceKey,
         pin,
         phoneNumber: '63' + phoneNumber,
         firstName,
@@ -307,15 +319,15 @@ export function OnboardingScreen() {
         email,
       });
 
-      // Get the SEP-10 authentication JWT token
-      const token = await getSep10Token(keypair);
+      // Get the SEP-10 authentication JWT token using the device keypair
+      const token = await getSep10Token(deviceKeypair);
 
       // Save onboarding complete and phone
       await saveRegisteredPhone(phoneNumber);
       await setOnboardingComplete(true);
 
       // Perform local session login
-      await login(publicKey, account.shortId, token);
+      await login(stellarPublicKey, account.shortId, token);
 
       navigation.reset({
         index: 0,
