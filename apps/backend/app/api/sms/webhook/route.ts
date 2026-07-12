@@ -121,6 +121,12 @@ const qstash = new Client({
     token: process.env.QSTASH_TOKEN || 'dummy_token_to_bypass_build',
 });
 
+type SmsWebhookPayload = {
+    senderPhone: string;
+    message: string;
+    eventType: string;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,9 +162,63 @@ function verifyHmacSignature(rawBody: string, incomingSignature: string): boolea
     }
 }
 
+function firstObject(value: unknown): Record<string, any> | null {
+    if (Array.isArray(value)) {
+        const first = value.find((item) => item && typeof item === 'object');
+        return first && typeof first === 'object' ? first as Record<string, any> : null;
+    }
+
+    return value && typeof value === 'object' ? value as Record<string, any> : null;
+}
+
+function extractSmsPayload(body: Record<string, any>): SmsWebhookPayload | null {
+    // Textbee has used both direct message objects and wrapped event objects.
+    const candidate =
+        firstObject(body.data) ??
+        firstObject(body.message) ??
+        firstObject(body.messages) ??
+        body;
+
+    const senderPhone =
+        typeof candidate.sender === 'string' ? candidate.sender.trim() :
+        typeof candidate.from === 'string' ? candidate.from.trim() :
+        typeof candidate.phone === 'string' ? candidate.phone.trim() :
+        '';
+
+    const message =
+        typeof candidate.message === 'string' ? candidate.message.trim() :
+        typeof candidate.text === 'string' ? candidate.text.trim() :
+        typeof candidate.body === 'string' ? candidate.body.trim() :
+        '';
+
+    const eventType =
+        typeof body.event === 'string' ? body.event :
+        typeof body.type === 'string' ? body.type :
+        typeof candidate.event === 'string' ? candidate.event :
+        typeof candidate.type === 'string' ? candidate.type :
+        'UNKNOWN';
+
+    return senderPhone && message ? { senderPhone, message, eventType } : null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/sms/webhook  – Ingress Shield
 // ─────────────────────────────────────────────────────────────────────────────
+export async function GET() {
+    return NextResponse.json({
+        success: true,
+        route: '/api/sms/webhook',
+        accepts: ['POST'],
+        configured: {
+            textbeeWebhookSecret: Boolean(process.env.TEXTBEE_WEBHOOK_SECRET),
+            qstashToken: Boolean(process.env.QSTASH_TOKEN),
+            nextPublicAppUrl: Boolean(process.env.NEXT_PUBLIC_APP_URL),
+            textbeeGateway: Boolean(process.env.TEXTBEE_GATEWAY_URL),
+            textbeeApiKey: Boolean(process.env.TEXTBEE_API_KEY),
+        },
+    });
+}
+
 export async function POST(req: Request) {
     // ── 🚨 EXTREME INGRESS LOGGING — fires before auth, parse, or any logic ──────
     console.log('\n=============================================');
@@ -196,7 +256,7 @@ export async function POST(req: Request) {
     }
 
     // ── Parse Body ────────────────────────────────────────────────────────────
-    let body: any;
+    let body: Record<string, any>;
     try {
         body = JSON.parse(rawBody);
     } catch {
@@ -222,15 +282,14 @@ export async function POST(req: Request) {
     }
 
     // ── Extract Data Payload ──────────────────────────────────────────────────
-    // Textbee wraps the payload in "data"
-    const data = body.data || body;
+    const sms = extractSmsPayload(body);
 
-    const senderPhone = typeof data.sender === 'string' ? data.sender.trim() : '';
-    const message = typeof data.message === 'string' ? data.message.trim() : '';
-
-    if (!senderPhone || !message) {
+    if (!sms) {
+        console.warn('[SMS Webhook] Missing sender/message in payload:', JSON.stringify(body));
         return NextResponse.json({ error: 'Missing sender or message field' }, { status: 400 });
     }
+
+    const { senderPhone, message } = sms;
 
     // ── Tier 2: Rate Limiting (keyed on sender phone) ─────────────────────────
     const { success: withinLimit } = await ratelimit.limit(senderPhone);
@@ -252,25 +311,32 @@ export async function POST(req: Request) {
 
     const deduplicationId = `${senderShortId}_${nonce}`;
 
-    // ── QStash Publish & Fast Ack (Parallel Execution) ────────────────────────
-    // 🔥 ARCHITECT FIX: Run QStash and SMS concurrently using Promise.allSettled.
-    // This keeps Vercel alive just long enough, but cuts the response time in half
-    // to prevent Textbee 502 Timeout errors.
-    const settleUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/engine/settle`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '');
+    if (!appUrl) {
+        console.error('[SMS Webhook] Missing NEXT_PUBLIC_APP_URL. Cannot publish settlement job.');
+        return NextResponse.json({ error: 'Webhook misconfigured' }, { status: 500 });
+    }
 
-    const qstashPromise = qstash.publishJSON({
-        url: settleUrl,
-        body: { smsPayload: message, senderPhone },
-        deduplicationId,
-    });
+    const settleUrl = `${appUrl}/api/engine/settle`;
 
-    const smsPromise = sendSmsNotification(
+    try {
+        const qstashResult = await qstash.publishJSON({
+            url: settleUrl,
+            body: { smsPayload: message, senderPhone },
+            deduplicationId,
+        });
+        console.log('[SMS Webhook] QStash accepted settlement job:', JSON.stringify(qstashResult));
+    } catch (err) {
+        console.error('[SMS Webhook] QStash publish failed. SMS was NOT buffered:', err);
+        return NextResponse.json({ error: 'Failed to buffer settlement' }, { status: 500 });
+    }
+
+    await sendSmsNotification(
         senderPhone,
         'Pijin: Payload received. Processing transaction... Please wait'
-    );
-
-    // Wait for both network requests to leave the server simultaneously
-    await Promise.allSettled([qstashPromise, smsPromise]);
+    ).catch((err) => {
+        console.warn('[SMS Webhook] Ack SMS failed after QStash buffer:', err);
+    });
 
     console.log(
         `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | target=${settleUrl}`
