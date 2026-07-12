@@ -16,6 +16,7 @@ import {
   BackHandler,
   ActivityIndicator,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -434,7 +435,7 @@ export function OnboardingScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: isDark ? ONBOARDING_DARK_BLUE : ONBOARDING_LIGHT_GRAY }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <View style={styles.keyboardView}>
+      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         {/* Header */}
         <View style={styles.header}>
           {renderBackArrow()}
@@ -479,16 +480,10 @@ export function OnboardingScreen() {
 
             <View style={styles.welcomeButtonsContainer}>
               <AppButton
-                title="Create an account"
+                title="Continue"
                 onPress={handleCreateAccount}
                 variant="secondary"
-                icon={<Ionicons name="person-add-outline" size={24} color="#08090A" />}
-              />
-              <AppButton
-                title="Sign In"
-                onPress={handleSignIn}
-                variant="outline"
-                icon={<Ionicons name="key-outline" size={24} color="#FFFFFF" />}
+                icon={<Ionicons name="arrow-forward" size={24} color="#08090A" />}
               />
             </View>
           </View>
@@ -757,7 +752,7 @@ export function OnboardingScreen() {
 
         {/* Static Dots Indicator at the bottom */}
         {renderDots()}
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -831,11 +826,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   welcomePigeonContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    position: 'absolute',
+    bottom: 120, // Increased to push the mascot up so it stands on the button edge
+    left: 0,
+    right: 0,
+    height: SCREEN_HEIGHT * 0.5, // Relative to screen height so it scales proportionally
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 54,
-    marginBottom: -32, // Reverted to original -32
     zIndex: 5,
   },
   welcomePigeonImage: {
@@ -985,7 +982,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     width: '100%',
-    paddingBottom: 8,
+    paddingBottom: 48,
   },
   dotsContainer: {
     flexDirection: 'row',

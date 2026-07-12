@@ -10,7 +10,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen, ScanQRScreen, TransportChoiceScreen, SendMoneyScreen, SendMoneyConfirmScreen, GenerateQRScreen } from './src/screens';
+import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen, ScanQRScreen, TransportChoiceScreen, SendMoneyScreen, SendMoneyConfirmScreen, GenerateQRScreen, AccountSettingsScreen, VaultSettingsScreen, ChangePinScreen } from './src/screens';
 import { Sep24WebviewScreen } from './src/screens/Sep24WebviewScreen';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 import { ensureMigration } from './src/services/storage/migration';
@@ -26,6 +26,9 @@ type RootStackParamList = {
   SendMoney: undefined;
   SendMoneyConfirm: { phone: string; amount: number; note?: string };
   GenerateQR: { mode: 'receiver' | 'relay'; qrData: string };
+  AccountSettings: undefined;
+  VaultSettings: undefined;
+  ChangePin: undefined;
   /** SEP-24 interactive deposit webview. */
   Sep24Webview: {
     url: string;
@@ -57,6 +60,9 @@ function RootNavigator({ initialRoute }: { initialRoute: keyof RootStackParamLis
           <Stack.Screen name="SendMoney" component={SendMoneyScreen} />
           <Stack.Screen name="SendMoneyConfirm" component={SendMoneyConfirmScreen} />
           <Stack.Screen name="GenerateQR" component={GenerateQRScreen} />
+          <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
+          <Stack.Screen name="VaultSettings" component={VaultSettingsScreen} />
+          <Stack.Screen name="ChangePin" component={ChangePinScreen} />
           <Stack.Screen
             name="Sep24Webview"
             component={Sep24WebviewScreen}

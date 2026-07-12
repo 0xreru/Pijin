@@ -8,6 +8,6 @@ export { TransportChoiceScreen } from './TransportChoiceScreen';
 export { SendMoneyScreen } from './SendMoneyScreen';
 export { SendMoneyConfirmScreen } from './SendMoneyConfirmScreen';
 export { GenerateQRScreen } from './GenerateQRScreen';
-
-
-
+export { AccountSettingsScreen } from './AccountSettingsScreen';
+export { VaultSettingsScreen } from './VaultSettingsScreen';
+export { ChangePinScreen } from './ChangePinScreen';
