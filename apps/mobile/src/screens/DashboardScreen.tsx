@@ -442,7 +442,11 @@ export function DashboardScreen({ navigation }: any) {
   const handleLogoutConfirm = useCallback(async () => {
     setLogoutModalVisible(false);
     await logout();
-  }, [logout]);
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'SignIn' }],
+    });
+  }, [logout, navigation]);
 
   const handleLogoutCancel = useCallback(() => setLogoutModalVisible(false), []);
 
@@ -491,7 +495,7 @@ export function DashboardScreen({ navigation }: any) {
 
           {/* Tab 2: Notifications */}
           <View style={styles.tabPanel}>
-            <NotificationsTab insets={insets} />
+            <NotificationsTab insets={insets} transactions={transactions} />
           </View>
 
           {/* Tab 3: Scan */}

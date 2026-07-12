@@ -11,6 +11,8 @@ import {
   Alert,
   ActivityIndicator,
   DeviceEventEmitter,
+  Linking,
+  Platform,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +24,7 @@ import { ensureMigration } from '../services/storage/migration';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { useAuth } from '../context/AuthContext';
+import { SMS_GATEWAY_NUMBER } from '../constants/api';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const VIEWFINDER_SIZE = SCREEN_WIDTH * 0.82;
@@ -84,24 +87,19 @@ export function ScanQRScreen({ navigation }: any) {
         const { parseOfflinePaymentPayload } = require('../utils/offlinePaymentPayload');
         const parsed = parseOfflinePaymentPayload(data);
         
-        const { addTransaction } = require('../db/services/transactionDb');
-        await addTransaction({
-          title: `Scanned Payment from ${parsed.customerShortId}`,
-          amount: parsed.amount,
-          type: 'incoming',
-          tag: 'OFFLINE',
-          description: `Scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. Awaiting sync to Stellar network.`,
-          stellarPublicKey: activeAccount?.stellarPublicKey,
-          shortId: activeAccount?.shortId,
-        });
-
-        await enqueuePayment(parsed);
-
-        Alert.alert(
-          'Relay Voucher Scanned',
-          `Successfully scanned offline payment of ₱${parsed.amount} from customer ${parsed.customerShortId}. It has been added to your queue and will sync to the Stellar network.`,
-          [{ text: 'OK', onPress: () => navigation.navigate('Dashboard') }]
-        );
+        const url = Platform.OS === 'android'
+          ? `sms:${SMS_GATEWAY_NUMBER}?body=${encodeURIComponent(data)}`
+          : `sms:${SMS_GATEWAY_NUMBER}&body=${encodeURIComponent(data)}`;
+        
+        Linking.openURL(url)
+          .then(() => {
+            navigation.navigate('Dashboard');
+          })
+          .catch((err) => {
+            setScanned(false);
+            Alert.alert('Error', 'Could not open native messaging app.');
+            console.error(err);
+          });
       } catch (err: any) {
         setScanned(false);
         Alert.alert('Scan Error', err.message || 'Invalid signed voucher scanned.');
