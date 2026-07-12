@@ -145,10 +145,10 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
   // assembled (but unsigned) XDR envelope.
   //
   markStage('assemble-via-backend');
-  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/^['"]|['"]$/g, '');
   const tokenAddress = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
-  const rpcUrl = process.env.EXPO_PUBLIC_SOROBAN_RPC_URL?.trim();
-  const networkPassphrase = process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE?.trim();
+  const rpcUrl = process.env.EXPO_PUBLIC_SOROBAN_RPC_URL?.trim().replace(/^['"]|['"]$/g, '');
+  const networkPassphrase = process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE?.trim().replace(/^['"]|['"]$/g, '');
 
   if (!apiBase) throw new Error('Missing EXPO_PUBLIC_API_BASE_URL in apps/mobile/.env');
   if (!tokenAddress) throw new Error('Missing EXPO_PUBLIC_TOKEN_ID in apps/mobile/.env');
@@ -199,7 +199,18 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
     const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase);
     tx.sign(mainWalletKeypair);
     const rawXdr = tx.toEnvelope().toXDR();
-    signedXdrBase64 = Buffer.from(rawXdr).toString('base64');
+    let bytes: Uint8Array;
+    if (rawXdr instanceof Uint8Array) {
+      bytes = rawXdr;
+    } else if (typeof rawXdr === 'string') {
+      bytes = new Uint8Array(rawXdr.length);
+      for (let i = 0; i < rawXdr.length; i++) {
+        bytes[i] = rawXdr.charCodeAt(i) & 0xff;
+      }
+    } else {
+      bytes = new Uint8Array(rawXdr);
+    }
+    signedXdrBase64 = Buffer.from(bytes).toString('base64');
   } catch (err) {
     throw new Error(`Failed to sign XDR: ${String(err)}`);
   }
