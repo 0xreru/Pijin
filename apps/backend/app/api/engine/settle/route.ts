@@ -81,7 +81,7 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
 import { pijinContract } from '@/lib/pijin-contract';
 import { sendSmsNotification } from '@/lib/sms';
-import { Keypair, Address, xdr, nativeToScVal } from '@stellar/stellar-sdk';
+import { Horizon, Keypair, Address, xdr, nativeToScVal } from '@stellar/stellar-sdk';
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -248,6 +248,7 @@ async function handler(req: Request): Promise<Response> {
     const { stellarPublicKey: senderPublicKey } = senderAccount;
     const { stellarPublicKey: receiverPublicKey } = receiverAccount;
     const { contractId: tokenContractId } = token;
+    const treasuryPublicKey = process.env.TREASURY_PUBLIC_KEY?.trim();
 
     // Execute Soroban spend_offline
     try {
@@ -261,6 +262,15 @@ async function handler(req: Request): Promise<Response> {
 
         // TOLL CALCULATION 
         const tollStroops = token.symbol === 'PHPC' ? 5000000n : 0n;
+        if (token.symbol === 'PHPC') {
+            const issuer = process.env.PHPC_ISSUER_PUBKEY?.trim();
+            if (issuer) {
+                await assertClassicTrustline(receiverPublicKey, token.symbol, issuer, 'receiver');
+                if (tollStroops > 0n && treasuryPublicKey) {
+                    await assertClassicTrustline(treasuryPublicKey, token.symbol, issuer, 'treasury');
+                }
+            }
+        }
 
         // ─── PRE-FLIGHT LOCAL FIREWALL (Anti Gas-Drain) ──────────────────────────
         const amountScVal = nativeToScVal(amountStroops, { type: 'i128' });
@@ -376,7 +386,7 @@ async function handler(req: Request): Promise<Response> {
 
     } catch (err: unknown) {
         const isInfraError = isNetworkOrRpcError(err);
-        const failReason = err instanceof Error ? err.message : String(err);
+        const failReason = normalizeSettlementFailure(err);
 
         console.error(
             `[Settle] spend_offline ${isInfraError ? 'INFRA' : 'BUSINESS'} error:`,
@@ -482,6 +492,39 @@ function isNetworkOrRpcError(err: unknown): boolean {
         msg.includes('failed to fetch') ||
         msg.includes('connection refused')
     );
+}
+
+async function assertClassicTrustline(
+    publicKey: string,
+    assetCode: string,
+    issuer: string,
+    label: string,
+): Promise<void> {
+    const horizonUrl =
+        process.env.STELLAR_HORIZON_URL ??
+        (process.env.STELLAR_NETWORK_PASSPHRASE?.includes('Public Global')
+            ? 'https://horizon.stellar.org'
+            : 'https://horizon-testnet.stellar.org');
+    const server = new Horizon.Server(horizonUrl);
+    const account = await server.loadAccount(publicKey);
+    const hasTrustline = account.balances.some((balance) => {
+        if (balance.asset_type === 'native') return false;
+        if (balance.asset_type === 'liquidity_pool_shares') return false;
+        return balance.asset_code === assetCode && balance.asset_issuer === issuer;
+    });
+
+    if (!hasTrustline) {
+        throw new Error(`${label} account ${publicKey} is missing ${assetCode}:${issuer} trustline`);
+    }
+}
+
+function normalizeSettlementFailure(err: unknown): string {
+    const message = err instanceof Error ? err.message : String(err);
+    const trustlineMatch = message.match(/trustline entry is missing for account["\s,]+(G[A-Z2-7]{55})/);
+    if (trustlineMatch?.[1]) {
+        return `Missing token trustline for account ${trustlineMatch[1]}. Create a PHPC trustline before retrying settlement.`;
+    }
+    return message;
 }
 
 // ---------------------------------------------------------------------------
