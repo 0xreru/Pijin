@@ -39,7 +39,8 @@ config.resolver.unstable_enablePackageExports = false;
 // Dynamically resolve roots using the new helper
 const stellarSdkRoot = resolvePackageRoot('@stellar/stellar-sdk');
 const reactNativeSvgRoot = resolvePackageRoot('react-native-svg');
-
+// Explicitly locate pijin_core in the workspace
+const pijinCoreRoot = path.resolve(workspaceRoot, 'packages/pijin_core');
 const stellarFull = path.join(stellarSdkRoot, 'lib');
 
 config.resolver.extraNodeModules = {
@@ -57,6 +58,7 @@ const stellarAliases = {
   // Force Metro to use the compiled CommonJS build of react-native-svg instead of
   // the TypeScript source.
   'react-native-svg': path.join(reactNativeSvgRoot, 'lib', 'commonjs', 'index.js'),
+  'pijin_core': path.join(pijinCoreRoot, 'src', 'index.ts'),
 };
 
 const defaultResolveRequest = config.resolver.resolveRequest;

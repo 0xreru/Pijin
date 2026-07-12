@@ -41,6 +41,7 @@
     "expo-status-bar": "~2.0.1",
     "fast-base64-decode": "^1.0.0",
     "fast-text-encoding": "^1.0.6",
+    "pijin_core": "*",
     "qrcode": "^1.5.4",
     "react": "18.3.1",
     "react-freeze": "^1.0.4",

@@ -25,6 +25,173 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 52;
 const TRACK_WIDTH = SCREEN_WIDTH - 40;
 const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
+const STROOPS_PER_UNIT = 10_000_000;
+
+function stringifyForDepositLog(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.stack || value.message;
+
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(
+      value,
+      (_key, innerValue) => {
+        if (typeof innerValue === 'bigint') return innerValue.toString();
+        if (typeof innerValue === 'function') return `[Function ${innerValue.name || 'anonymous'}]`;
+        if (innerValue && typeof innerValue === 'object') {
+          if (seen.has(innerValue)) return '[Circular]';
+          seen.add(innerValue);
+        }
+        return innerValue;
+      },
+      2
+    );
+  } catch {
+    return String(value);
+  }
+}
+
+function pickDeepDepositError(err: any): unknown {
+  return (
+    err?.simulation?.error ??
+    err?.simulation ??
+    err?.response?.data?.extras?.result_codes ??
+    err?.response?.data?.extras ??
+    err?.response?.data ??
+    err?.extras?.result_codes ??
+    err?.extras ??
+    err?.sendTransactionResponse?.errorResult ??
+    err?.sendTransactionResponse ??
+    err?.result_codes ??
+    err?.error ??
+    err?.message ??
+    err
+  );
+}
+
+function extractDepositError(err: unknown): string {
+  const extracted = pickDeepDepositError(err);
+  const rendered = stringifyForDepositLog(extracted);
+  const fallback = stringifyForDepositLog(err);
+
+  if (rendered && rendered !== '{}' && rendered !== 'undefined') {
+    return rendered;
+  }
+  if (fallback && fallback !== '{}' && fallback !== 'undefined') {
+    return fallback;
+  }
+  return 'Unknown Soroban deposit failure. Check Metro logs for the raw error object.';
+}
+
+function amountToStroops(amount: number): bigint {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`Invalid deposit amount: ${amount}`);
+  }
+  return BigInt(Math.round(amount * STROOPS_PER_UNIT));
+}
+
+async function executeDeposit(input: { customerPublicKey: string; amount: number }): Promise<string | undefined> {
+  const startedAt = Date.now();
+  const markStage = (stage: string, details?: unknown): void => {
+    const suffix = details === undefined ? '' : ` details=${stringifyForDepositLog(details)}`;
+    console.log(`[deposit] stage=${stage} elapsedMs=${Date.now() - startedAt}${suffix}`);
+  };
+
+  const { Client } = require('pijin_core');
+  const { Keypair, TransactionBuilder } = require('@stellar/stellar-sdk');
+  const { getOrGenerateDeviceKeypair } = require('../services/wallet/deviceKeyStore');
+  const { getMainWalletSecret } = require('../services/storage/onboardingStorage');
+  const { waitForTransaction } = require('../services/soroban/deposit');
+  const {
+    CONTRACT_ID,
+    SOROBAN_RPC_URL,
+    STELLAR_NETWORK_PASSPHRASE,
+  } = require('../constants/stellar');
+
+  const token = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
+  if (!CONTRACT_ID) throw new Error('Missing EXPO_PUBLIC_CONTRACT_ID in apps/mobile/.env');
+  if (!token) throw new Error('Missing EXPO_PUBLIC_TOKEN_ID in apps/mobile/.env');
+
+  markStage('load-main-wallet');
+  const mainWalletSecret = await getMainWalletSecret();
+  if (!mainWalletSecret) {
+    throw new Error('No main wallet secret found in SecureStore.');
+  }
+
+  const mainWalletKeypair = Keypair.fromSecret(mainWalletSecret);
+  const mainWalletPublicKey = mainWalletKeypair.publicKey();
+  if (mainWalletPublicKey !== input.customerPublicKey) {
+    throw new Error(
+      `Main wallet mismatch. Active account is ${input.customerPublicKey}, but SecureStore main wallet is ${mainWalletPublicKey}.`
+    );
+  }
+
+  const amount = amountToStroops(input.amount);
+  markStage('build-params', {
+    customer: input.customerPublicKey,
+    signer: mainWalletPublicKey,
+    token,
+    amount: amount.toString(),
+    amountType: typeof amount,
+  });
+
+  const pijinContract = new Client({
+    networkPassphrase: process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE || STELLAR_NETWORK_PASSPHRASE,
+    contractId: process.env.EXPO_PUBLIC_CONTRACT_ID || CONTRACT_ID,
+    rpcUrl: process.env.EXPO_PUBLIC_SOROBAN_RPC_URL || SOROBAN_RPC_URL,
+  });
+
+  let tx: any;
+  try {
+    markStage('simulate');
+    const deviceKeypair = await getOrGenerateDeviceKeypair();
+
+    tx = await pijinContract.deposit({
+      sender: mainWalletPublicKey,
+      token,
+      pubkey: deviceKeypair.rawPublicKey(),
+      amount,
+    });
+    markStage('simulate-success', { result: tx?.result });
+  } catch (err) {
+    const extractedError = extractDepositError(err);
+    console.error('[deposit] simulate failed raw=', err);
+    console.error('[deposit] simulate failed extracted=', extractedError);
+    throw new Error(`Simulation failed:\n${extractedError}`);
+  }
+
+  try {
+    markStage('sign-and-send');
+    const { sendTransactionResponse } = await tx.signAndSend({
+      signTransaction: async (
+        xdr: string,
+        signOpts?: { networkPassphrase?: string }
+      ): Promise<{ signedTxXdr: string; signerAddress: string }> => {
+        const passphrase = signOpts?.networkPassphrase ?? STELLAR_NETWORK_PASSPHRASE;
+        const transaction = TransactionBuilder.fromXDR(xdr, passphrase);
+        transaction.sign(mainWalletKeypair);
+
+        return {
+          signedTxXdr: transaction.toXDR(),
+          signerAddress: mainWalletPublicKey,
+        };
+      },
+    });
+
+    markStage('sign-and-send-success', sendTransactionResponse);
+    const hash = sendTransactionResponse?.hash;
+    if (hash) {
+      markStage('wait-confirmation', { hash });
+      await waitForTransaction(hash);
+    }
+    return hash;
+  } catch (err) {
+    const extractedError = extractDepositError(err);
+    console.error('[deposit] signAndSend failed raw=', err);
+    console.error('[deposit] signAndSend failed extracted=', extractedError);
+    throw new Error(`Sign/send failed:\n${extractedError}`);
+  }
+}
 
 export function LoadOfflineFundsScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -136,32 +303,23 @@ export function LoadOfflineFundsScreen({ route, navigation }: any) {
                 swipeAnim.setValue(0);
 
                 try {
-                  const { getOrGenerateDeviceKeypair } = require('../services/wallet/deviceKeyStore');
-                  const { depositToVault, waitForTransaction } = require('../services/soroban/deposit');
-
                   if (!activeAccount?.stellarPublicKey) {
                     throw new Error('No active account public key found.');
                   }
 
-                  const deviceKeypair = await getOrGenerateDeviceKeypair();
-                  const result = await depositToVault({
+                  await executeDeposit({
                     customerPublicKey: activeAccount.stellarPublicKey,
-                    offlineDevicePublicKey: deviceKeypair.publicKey(),
-                    amountPhp: currentAmount,
+                    amount: currentAmount,
                   });
-
-                  if (result?.hash) {
-                    await waitForTransaction(result.hash);
-                  }
 
                   setIsLoading(false);
                   setModalVisible(true);
                 } catch (err: any) {
+                  const extractedError = extractDepositError(err);
+                  console.error('[deposit] failed raw=', err);
+                  console.error('[deposit] failed extracted=', extractedError);
                   setIsLoading(false);
-                  Alert.alert(
-                    'Deposit Failed',
-                    err?.message || 'An unexpected error occurred during deposit.'
-                  );
+                  Alert.alert('Deposit Failed', extractedError);
                   Animated.timing(swipeAnim, {
                     toValue: 0,
                     duration: 350,
