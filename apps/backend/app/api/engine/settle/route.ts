@@ -77,7 +77,6 @@
  *                   type: string
  */
 import { NextResponse } from 'next/server';
-import crypto from 'node:crypto';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
 import { pijinContract } from '@/lib/pijin-contract';
@@ -97,7 +96,7 @@ export const dynamic = 'force-dynamic';
 // verifySignatureAppRouter so any request that doesn't carry a valid QStash
 // HMAC signature is rejected before execution.
 //
-// Payload format (v2 - Pijin-Vault multi-token):
+// Payload format (v2 - Omni-Vault multi-token):
 //   tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
 //
 // Happy-path status machine:
@@ -109,12 +108,8 @@ export const dynamic = 'force-dynamic';
 // ---------------------------------------------------------------------------
 
 async function handler(req: Request): Promise<Response> {
-    // Extract tracking ID from broker headers.
-    // For direct mobile calls (no QStash), generate a UUID so the unique-
-    // constraint on qstashMessageId doesn't block subsequent requests.
-    const qstashMessageId =
-        req.headers.get('upstash-message-id') ??
-        `direct-${crypto.randomUUID()}`;
+    // Extract tracking ID from broker headers
+    const qstashMessageId = req.headers.get('upstash-message-id') ?? 'unknown';
 
     // Parse body
     let body: { smsPayload?: string; senderPhone?: string };
@@ -196,14 +191,8 @@ async function handler(req: Request): Promise<Response> {
 
     // Hydrate Stellar public keys + Token record (parallel)
     const [senderAccount, receiverAccount, token] = await Promise.all([
-        prisma.account.findUnique({
-            where: { shortId: senderShortId },
-            select: { stellarPublicKey: true, phoneNumber: true, offlineDeviceKey: true },
-        }),
-        prisma.account.findUnique({
-            where: { shortId: receiverShortId },
-            select: { stellarPublicKey: true, phoneNumber: true, offlineDeviceKey: true },
-        }),
+        prisma.account.findUnique({ where: { shortId: senderShortId } }),
+        prisma.account.findUnique({ where: { shortId: receiverShortId } }),
         prisma.token.findUnique({ where: { id: tokenId } }),
     ]).catch(async (err) => {
         console.error('[Settle] DB hydration failed (infra error):', err);
@@ -213,8 +202,8 @@ async function handler(req: Request): Promise<Response> {
         });
         return [null, null, null] as const;
     }) as [
-        { stellarPublicKey: string; phoneNumber?: string | null; offlineDeviceKey?: string | null } | null,
-        { stellarPublicKey: string; phoneNumber?: string | null; offlineDeviceKey?: string | null } | null,
+        { stellarPublicKey: string; offlineDeviceKey: string | null; phoneNumber?: string | null } | null,
+        { stellarPublicKey: string; offlineDeviceKey: string | null; phoneNumber?: string | null } | null,
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
 
@@ -288,11 +277,10 @@ async function handler(req: Request): Promise<Response> {
         ]);
 
         const xdrBytes = xdrTuple.toXDR();
-
-        // Prefer the offline device key (generated at onboarding) if available,
-        // otherwise fall back to the Stellar public key for accounts that
-        // pre-date the offline key field.
-        const verificationKey = senderAccount.offlineDeviceKey ?? senderPublicKey;
+        
+        // 🔥 ARCHITECT FIX: Use the offline device key to verify the signature!
+        // We fallback to the stellarPublicKey only for old accounts that haven't migrated.
+        const verificationKey = senderAccount.offlineDeviceKey || senderPublicKey;
         const senderKeypair = Keypair.fromPublicKey(verificationKey);
         
         if (!senderKeypair.verify(xdrBytes, signatureBuffer)) {
@@ -357,7 +345,7 @@ async function handler(req: Request): Promise<Response> {
             smsPromises.push(
                 sendSmsNotification(
                     senderRegisteredNumber,
-                    `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
+                    `OmniFi: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
                 )
             );
         }
@@ -367,7 +355,7 @@ async function handler(req: Request): Promise<Response> {
             smsPromises.push(
                 sendSmsNotification(
                     receiverRegisteredNumber,
-                    `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
+                    `OmniFi: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
                 )
             );
         }
@@ -496,25 +484,4 @@ function isNetworkOrRpcError(err: unknown): boolean {
 // ---------------------------------------------------------------------------
 // Export - wrapped with QStash signature verification
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Export
-//
-// QStash always delivers with an `upstash-signature` header.
-// When the mobile app calls this directly (online sync after offline mode),
-// that header is absent — we skip the QStash HMAC check and rely entirely
-// on the Ed25519 signature verification inside the handler to authenticate
-// the request. This is safe because:
-//   1. The handler cryptographically verifies the device keypair signature.
-//   2. Any payload with an invalid or missing sig is rejected with status 200
-//      (FAILED), never reaching the Soroban contract.
-// ---------------------------------------------------------------------------
-const qstashHandler = verifySignatureAppRouter(handler);
-
-export async function POST(req: Request): Promise<Response> {
-    // QStash always attaches this header — direct mobile calls do not.
-    if (req.headers.has('upstash-signature')) {
-        return qstashHandler(req);
-    }
-    // Direct call from mobile app — run the handler, Ed25519 is the firewall.
-    return handler(req);
-}
+export const POST = verifySignatureAppRouter(handler);
