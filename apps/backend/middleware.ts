@@ -26,7 +26,7 @@ function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Signature, X-Textbee-Signature",
   };
 }
 
