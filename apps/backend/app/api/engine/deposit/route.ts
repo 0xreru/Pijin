@@ -79,7 +79,7 @@
  *         description: Soroban simulation failed.
  */
 import { NextResponse } from 'next/server';
-import { Keypair } from '@stellar/stellar-sdk';
+import { Keypair, Transaction, xdr, StrKey } from '@stellar/stellar-sdk';
 import { pijinContract } from '@/lib/pijin-contract';
 
 // ---------------------------------------------------------------------------
@@ -87,6 +87,55 @@ import { pijinContract } from '@/lib/pijin-contract';
 // ---------------------------------------------------------------------------
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrites SorobanAuthorizationEntry objects that use Address credentials for
+ * `targetPublicKey` to SourceAccount credentials instead.
+ *
+ * Why: The deposit tx source IS the sender. `SorobanCredentials::SourceAccount`
+ * means "authorized by whoever signed this transaction at the envelope level",
+ * which is exactly what `tx.sign(senderKeypair)` on the mobile provides.
+ * This eliminates the need for a separate `authorizeEntry()` call on mobile,
+ * which would require fetching the current ledger sequence and has Hermes
+ * compatibility risks with the Stellar SDK.
+ */
+function useSourceAccountAuth(tx: Transaction, targetPublicKey: string): void {
+    const targetPubKeyBytes = StrKey.decodeEd25519PublicKey(targetPublicKey);
+
+    for (const op of tx.operations as any[]) {
+        if (!Array.isArray(op.auth)) continue;
+
+        op.auth = op.auth.map((entry: xdr.SorobanAuthorizationEntry) => {
+            const creds = entry.credentials();
+
+            // Only touch Address-type credentials
+            if (creds.switch().name !== 'sorobanCredentialsAddress') return entry;
+
+            const addr = creds.address().address();
+
+            // Only touch Account-type addresses (not contract addresses)
+            if (addr.switch().name !== 'scAddressTypeAccount') return entry;
+
+            const entryPubKeyBytes = addr.accountId().ed25519();
+
+            // Only rewrite entries belonging to the target sender
+            if (!Buffer.from(entryPubKeyBytes).equals(Buffer.from(targetPubKeyBytes))) {
+                return entry;
+            }
+
+            // Replace with SourceAccount credentials — tx.sign() satisfies this
+            console.log(`[Deposit] Rewriting auth entry for ${targetPublicKey} → SourceAccount credentials`);
+            return new xdr.SorobanAuthorizationEntry({
+                credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+                rootInvocation: entry.rootInvocation(),
+            });
+        });
+    }
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/engine/deposit
@@ -203,6 +252,10 @@ export async function POST(req: Request): Promise<Response> {
             console.error('[Deposit] assembledTx.built is undefined after simulation');
             return NextResponse.json({ error: 'Soroban assembly produced no transaction' }, { status: 500 });
         }
+
+        // Rewrite sender's auth entries from Address → SourceAccount credentials
+        // so the mobile's tx.sign() call fully satisfies sender.require_auth().
+        useSourceAccountAuth(builtTx, senderPublicKey);
 
         const xdr = builtTx.toEnvelope().toXDR('base64');
 
