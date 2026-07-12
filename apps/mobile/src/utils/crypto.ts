@@ -33,6 +33,7 @@ export type SmsPayloadParams = {
    * the correct token record without an extra round-trip.
    */
   tokenIdStr: string;
+  tokenSymbol: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -106,13 +107,14 @@ export function stripBase64Padding(b64: string): string {
  */
 function buildXdrTuple(
   amountStroops: bigint,
+  tollStroops: bigint,
   nonce32: Uint8Array,
   receiverPubKey: string,
   gatewayPubKey: string,
   tokenContractId: string,
 ): Buffer {
   const amountScVal  = nativeToScVal(amountStroops, { type: 'i128' });
-  const tollScVal    = nativeToScVal(0n,             { type: 'i128' });
+  const tollScVal     = nativeToScVal(tollStroops, { type: 'i128' });
   const nonceScVal   = xdr.ScVal.scvBytes(Buffer.from(nonce32));
   const receiverScVal = Address.fromString(receiverPubKey).toScVal();
   const gatewayScVal  = Address.fromString(gatewayPubKey).toScVal();
@@ -166,6 +168,7 @@ export async function generateOfflineSmsPayload(
     gatewayPubKey,
     tokenContractId,
     tokenIdStr,
+    tokenSymbol,
   } = params;
 
   // ── Step 1: Generate a cryptographically-secure 32-byte nonce ──────────────
@@ -179,10 +182,12 @@ export async function generateOfflineSmsPayload(
       nonce32[i] = Math.floor(Math.random() * 256);
     }
   }
-
+  
+  const tollStroops = tokenSymbol === 'PHPC' ? 5000000n : 0n;
   // ── Step 2: Serialize the Soroban XDR Tuple ────────────────────────────────
   const xdrBuffer = buildXdrTuple(
     amountStroops,
+    tollStroops,
     nonce32,
     receiverPubKey,
     gatewayPubKey,

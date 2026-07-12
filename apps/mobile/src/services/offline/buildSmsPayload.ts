@@ -18,8 +18,36 @@ function requireEnv(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Default token: PHPC
+// ---------------------------------------------------------------------------
+
+/**
+ * The default offline payment token.
+ * All three fields are driven by env vars so the value is consistent with
+ * what `buildXdrTuple` in crypto.ts and the backend settlement engine use.
+ * Swap this out (or pass a different `selectedToken`) when multi-token
+ * support is needed.
+ */
+export const PHPC_TOKEN: SelectedToken = {
+  symbol:     'PHPC',
+  contractId: (process.env.EXPO_PUBLIC_CONTRACT_ID ?? '').replace(/^['"]|['"]$/g, '') ||
+              'CBSGTQCZKOLRCIPG4LQVZOAC2ITBM5UNH7J4XRXCFGGPUI45AQYILVIB',
+  tokenDbId:  (process.env.EXPO_PUBLIC_TOKEN_DB_ID ?? '').replace(/^['"]|['"]$/g, '') ||
+              '1',
+};
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
+
+export type SelectedToken = {
+  /** Asset ticker, e.g. "PHPC" or "USDC". Used to compute the protocol toll. */
+  symbol: string;
+  /** Soroban C-address of the token's smart contract. */
+  contractId: string;
+  /** Numeric DB record ID for the token, serialised as a decimal string. */
+  tokenDbId: string;
+};
 
 export type OfflineVoucherInput = {
   /** Short ID of the receiver (merchant). */
@@ -31,6 +59,11 @@ export type OfflineVoucherInput = {
    * Converted internally to stroops (× 10,000,000).
    */
   amountPhp: number;
+  /**
+   * The token to use for this offline payment.
+   * Defaults to PHPC (CONTRACT_ID / TOKEN_DB_ID from env) when omitted.
+   */
+  selectedToken?: SelectedToken;
 };
 
 export type OfflineVoucherResult = {
@@ -77,7 +110,12 @@ export type OfflineVoucherResult = {
 export async function buildOfflineSmsVoucher(
   input: OfflineVoucherInput,
 ): Promise<OfflineVoucherResult> {
-  const { receiverShortId, receiverPubKey, amountPhp } = input;
+  const {
+    receiverShortId,
+    receiverPubKey,
+    amountPhp,
+    selectedToken = PHPC_TOKEN,   // default: PHPC — change when multi-token lands
+  } = input;
 
   // ── 1. Load sender identity from secure storage ────────────────────────────
   const account = await loadStoredAccount();
@@ -92,10 +130,16 @@ export async function buildOfflineSmsVoucher(
   const deviceKeypair = await getOrGenerateDeviceKeypair();
   const senderSecretKey = deviceKeypair.secret();
 
-  // ── 3. Gather environment configuration ───────────────────────────────────
+  // ── 3. Resolve token — caller-supplied takes priority; fall back to env ────
   const gatewayPubKey   = requireEnv('EXPO_PUBLIC_GATEWAY_PUBLIC_KEY');
-  const tokenContractId = CONTRACT_ID  || requireEnv('EXPO_PUBLIC_CONTRACT_ID');
-  const tokenIdStr      = TOKEN_DB_ID  || process.env.EXPO_PUBLIC_TOKEN_DB_ID || '1';
+  const tokenContractId = selectedToken?.contractId
+    || CONTRACT_ID
+    || requireEnv('EXPO_PUBLIC_CONTRACT_ID');
+  const tokenIdStr      = selectedToken?.tokenDbId
+    || TOKEN_DB_ID
+    || process.env.EXPO_PUBLIC_TOKEN_DB_ID
+    || '1';
+  const tokenSymbol     = selectedToken?.symbol ?? 'PHPC';
 
   // ── 4. Convert amount to stroops (BigInt, 7 decimal places) ───────────────
   const amountStroops = phpToStroops(amountPhp);
@@ -113,6 +157,7 @@ export async function buildOfflineSmsVoucher(
     gatewayPubKey,
     tokenContractId,
     tokenIdStr,
+    tokenSymbol,
   });
 
   // ── 6. Extract nonce/signature from the payload for the result object ──────

@@ -259,9 +259,12 @@ async function handler(req: Request): Promise<Response> {
         const nonce32 = Buffer.alloc(32);
         nonceBuffer.copy(nonce32);
 
+        // TOLL CALCULATION 
+        const tollStroops = token.symbol === 'PHPC' ? 5000000n : 0n;
+
         // ─── PRE-FLIGHT LOCAL FIREWALL (Anti Gas-Drain) ──────────────────────────
         const amountScVal = nativeToScVal(amountStroops, { type: 'i128' });
-        const tollScVal = nativeToScVal(0n, { type: 'i128' });
+        const tollScVal = nativeToScVal(tollStroops, { type: 'i128' }); // Updated to use dynamic toll
         const nonceScVal = xdr.ScVal.scvBytes(nonce32);
         const receiverScVal = Address.fromString(receiverPublicKey).toScVal();
         const gatewayScVal = Address.fromString(process.env.RELAYER_PUBLIC_KEY!).toScVal();
@@ -311,7 +314,7 @@ async function handler(req: Request): Promise<Response> {
                 token:          tokenContractId,          // Soroban SAC / contract address
                 receiver:       receiverPublicKey,
                 amount:         amountStroops,            // i128 - SDK accepts bigint natively
-                protocol_toll:  0n,                       // no toll for now
+                protocol_toll:  tollStroops,                       // .50 PHPC toll
                 nonce:          nonce32,
                 signature:      signatureBuffer,
             },
@@ -345,7 +348,7 @@ async function handler(req: Request): Promise<Response> {
             smsPromises.push(
                 sendSmsNotification(
                     senderRegisteredNumber,
-                    `OmniFi: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
+                    `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
                 )
             );
         }
@@ -355,7 +358,7 @@ async function handler(req: Request): Promise<Response> {
             smsPromises.push(
                 sendSmsNotification(
                     receiverRegisteredNumber,
-                    `OmniFi: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
+                    `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
                 )
             );
         }
