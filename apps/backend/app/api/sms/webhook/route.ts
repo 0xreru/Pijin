@@ -160,7 +160,15 @@ function verifyHmacSignature(rawBody: string, incomingSignature: string): boolea
 // POST /api/sms/webhook  – Ingress Shield
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
+    // ── 🚨 EXTREME INGRESS LOGGING — fires before auth, parse, or any logic ──────
+    console.log('\n=============================================');
+    console.log('[SMS WEBHOOK] 🚨 INCOMING PING DETECTED 🚨');
+    console.log('URL:', req.url);
+    console.log('METHOD:', req.method);
+    console.log('HEADERS:', JSON.stringify(Object.fromEntries(req.headers.entries()), null, 2));
+    // ── Read raw body (must be done before any other body access) ────────────────
     const rawBody = await req.text();
+    console.log('RAW BODY:', rawBody);
 
     // ── Tier 1: Dual-Layer Ingress Shield ─────────────────────────────────────
     const incomingSignature = req.headers.get('x-signature') || req.headers.get('x-textbee-signature') || '';
@@ -178,8 +186,7 @@ export async function POST(req: Request) {
     } 
     // Shield Layer B: Fallback to HTTPS URL Secret
     else if (incomingSecretUrl && incomingSecretUrl === expectedSecret) {
-        // Reduced to a standard info log to prevent "Error" fatigue in Vercel
-        console.log('[SMS Webhook] Android encoding drift caught. URL Secret fallback authorized.');
+        console.log('[SMS Webhook] Authorized via URL Secret.');
         isAuthorized = true;
     }
 
@@ -197,9 +204,21 @@ export async function POST(req: Request) {
     }
 
     // ── Event Filtering ───────────────────────────────────────────────────────
-    // We only care about incoming text messages
-    if (body.event && body.event !== 'MESSAGE_RECEIVED') {
-        return NextResponse.json({ success: true, status: 'Ignored' });
+    // Accept both payload schemas:
+    //   • Old Textbee:  { event: "MESSAGE_RECEIVED", data: { sender, message } }
+    //   • New Textbee:  { type: "RECEIVED", sender, message }  ← confirmed from live payload
+    const isLegacyEvent = body.event === 'MESSAGE_RECEIVED';
+    const isNewTypeEvent = body.type === 'RECEIVED';
+    const isDeliveryReceipt = body.event && body.event !== 'MESSAGE_RECEIVED';
+
+    if (!isLegacyEvent && !isNewTypeEvent) {
+        // Only reject if we can positively identify a non-inbound event type
+        if (isDeliveryReceipt) {
+            console.log(`[SMS Webhook] Ignored event type: ${body.event}`);
+            return NextResponse.json({ success: true, status: 'Ignored' });
+        }
+        // Unknown schema — log it and continue optimistically
+        console.warn('[SMS Webhook] Unknown event schema. Attempting to process anyway:', JSON.stringify(body));
     }
 
     // ── Extract Data Payload ──────────────────────────────────────────────────
