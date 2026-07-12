@@ -76,6 +76,7 @@ export function DashboardScreen({ navigation }: any) {
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
+  const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
 
   // Live Queries for automatic, reactive UI updates
   const { data: transactions = [] } = useLiveQuery(
@@ -140,6 +141,12 @@ export function DashboardScreen({ navigation }: any) {
           } else {
             setServerOfflineBalance(0.00);
             await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
+          }
+          const storedReadIds = await AsyncStorage.getItem('pijn.read_notifs');
+          if (storedReadIds) {
+            try {
+              setReadNotifIds(JSON.parse(storedReadIds));
+            } catch (e) {}
           }
         }
 
@@ -477,6 +484,39 @@ export function DashboardScreen({ navigation }: any) {
   const onlineTxs = useMemo(() => transactions.filter(t => t.tag === 'WALLET'), [transactions]);
   const offlineTxs = useMemo(() => transactions.filter(t => t.tag === 'OFFLINE'), [transactions]);
 
+  const markNotifAsRead = useCallback((id: string) => {
+    setReadNotifIds(prev => {
+      if (prev.includes(id)) return prev;
+      const newIds = [...prev, id];
+      AsyncStorage.setItem('pijn.read_notifs', JSON.stringify(newIds)).catch(() => {});
+      return newIds;
+    });
+  }, []);
+
+  const markAllNotifsAsRead = useCallback(() => {
+    const now = new Date().getTime();
+    const unreadIds = transactions
+      .filter(t => t.createdAt && (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000 && !readNotifIds.includes(t.id))
+      .map(t => t.id);
+
+    if (unreadIds.length === 0) return;
+
+    setReadNotifIds(prev => {
+      const newIds = [...prev, ...unreadIds];
+      AsyncStorage.setItem('pijn.read_notifs', JSON.stringify(newIds)).catch(() => {});
+      return newIds;
+    });
+  }, [transactions, readNotifIds]);
+
+  const unreadCount = useMemo(() => {
+    const now = new Date().getTime();
+    return transactions.filter(t => 
+      t.createdAt && 
+      (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000 &&
+      !readNotifIds.includes(t.id)
+    ).length;
+  }, [transactions, readNotifIds]);
+
   const renderActiveTabContent = () => {
     return (
       <View style={styles.tabSliderWindow}>
@@ -519,7 +559,13 @@ export function DashboardScreen({ navigation }: any) {
 
           {/* Tab 2: Notifications */}
           <View style={styles.tabPanel}>
-            <NotificationsTab insets={insets} transactions={transactions} />
+            <NotificationsTab 
+              insets={insets} 
+              transactions={transactions} 
+              readIds={readNotifIds}
+              onMarkAsRead={markNotifAsRead}
+              onMarkAllAsRead={markAllNotifsAsRead}
+            />
           </View>
 
           {/* Tab 3: Scan */}
@@ -562,6 +608,7 @@ export function DashboardScreen({ navigation }: any) {
       <BottomNavBar
         activeTab={activeTab}
         onChangeTab={handleChangeTab}
+        unreadCount={unreadCount}
       />
 
       {/* Logout Modal */}

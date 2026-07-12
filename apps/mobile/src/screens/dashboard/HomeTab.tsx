@@ -237,7 +237,7 @@ export const HomeTab = memo(function HomeTab({
 
             {/* Recent Activity List */}
             <TransactionList
-              transactions={onlineTxs}
+              transactions={onlineTxs.slice(0, 5)}
               onViewAll={onViewAllTransactions}
             />
           </View>
@@ -307,7 +307,7 @@ export const HomeTab = memo(function HomeTab({
 
             {/* Recent Activity List */}
             <TransactionList
-              transactions={offlineTxs}
+              transactions={offlineTxs.slice(0, 5)}
               onViewAll={onViewAllTransactions}
             />
           </View>
@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   scrollContent: {
-    paddingBottom: 110,
+    paddingBottom: 140,
   },
   scrollView: {
     overflow: 'visible',
