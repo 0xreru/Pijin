@@ -27,6 +27,8 @@ export type SmsPayloadParams = {
   gatewayPubKey: string;
   /** Soroban contract ID (C-address) of the token contract */
   tokenContractId: string;
+  /** Asset ticker used for protocol toll calculation, e.g. "PHPC" */
+  tokenSymbol?: string;
   /**
    * The numeric token identifier stored in the Pijin DB, serialized as a
    * decimal string.  Prefixed to the SMS payload so the backend can look up
@@ -167,6 +169,7 @@ export async function generateOfflineSmsPayload(
     gatewayPubKey,
     tokenContractId,
     tokenIdStr,
+    tokenSymbol,
   } = params;
 
   // ── Step 1: Generate a cryptographically-secure 32-byte nonce ──────────────
@@ -181,7 +184,8 @@ export async function generateOfflineSmsPayload(
     }
   }
   
-  const isPHPC = tokenContractId === process.env.EXPO_PUBLIC_TOKEN_ID;
+  const configuredTokenId = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
+  const isPHPC = tokenSymbol === 'PHPC' || tokenContractId === configuredTokenId;
   const tollStroops = isPHPC ? 5000000n : 0n; // 0.50 PHPC protocol toll
   // ── Step 2: Serialize the Soroban XDR Tuple ────────────────────────────────
   const xdrBuffer = buildXdrTuple(
