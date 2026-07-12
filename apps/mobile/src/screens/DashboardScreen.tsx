@@ -177,6 +177,19 @@ export function DashboardScreen({ navigation }: any) {
       });
     });
 
+    const subLoadOnline = DeviceEventEmitter.addListener('ON_LOAD_ONLINE_FUNDS', (amount: number) => {
+      setServerOfflineBalance((prevOffline) => {
+        const newOffline = Math.max(0, prevOffline - amount);
+        AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
+        return newOffline;
+      });
+      setCachedBalance((prevOnline) => {
+        const newOnline = prevOnline + amount;
+        AsyncStorage.setItem(CACHED_BALANCE_KEY, newOnline.toString());
+        return newOnline;
+      });
+    });
+
     const subSendOffline = DeviceEventEmitter.addListener('ON_SEND_MONEY_OFFLINE', (amount: number) => {
       // Handled reactively via Drizzle useLiveQuery + pendingPayments subtraction.
     });
@@ -184,6 +197,7 @@ export function DashboardScreen({ navigation }: any) {
     return () => {
       subLoad.remove();
       subSendOnline.remove();
+      subLoadOnline.remove();
       subSendOffline.remove();
     };
   }, []);
@@ -336,14 +350,19 @@ export function DashboardScreen({ navigation }: any) {
     return () => sub.unsubscribe();
   }, [isOnline]);
 
-  // Automatically trigger smart sync when online mode is active and shortId is loaded
+  // Automatically trigger smart sync when internet is detected and shortId is loaded
   useEffect(() => {
-    if (isOnline && shortId !== '0000') {
-      syncService.syncTransactions(shortId, publicKey)
+    if (hasInternet && shortId !== '0000') {
+      syncService.flush()
+        .then(() => {
+          if (isOnline) {
+             return syncService.syncTransactions(shortId, publicKey);
+          }
+        })
         .then(() => refreshBalance())
-        .catch((err) => console.warn('[DashboardScreen] Sync failed:', err));
+        .catch((err) => console.warn('[DashboardScreen] Auto-sync failed:', err));
     }
-  }, [isOnline, shortId, publicKey]);
+  }, [hasInternet, isOnline, shortId, publicKey]);
 
   // Switch transition handler
   const handleStateTransition = (targetOnline: boolean) => {
@@ -421,6 +440,10 @@ export function DashboardScreen({ navigation }: any) {
     navigation.navigate('LoadOfflineFunds', { balance: cachedBalance });
   }, [navigation, cachedBalance]);
 
+  const handleLoadOnlineFundsPress = useCallback(() => {
+    navigation.navigate('LoadOnlineFunds', { balance: offlineBalance });
+  }, [navigation, offlineBalance]);
+
   const handleSendPress = useCallback(() => {
     navigation.navigate('SendMoney');
   }, [navigation]);
@@ -487,6 +510,7 @@ export function DashboardScreen({ navigation }: any) {
               onSyncQueue={handleSyncQueue}
               onAddMockQueueItem={handleAddMockQueueItem}
               onLoadOfflineFundsPress={handleLoadOfflineFundsPress}
+              onLoadOnlineFundsPress={handleLoadOnlineFundsPress}
               onSendPress={handleSendPress}
               onReceivePress={handleReceivePress}
               onViewAllTransactions={handleViewAllTransactions}
