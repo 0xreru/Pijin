@@ -40,6 +40,7 @@ interface HomeTabProps {
   onSyncQueue: () => void;
   onAddMockQueueItem: () => void;
   onLoadOfflineFundsPress: () => void;
+  onLoadOnlineFundsPress: () => void;
   onSendPress: () => void;
   onReceivePress: () => void;
   onViewAllTransactions: () => void;
@@ -67,6 +68,7 @@ export const HomeTab = memo(function HomeTab({
   onSyncQueue,
   onAddMockQueueItem,
   onLoadOfflineFundsPress,
+  onLoadOnlineFundsPress,
   onSendPress,
   onReceivePress,
   onViewAllTransactions,
@@ -262,7 +264,7 @@ export const HomeTab = memo(function HomeTab({
             {queueCount > 0 && (
               <QueueIndicator
                 queueCount={queueCount}
-                onSyncPress={onSyncQueue}
+                onPress={() => navigation.navigate('PendingSync')}
                 syncing={syncing}
               />
             )}
@@ -289,6 +291,17 @@ export const HomeTab = memo(function HomeTab({
                   <Ionicons name="arrow-down" size={20} color="#FFFFFF" style={styles.rotatedIcon} />
                 </TouchableOpacity>
                 <Text style={styles.actionLabel}>Receive</Text>
+              </View>
+
+              <View style={styles.actionItemOffline}>
+                <TouchableOpacity
+                  style={styles.actionCircle}
+                  onPress={onLoadOnlineFundsPress}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+                <Text style={styles.actionLabel}>Load Online Funds</Text>
               </View>
             </View>
 
@@ -408,13 +421,13 @@ const styles = StyleSheet.create({
   },
   actionsContainerOffline: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 50,
+    justifyContent: 'space-between',
     width: '100%',
     paddingVertical: 18,
   },
   actionItemOffline: {
     alignItems: 'center',
+    flex: 1,
   },
   sliderWindow: {
     width: '100%',
