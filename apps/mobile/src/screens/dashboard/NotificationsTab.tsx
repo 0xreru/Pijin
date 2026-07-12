@@ -15,9 +15,10 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface NotificationsTabProps {
   insets: { top: number; bottom: number; left: number; right: number };
+  transactions?: any[];
 }
 
-export const NotificationsTab = memo(function NotificationsTab({ insets }: NotificationsTabProps) {
+export const NotificationsTab = memo(function NotificationsTab({ insets, transactions = [] }: NotificationsTabProps) {
   const NOTIF_SCREEN_WIDTH = SCREEN_WIDTH - 40;
 
   const [activeNotificationFilter, setActiveNotificationFilter] = useState<'all' | 'transactions' | 'updates' | 'unread'>('all');
@@ -33,13 +34,44 @@ export const NotificationsTab = memo(function NotificationsTab({ insets }: Notif
     }).start();
   }, [activeNotificationFilter]);
 
-  const mockNotifs = [
-    { id: '1', title: 'Transfer Received from Maria', body: 'Maria S. sent you ', amount: '₱2,000', time: '5m ago', type: 'transaction', unread: true, initials: 'MS' },
-    { id: '2', title: 'Transfer Received from Juan', body: 'Juan D. sent you ', amount: '₱1,500', time: '15m ago', type: 'transaction', unread: false, initials: 'JD' },
-    { id: '3', title: 'Transfer Received from Sophia', body: 'Sophia L. sent you ', amount: '₱350', time: '1h ago', type: 'transaction', unread: true, initials: 'SL' },
-    { id: '4', title: 'Transfer Received from Alexander', body: 'Alexander M. sent you ', amount: '₱5,000', time: '3h ago', type: 'transaction', unread: false, initials: 'AM' },
-    { id: '5', title: 'Transfer Received from Isabella', body: 'Isabella C. sent you ', amount: '₱800', time: '1d ago', type: 'transaction', unread: false, initials: 'IC' },
-  ];
+  const notifs = React.useMemo(() => {
+    return transactions.map((tx) => {
+      let title = 'Update';
+      let body = '';
+      let initials = 'OM'; // Default
+
+      if (tx.type === 'incoming') {
+        title = 'Transfer Received';
+        body = tx.title + ' ';
+      } else if (tx.type === 'outgoing' || tx.type === 'transfer') {
+        title = 'Transfer Sent';
+        body = tx.title + ' ';
+      } else {
+        title = 'Transaction';
+        body = tx.title + ' ';
+      }
+
+      // Try to extract initials from title (e.g. "Received from Maria")
+      const match = tx.title.match(/from\s+(.*)|to\s+(.*)/i);
+      if (match) {
+        const name = match[1] || match[2];
+        if (name && name.length >= 2) {
+          initials = name.substring(0, 2).toUpperCase();
+        }
+      }
+
+      return {
+        id: tx.id,
+        title,
+        body,
+        amount: `₱${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        time: tx.timeAgo,
+        type: 'transaction',
+        unread: false,
+        initials,
+      };
+    });
+  }, [transactions]);
 
   const handleFilterChange = (filter: 'all' | 'transactions' | 'updates' | 'unread') => {
     setActiveNotificationFilter(filter);
@@ -61,7 +93,7 @@ export const NotificationsTab = memo(function NotificationsTab({ insets }: Notif
     );
   };
 
-  const renderNotifList = (items: typeof mockNotifs) => {
+  const renderNotifList = (items: any[]) => {
     if (items.length > 0) {
       return (
         <ScrollView
@@ -159,22 +191,22 @@ export const NotificationsTab = memo(function NotificationsTab({ insets }: Notif
         >
           {/* Panel 0: All */}
           <View style={{ width: NOTIF_SCREEN_WIDTH, flex: 1 }}>
-            {renderNotifList(mockNotifs.filter(item => item.type === 'transaction'))}
+            {renderNotifList(notifs)}
           </View>
 
           {/* Panel 1: Transactions */}
           <View style={{ width: NOTIF_SCREEN_WIDTH, flex: 1 }}>
-            {renderNotifList(mockNotifs.filter(item => item.type === 'transaction'))}
+            {renderNotifList(notifs.filter(item => item.type === 'transaction'))}
           </View>
 
           {/* Panel 2: Updates */}
           <View style={{ width: NOTIF_SCREEN_WIDTH, flex: 1 }}>
-            {renderNotifList([])}
+            {renderNotifList(notifs.filter(item => item.type === 'update'))}
           </View>
 
           {/* Panel 3: Unread */}
           <View style={{ width: NOTIF_SCREEN_WIDTH, flex: 1 }}>
-            {renderNotifList(mockNotifs.filter(item => item.type === 'transaction' && item.unread))}
+            {renderNotifList(notifs.filter(item => item.unread))}
           </View>
         </Animated.View>
       </View>
