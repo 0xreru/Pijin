@@ -33,7 +33,6 @@ export type SmsPayloadParams = {
    * the correct token record without an extra round-trip.
    */
   tokenIdStr: string;
-  tokenSymbol: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -168,7 +167,6 @@ export async function generateOfflineSmsPayload(
     gatewayPubKey,
     tokenContractId,
     tokenIdStr,
-    tokenSymbol,
   } = params;
 
   // ── Step 1: Generate a cryptographically-secure 32-byte nonce ──────────────
@@ -183,7 +181,8 @@ export async function generateOfflineSmsPayload(
     }
   }
   
-  const tollStroops = tokenSymbol === 'PHPC' ? 5000000n : 0n;
+  const isPHPC = tokenContractId === process.env.EXPO_PUBLIC_TOKEN_ID;
+  const tollStroops = isPHPC ? 5000000n : 0n; // 0.50 PHPC protocol toll
   // ── Step 2: Serialize the Soroban XDR Tuple ────────────────────────────────
   const xdrBuffer = buildXdrTuple(
     amountStroops,
