@@ -97,21 +97,11 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
     console.log(`[deposit] stage=${stage} elapsedMs=${Date.now() - startedAt}${suffix}`);
   };
 
-  const { Client } = require('pijin_core');
-  const { Keypair, TransactionBuilder } = require('@stellar/stellar-sdk');
+  const { Keypair, StrKey, TransactionBuilder } = require('@stellar/stellar-sdk');
   const { getOrGenerateDeviceKeypair } = require('../services/wallet/deviceKeyStore');
   const { getMainWalletSecret } = require('../services/storage/onboardingStorage');
-  const { waitForTransaction } = require('../services/soroban/deposit');
-  const {
-    CONTRACT_ID,
-    SOROBAN_RPC_URL,
-    STELLAR_NETWORK_PASSPHRASE,
-  } = require('../constants/stellar');
 
-  const token = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
-  if (!CONTRACT_ID) throw new Error('Missing EXPO_PUBLIC_CONTRACT_ID in apps/mobile/.env');
-  if (!token) throw new Error('Missing EXPO_PUBLIC_TOKEN_ID in apps/mobile/.env');
-
+  // ── 1. Load main wallet ────────────────────────────────────────────────────
   markStage('load-main-wallet');
   const mainWalletSecret = await getMainWalletSecret();
   if (!mainWalletSecret) {
@@ -126,72 +116,164 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
     );
   }
 
-  const amount = amountToStroops(input.amount);
-  markStage('build-params', {
-    customer: input.customerPublicKey,
-    signer: mainWalletPublicKey,
-    token,
-    amount: amount.toString(),
-    amountType: typeof amount,
-  });
+  // ── 2. Convert amount to stroops ───────────────────────────────────────────
+  const amountStroops = amountToStroops(input.amount).toString();
+  markStage('build-params', { customer: input.customerPublicKey, amountStroops });
 
-  const pijinContract = new Client({
-    networkPassphrase: process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE || STELLAR_NETWORK_PASSPHRASE,
-    contractId: process.env.EXPO_PUBLIC_CONTRACT_ID || CONTRACT_ID,
-    rpcUrl: process.env.EXPO_PUBLIC_SOROBAN_RPC_URL || SOROBAN_RPC_URL,
-  });
+  // ── 3. Get offline device keypair & encode pubkey as hex ──────────────────
+  markStage('load-device-key');
+  const deviceKeypair = await getOrGenerateDeviceKeypair();
+  const offlineDevicePubkeyHex = Buffer.from(
+    StrKey.decodeEd25519PublicKey(deviceKeypair.publicKey())
+  ).toString('hex');
 
-  let tx: any;
+  // ── 4. Sign canonical message for backend authentication ───────────────────
+  //
+  // The backend verifies this before touching the Soroban RPC, acting as
+  // a pre-flight firewall to prevent unauthorized simulation requests.
+  //
+  markStage('sign-auth');
+  const canonicalMessage = `deposit:${mainWalletPublicKey}:${amountStroops}`;
+  const sigBuffer = mainWalletKeypair.sign(Buffer.from(canonicalMessage));
+  const sigBase64 = Buffer.from(sigBuffer).toString('base64');
+
+  // ── 5. POST to backend to simulate & assemble the transaction XDR ─────────
+  //
+  // pijinContract.deposit() silently fails in React Native / Hermes because
+  // ContractClient's XDR-based dynamic method generation requires a full
+  // Node.js runtime. The backend does this step reliably and returns the
+  // assembled (but unsigned) XDR envelope.
+  //
+  markStage('assemble-via-backend');
+  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  const tokenAddress = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
+  const rpcUrl = process.env.EXPO_PUBLIC_SOROBAN_RPC_URL?.trim();
+  const networkPassphrase = process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE?.trim();
+
+  if (!apiBase) throw new Error('Missing EXPO_PUBLIC_API_BASE_URL in apps/mobile/.env');
+  if (!tokenAddress) throw new Error('Missing EXPO_PUBLIC_TOKEN_ID in apps/mobile/.env');
+  if (!rpcUrl) throw new Error('Missing EXPO_PUBLIC_SOROBAN_RPC_URL in apps/mobile/.env');
+  if (!networkPassphrase) throw new Error('Missing EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE in apps/mobile/.env');
+
+  let assembleResponse: Response;
   try {
-    markStage('simulate');
-    const deviceKeypair = await getOrGenerateDeviceKeypair();
-
-    tx = await pijinContract.deposit({
-      sender: mainWalletPublicKey,
-      token,
-      pubkey: deviceKeypair.rawPublicKey(),
-      amount,
-    });
-    markStage('simulate-success', { result: tx?.result });
-  } catch (err) {
-    const extractedError = extractDepositError(err);
-    console.error('[deposit] simulate failed raw=', err);
-    console.error('[deposit] simulate failed extracted=', extractedError);
-    throw new Error(`Simulation failed:\n${extractedError}`);
-  }
-
-  try {
-    markStage('sign-and-send');
-    const { sendTransactionResponse } = await tx.signAndSend({
-      signTransaction: async (
-        xdr: string,
-        signOpts?: { networkPassphrase?: string }
-      ): Promise<{ signedTxXdr: string; signerAddress: string }> => {
-        const passphrase = signOpts?.networkPassphrase ?? STELLAR_NETWORK_PASSPHRASE;
-        const transaction = TransactionBuilder.fromXDR(xdr, passphrase);
-        transaction.sign(mainWalletKeypair);
-
-        return {
-          signedTxXdr: transaction.toXDR(),
-          signerAddress: mainWalletPublicKey,
-        };
+    assembleResponse = await fetch(`${apiBase}/api/engine/deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sigBase64}`,
       },
+      body: JSON.stringify({
+        senderPublicKey: mainWalletPublicKey,
+        tokenAddress,
+        offlineDevicePubkeyHex,
+        amountStroops,
+      }),
     });
-
-    markStage('sign-and-send-success', sendTransactionResponse);
-    const hash = sendTransactionResponse?.hash;
-    if (hash) {
-      markStage('wait-confirmation', { hash });
-      await waitForTransaction(hash);
-    }
-    return hash;
   } catch (err) {
-    const extractedError = extractDepositError(err);
-    console.error('[deposit] signAndSend failed raw=', err);
-    console.error('[deposit] signAndSend failed extracted=', extractedError);
-    throw new Error(`Sign/send failed:\n${extractedError}`);
+    throw new Error(`Network error contacting deposit API: ${String(err)}`);
   }
+
+  const assembleData = await assembleResponse.json().catch(() => ({}));
+  if (!assembleResponse.ok) {
+    const reason = (assembleData as any)?.error ?? `HTTP ${assembleResponse.status}`;
+    console.error('[deposit] backend assembly error:', reason);
+    throw new Error(`Deposit failed: ${reason}`);
+  }
+
+  const xdr: string | undefined = (assembleData as any)?.xdr;
+  if (!xdr) {
+    throw new Error('Backend did not return an XDR envelope');
+  }
+  markStage('assemble-done');
+
+  // ── 6. Sign the assembled XDR with the sender's main wallet key ───────────
+  //
+  // The deposit transaction source account IS the sender, so Stellar requires
+  // the sender's Ed25519 signature — not the relayer's. We use the main wallet
+  // keypair that is stored locally in SecureStore.
+  //
+  markStage('sign-xdr');
+  let signedXdrBase64: string;
+  try {
+    const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase);
+    tx.sign(mainWalletKeypair);
+    const rawXdr = tx.toEnvelope().toXDR();
+    signedXdrBase64 = Buffer.from(rawXdr).toString('base64');
+  } catch (err) {
+    throw new Error(`Failed to sign XDR: ${String(err)}`);
+  }
+
+  // ── 7. Submit signed transaction directly to Soroban RPC ─────────────────
+  //
+  // We use a raw JSON-RPC fetch instead of rpc.Server to avoid any potential
+  // React Native / Hermes compatibility issues with the SDK's HTTP client.
+  //
+  markStage('submit');
+  let txHash: string | undefined;
+  try {
+    const sendResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'sendTransaction',
+        params: { transaction: signedXdrBase64 },
+      }),
+    });
+    const sendData = await sendResp.json();
+    if (sendData.error) {
+      throw new Error(sendData.error.message ?? JSON.stringify(sendData.error));
+    }
+    if (sendData.result?.status === 'ERROR') {
+      throw new Error(`Sending the transaction to the network failed!\n${JSON.stringify(sendData.result, null, 2)}`);
+    }
+    txHash = sendData.result?.hash;
+    markStage('submit-success', { txHash });
+  } catch (err) {
+    throw new Error(`Transaction submission failed: ${String(err)}`);
+  }
+
+  // ── 8. Poll for on-chain confirmation ─────────────────────────────────────
+  if (txHash) {
+    markStage('wait-confirmation', { txHash });
+    const maxAttempts = 15;
+    const intervalMs = 2000;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, intervalMs));
+      try {
+        const pollResp = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTransaction',
+            params: { hash: txHash },
+          }),
+        });
+        const pollData = await pollResp.json();
+        const status: string | undefined = pollData.result?.status;
+        if (status === 'SUCCESS') {
+          markStage('confirmed', { txHash });
+          break;
+        }
+        if (status === 'FAILED') {
+          throw new Error(`On-chain transaction FAILED. Hash: ${txHash}`);
+        }
+        // status === 'NOT_FOUND' → still pending, keep polling
+      } catch (pollErr) {
+        // Don't abort polling on a single transient network error
+        console.warn(`[deposit] poll attempt ${attempt + 1} error:`, pollErr);
+      }
+    }
+  }
+
+  markStage('complete', { txHash });
+  return txHash;
 }
+
 
 export function LoadOfflineFundsScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
