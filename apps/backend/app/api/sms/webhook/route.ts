@@ -221,14 +221,44 @@ export async function GET() {
 
 export async function POST(req: Request) {
     // ── 🚨 EXTREME INGRESS LOGGING — fires before auth, parse, or any logic ──────
-    console.log('\n=============================================');
-    console.log('[SMS WEBHOOK] 🚨 INCOMING PING DETECTED 🚨');
-    console.log('URL:', req.url);
-    console.log('METHOD:', req.method);
-    console.log('HEADERS:', JSON.stringify(Object.fromEntries(req.headers.entries()), null, 2));
-    // ── Read raw body (must be done before any other body access) ────────────────
-    const rawBody = await req.text();
-    console.log('RAW BODY:', rawBody);
+    console.log('\n\n');
+    console.log('############################################################');
+    console.log('### SMS WEBHOOK POST FUNCTION ENTERED - BEFORE BODY READ ###');
+    console.log('############################################################');
+    console.log('[SMS WEBHOOK TOP]', {
+        url: req.url,
+        method: req.method,
+        receivedAt: new Date().toISOString(),
+    });
+
+    let rawBody = '';
+    try {
+        rawBody = await req.text();
+    } catch (err) {
+        console.error('############################################################');
+        console.error('### SMS WEBHOOK BODY READ FAILED - REQUEST DID HIT VERCEL ###');
+        console.error('############################################################');
+        console.error('[SMS WEBHOOK BODY READ ERROR]', {
+            url: req.url,
+            method: req.method,
+            errorName: err instanceof Error ? err.name : 'UnknownError',
+            errorMessage: err instanceof Error ? err.message : String(err),
+            errorStack: err instanceof Error ? err.stack : undefined,
+        });
+        return NextResponse.json({ error: 'Failed to read request body' }, { status: 400 });
+    }
+
+    console.log('############################################################');
+    console.log('### SMS WEBHOOK RAW INGRESS CAPTURED - BEFORE AUTH/PARSE ###');
+    console.log('############################################################');
+    console.log('[SMS WEBHOOK RAW REQUEST]', {
+        url: req.url,
+        method: req.method,
+        rawBody,
+        rawBodyLength: rawBody.length,
+        headers: Object.fromEntries(req.headers.entries()),
+    });
+    console.log('############################################################');
 
     // ── Tier 1: Dual-Layer Ingress Shield ─────────────────────────────────────
     const incomingSignature = req.headers.get('x-signature') || req.headers.get('x-textbee-signature') || '';
