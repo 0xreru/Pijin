@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,6 +8,8 @@ import {
   Alert,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
+import { getUserPhone, getUserFirstName, getUserLastName } from '../../services/storage/onboardingStorage';
 
 interface ProfileTabProps {
   shortId: string;
@@ -17,19 +19,58 @@ interface ProfileTabProps {
 }
 
 export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets, onLogoutPress }: ProfileTabProps) {
+  const navigation = useNavigation<any>();
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [fullName, setFullName] = useState('');
+
+  useEffect(() => {
+    const fetchPhone = async () => {
+      try {
+        const phone = await getUserPhone();
+        if (phone) {
+          setPhoneNumber(phone);
+        }
+        
+        const fName = await getUserFirstName();
+        const lName = await getUserLastName();
+        if (fName || lName) {
+          setFullName(`${fName || ''} ${lName || ''}`.trim());
+        }
+      } catch (err) {
+        console.warn('Could not fetch user phone:', err);
+      }
+    };
+    fetchPhone();
+  }, []);
+
+  const formatPhoneNumber = (phone: string) => {
+    const clean = phone.replace(/[^0-9]/g, '');
+    if (clean.length !== 10) return phone ? `+63${clean}` : '';
+    return `+63 ${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(6)}`;
+  };
+
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.tabContentContainer, { paddingTop: Math.max(insets.top, 20) }]}
     >
-      <Text style={styles.tabHeaderTitle}>Profile</Text>
+      <View style={styles.notifHeaderRow}>
+        <Ionicons name="person-outline" size={28} color="#001E42" />
+        <Text style={styles.tabHeaderTitle}>Profile</Text>
+      </View>
+      
       
       {/* Profile Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileAvatarContainer}>
           <Ionicons name="person-circle" size={60} color="#001E42" />
         </View>
-        <Text style={styles.profileName}>Erickson Guhilde</Text>
+        <Text style={styles.profileName}>
+          {fullName ? fullName : (phoneNumber ? formatPhoneNumber(phoneNumber) : 'My Account')}
+        </Text>
+        {fullName ? (
+          <Text style={styles.profileShortId}>{formatPhoneNumber(phoneNumber)}</Text>
+        ) : null}
         <Text style={styles.profileShortId}>Wallet ID: #{shortId}</Text>
         
         <View style={styles.pubKeyContainer}>
@@ -47,7 +88,7 @@ export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets,
 
       {/* Menu List */}
       <View style={styles.menuContainer}>
-        <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Feature Offline', 'Available in full release.')}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('AccountSettings')}>
           <View style={styles.menuItemLeft}>
             <Ionicons name="settings-outline" size={20} color="#001E42" />
             <Text style={styles.menuItemText}>Account Settings</Text>
@@ -55,7 +96,7 @@ export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets,
           <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Vault Settings', 'Configure offline limit.')}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('VaultSettings')}>
           <View style={styles.menuItemLeft}>
             <Ionicons name="wallet-outline" size={20} color="#001E42" />
             <Text style={styles.menuItemText}>Vault Settings</Text>
@@ -63,10 +104,10 @@ export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets,
           <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('PIN Setting', 'Change app authorization PIN.')}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('ChangePin')}>
           <View style={styles.menuItemLeft}>
             <Ionicons name="lock-closed-outline" size={20} color="#001E42" />
-            <Text style={styles.menuItemText}>Change PIN</Text>
+            <Text style={styles.menuItemText}>Change MPIN</Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
         </TouchableOpacity>
@@ -88,11 +129,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 110,
   },
+  notifHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
   tabHeaderTitle: {
     fontSize: 28,
     fontWeight: '800',
     color: '#001E42',
-    marginBottom: 20,
   },
   profileCard: {
     backgroundColor: '#FFFFFF',
