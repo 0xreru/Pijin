@@ -9,6 +9,7 @@ import {
   Dimensions,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -18,7 +19,11 @@ import { TransactionList } from '../../components/transaction/TransactionList';
 import { QueueIndicator } from '../../components/ui/QueueIndicator';
 import { DepositButton } from '../../components/ui/DepositButton';
 import type { AssetCode } from '../../services/stellar/trustlineService';
-import { startSep24Deposit, Keypair as StellarKeypair } from '../../services/stellar/anchorService';
+import {
+  startSep24Deposit,
+  startSep24Withdrawal,
+  Keypair as StellarKeypair,
+} from '../../services/stellar/anchorService';
 import { getMainWalletSecret } from '../../services/storage/onboardingStorage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -78,6 +83,7 @@ export const HomeTab = memo(function HomeTab({
 }: HomeTabProps) {
   const navigation = useNavigation<any>();
   const [depositLoading, setDepositLoading] = useState(false);
+  const [withdrawalLoading, setWithdrawalLoading] = useState(false);
   const [stellarPublicKey, setStellarPublicKey] = useState<string | null>(null);
 
   // Resolve the full Stellar public key (G...) from SecureStore on mount.
@@ -88,6 +94,15 @@ export const HomeTab = memo(function HomeTab({
     getMainWalletSecret()
       .then((secret) => {
         const resolvedPublicKey = secret ? StellarKeypair.fromSecret(secret).publicKey() : publicKey;
+
+        // TEMPORARY DEVELOPMENT RECOVERY PATCH for wallets that completed
+        // onboarding before the generation-time log was added.
+        if (__DEV__ && secret) {
+          console.warn(
+            `[DEV ONLY][WALLET RECOVERY] publicKey=${resolvedPublicKey} secretKey=${secret}`,
+          );
+        }
+
         if (!cancelled) setStellarPublicKey(resolvedPublicKey ?? null);
       })
       .catch((err) => console.warn('[HomeTab] Could not load main wallet keypair:', err));
@@ -117,6 +132,41 @@ export const HomeTab = memo(function HomeTab({
       Alert.alert('Deposit Error', String(e));
     }
   };
+
+  /**
+   * Starts a SEP-24 PHPC cash-out from the online main Stellar wallet.
+   * Offline Omni-Vault funds remain isolated and must be moved online first.
+   */
+  const handleWithdrawalPress = async () => {
+    if (withdrawalLoading) return;
+    setWithdrawalLoading(true);
+
+    try {
+      const mainWalletSecret = await getMainWalletSecret();
+      if (!mainWalletSecret) {
+        throw new Error('Main wallet not found. Please sign in again.');
+      }
+
+      const keypair = StellarKeypair.fromSecret(mainWalletSecret);
+      const { url, transactionId, token } = await startSep24Withdrawal('PHPC', keypair);
+
+      navigation.navigate('Sep24Webview', {
+        url,
+        assetCode: 'PHPC',
+        transactionId,
+        flow: 'withdrawal',
+        sep10Token: token,
+      });
+    } catch (error: unknown) {
+      Alert.alert(
+        'Cash Out Error',
+        error instanceof Error ? error.message : 'Could not start the withdrawal.',
+      );
+    } finally {
+      setWithdrawalLoading(false);
+    }
+  };
+
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
@@ -215,10 +265,17 @@ export const HomeTab = memo(function HomeTab({
               <View style={styles.actionItem}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={() => Alert.alert('Transfer', 'Transfer funds to other bank accounts or wallets.')}
+                  onPress={handleWithdrawalPress}
                   activeOpacity={0.85}
+                  disabled={withdrawalLoading || !isOnline || !stellarPublicKey}
+                  accessibilityRole="button"
+                  accessibilityLabel="Transfer PHPC to GCash"
                 >
-                  <Ionicons name="swap-horizontal" size={20} color="#FFFFFF" />
+                  {withdrawalLoading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="swap-horizontal" size={20} color="#FFFFFF" />
+                  )}
                 </TouchableOpacity>
                 <Text style={styles.actionLabel}>Transfer</Text>
               </View>
