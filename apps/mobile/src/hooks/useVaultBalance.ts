@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getVaultBalance } from '../services/api/vault';
 import { stroopsToXlm } from '../constants/stellar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
   const [balancePhp, setBalancePhp] = useState<number | null>(null);
@@ -9,6 +10,7 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
   const [offlineBalancePhp, setOfflineBalancePhp] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!shortId && !stellarPublicKey) {
@@ -18,6 +20,7 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
       setResolvedShortId(null);
       setOfflineBalancePhp(null);
       setError(null);
+      setIsOffline(false);
       return;
     }
 
@@ -26,6 +29,7 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
     );
     setIsLoading(true);
     setError(null);
+    setIsOffline(false);
     const startTime = Date.now();
 
     try {
@@ -47,12 +51,30 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
     } catch (err) {
       const duration = Date.now() - startTime;
       const errorMessage = err instanceof Error ? err.message : 'Unable to load vault balance.';
-      console.error(`[useVaultBalance] API request failed after ${duration}ms:`, errorMessage, err);
       
-      setBalancePhp(null);
-      setBalanceXlm(null);
-      setOfflineBalancePhp(null);
-      setError(errorMessage);
+      const isNetworkError = errorMessage.toLowerCase().includes('network') || errorMessage.toLowerCase().includes('fetch');
+
+      if (isNetworkError) {
+        console.warn(`[useVaultBalance] Offline mode detected after ${duration}ms: ${errorMessage}`);
+        setIsOffline(true);
+        
+        // Attempt to retrieve last known balances from AsyncStorage
+        try {
+          const cachedOnline = await AsyncStorage.getItem('pijn.cached_balance');
+          const cachedOffline = await AsyncStorage.getItem('pijn.offline_balance');
+          
+          if (cachedOnline) setBalancePhp(parseFloat(cachedOnline));
+          if (cachedOffline) setOfflineBalancePhp(parseFloat(cachedOffline));
+        } catch (e) {
+          console.warn('[useVaultBalance] Failed to load cached balances:', e);
+        }
+      } else {
+        console.error(`[useVaultBalance] API request failed after ${duration}ms:`, errorMessage, err);
+        setBalancePhp(null);
+        setBalanceXlm(null);
+        setOfflineBalancePhp(null);
+        setError(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -62,5 +84,5 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
     refresh();
   }, [refresh]);
 
-  return { balancePhp, balanceXlm, resolvedShortId, offlineBalancePhp, isLoading, error, refresh };
+  return { balancePhp, balanceXlm, resolvedShortId, offlineBalancePhp, isLoading, error, refresh, isOffline };
 }

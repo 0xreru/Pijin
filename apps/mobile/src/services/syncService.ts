@@ -69,7 +69,7 @@ async function postToBackend(
 
   // /api/engine/settle returns { status: 'SETTLED' | 'FAILED' | 'DUPLICATE_SKIPPED', txHash? }
   if (data.status === 'FAILED') {
-    throw new Error(`Settlement failed: ${data.reason ?? 'Unknown reason'}`);
+    return { txHash: null, status: 'FAILED', error: data.reason ?? 'Unknown reason' };
   }
 
   return { txHash: data.txHash ?? null, status: data.status ?? 'PENDING' };
@@ -192,13 +192,55 @@ class SyncService {
             continue;
           }
 
-          const result = await postToBackend(item);
+          // Check for 24-hour timeout
+          const createdAtDate = new Date(item.createdAt).getTime();
+          const hoursElapsed = (Date.now() - createdAtDate) / (1000 * 60 * 60);
 
-          await markSynced(item.id, result.txHash, result.status);
+          let isFailed = false;
+          let errorMessage = '';
+
+          if (hoursElapsed > 24) {
+            isFailed = true;
+            errorMessage = 'Offline transaction expired (24h timeout)';
+          }
+
+          let result;
+          if (!isFailed) {
+            result = await postToBackend(item);
+            if (result.status === 'FAILED') {
+              isFailed = true;
+              errorMessage = `Settlement failed: ${result.error}`;
+            }
+          }
+
+          if (isFailed) {
+            console.log(`[SyncService] Item ${item.id} permanently failed: ${errorMessage}. Reversing...`);
+            
+            // Mark as synced with FAILED status to stop retrying
+            await markSynced(item.id, null, 'FAILED');
+            
+            // Refund the local balance
+            try {
+              await addTransaction({
+                title: 'Reversal: Failed Offline Payment',
+                amount: item.amount,
+                type: 'incoming',
+                tag: 'WALLET',
+                description: `Refund for failed offline payment. Reason: ${errorMessage}`,
+                stellarPublicKey: account?.stellarPublicKey,
+                shortId: account?.shortId,
+              });
+            } catch (txErr) {
+              console.error('[SyncService] Failed to log reversal transaction:', txErr);
+            }
+            continue;
+          }
+
+          await markSynced(item.id, result!.txHash, result!.status);
           successCount++;
           totalAmount += item.amount;
 
-          console.log(`[SyncService] Item ${item.id} synced. txHash: ${result.txHash}`);
+          console.log(`[SyncService] Item ${item.id} synced. txHash: ${result!.txHash}`);
         } catch (err: any) {
           const message = err?.message ?? 'Unknown error';
           await markSyncError(item.id, message);

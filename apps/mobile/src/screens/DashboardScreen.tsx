@@ -31,6 +31,9 @@ import { ScanTab } from './dashboard/ScanTab';
 import { TransactionsTab } from './dashboard/TransactionsTab';
 import { ProfileTab } from './dashboard/ProfileTab';
 
+// Import Offline Notice Modal
+import { OfflineNoticeModal } from '../components/ui/OfflineNoticeModal';
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
 const OFFLINE_BALANCE_KEY = 'pijn.offline_balance';
@@ -77,6 +80,7 @@ export function DashboardScreen({ navigation }: any) {
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
+  const [offlineNoticeVisible, setOfflineNoticeVisible] = useState(false);
 
   // Live Queries for automatic, reactive UI updates
   const { data: transactions = [] } = useLiveQuery(
@@ -119,6 +123,7 @@ export function DashboardScreen({ navigation }: any) {
   useEffect(() => {
     const initData = async () => {
       try {
+        await AsyncStorage.removeItem('pijn.hide_offline_notice'); // Ensure modal appears for testing
         await ensureMigration();
         const hasReset = await AsyncStorage.getItem('pijn.initial_reset_v2');
         if (!hasReset) {
@@ -371,6 +376,19 @@ export function DashboardScreen({ navigation }: any) {
     }
   }, [hasInternet, isOnline, shortId, publicKey]);
 
+  // Handle offline notice modal
+  useEffect(() => {
+    if (!hasInternet) {
+      AsyncStorage.getItem('pijn.hide_offline_notice').then(val => {
+        if (val !== 'true') {
+          setOfflineNoticeVisible(true);
+        }
+      });
+    } else {
+      setOfflineNoticeVisible(false);
+    }
+  }, [hasInternet]);
+
   // Switch transition handler
   const handleStateTransition = (targetOnline: boolean) => {
     setIsTransitioning(true);
@@ -616,6 +634,12 @@ export function DashboardScreen({ navigation }: any) {
         visible={logoutModalVisible}
         onConfirm={handleLogoutConfirm}
         onCancel={handleLogoutCancel}
+      />
+
+      {/* Offline Notice Modal */}
+      <OfflineNoticeModal
+        visible={offlineNoticeVisible}
+        onClose={() => setOfflineNoticeVisible(false)}
       />
     </View>
   );

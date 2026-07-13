@@ -22,6 +22,7 @@ import { ensureMigration } from '../services/storage/migration';
 import { useAuth } from '../context/AuthContext';
 import { useVaultBalance } from '../hooks/useVaultBalance';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
+import { connectionService } from '../services/connectionService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
@@ -67,16 +68,16 @@ export function SendMoneyScreen({ route, navigation }: any) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<RecipientInfo | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Fetch cached balance and network status on mount
+  // Fetch cached balance on mount and subscribe to network state
   useEffect(() => {
     const getCached = async () => {
       try {
         await ensureMigration();
         const onlineStr = await AsyncStorage.getItem('pijn.is_online');
         const online = onlineStr !== 'false';
-        setIsOnline(online);
 
         const key = online ? CACHED_BALANCE_KEY : 'pijn.offline_balance';
         const stored = await AsyncStorage.getItem(key);
@@ -90,6 +91,11 @@ export function SendMoneyScreen({ route, navigation }: any) {
       }
     };
     getCached();
+    
+    const sub = connectionService.state$.subscribe((state) => {
+      setIsOnline(state.isOnlineMode);
+    });
+    return () => sub.unsubscribe();
   }, []);
 
   // Prefill scanned QR data
@@ -154,6 +160,37 @@ export function SendMoneyScreen({ route, navigation }: any) {
     try {
       const isPhone = /^\d+$/.test(q) && q.length >= 7;
       const paramKey = isPhone ? 'phone' : 'shortId';
+
+      if (!isOnline) {
+        if (isPhone) {
+          setSearchError('Phone number lookup requires an internet connection.');
+          return;
+        }
+        
+        // Offline fallback: Search local transaction history
+        const { loadTransactions } = require('../db/services/transactionDb');
+        const txs = await loadTransactions();
+        
+        const match = txs.find((tx: any) => 
+          tx.shortId && 
+          tx.shortId.toLowerCase() === q.toLowerCase() && 
+          tx.stellarPublicKey
+        );
+
+        if (match) {
+          const nameMatch = match.title.replace(/^(Paid to|Received from|Sent to)\s+/i, '').trim();
+          setSearchResult({
+            shortId: match.shortId,
+            stellarPublicKey: match.stellarPublicKey,
+            offlineDeviceKey: null,
+            displayName: nameMatch || match.shortId,
+          });
+        } else {
+          setSearchError('Recipient not found in local history. Connect to internet or scan their QR code.');
+        }
+        return;
+      }
+
       const res = await fetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`);
       if (res.status === 404) {
         setSearchError('No account found with that Short ID or phone number.');
@@ -192,40 +229,101 @@ export function SendMoneyScreen({ route, navigation }: any) {
     setSearchResult(null);
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    if (isResolving) return;
+    
     let hasError = false;
+    let currentRecipient = resolvedRecipient;
 
-    // Validate recipient — must have been resolved via lookup
+    // Validate recipient
     if (!recipientShortId.trim()) {
       setRecipientShortIdError('Recipient Short ID is required');
-      hasError = true;
-    } else if (!resolvedRecipient) {
-      setRecipientShortIdError('Please use the search button to look up a valid recipient');
-      hasError = true;
-    } else {
-      setRecipientShortIdError(null);
+      return;
+    } 
+
+    if (!currentRecipient || currentRecipient.shortId.toLowerCase() !== recipientShortId.trim().toLowerCase()) {
+      // Auto-lookup the recipient
+      setIsResolving(true);
+      try {
+        const q = recipientShortId.trim();
+        const isPhone = /^\d+$/.test(q) && q.length >= 7;
+        
+        if (!isOnline) {
+          if (isPhone) {
+            setRecipientShortIdError('Phone number lookup requires an internet connection.');
+            setIsResolving(false);
+            return;
+          }
+          const { loadTransactions } = require('../db/services/transactionDb');
+          const txs = await loadTransactions();
+          const match = txs.find((tx: any) => 
+            tx.shortId && tx.shortId.toLowerCase() === q.toLowerCase() && tx.stellarPublicKey
+          );
+          if (match) {
+            const nameMatch = match.title.replace(/^(Paid to|Received from|Sent to)\s+/i, '').trim();
+            currentRecipient = {
+              shortId: match.shortId,
+              stellarPublicKey: match.stellarPublicKey,
+              offlineDeviceKey: null,
+              displayName: nameMatch || match.shortId,
+            };
+            setResolvedRecipient(currentRecipient);
+          } else {
+            setRecipientShortIdError('Recipient not found in local history. Connect to internet or scan their QR code.');
+            setIsResolving(false);
+            return;
+          }
+        } else {
+          // Online lookup
+          const paramKey = isPhone ? 'phone' : 'shortId';
+          const res = await fetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`);
+          if (res.status === 404 || !res.ok) {
+            setRecipientShortIdError('No account found with that Short ID or phone number.');
+            setIsResolving(false);
+            return;
+          }
+          const data = await res.json();
+          if (!data.found) {
+            setRecipientShortIdError('No account found with that Short ID or phone number.');
+            setIsResolving(false);
+            return;
+          }
+          currentRecipient = {
+            shortId: data.shortId,
+            stellarPublicKey: data.stellarPublicKey,
+            offlineDeviceKey: data.offlineDeviceKey ?? null,
+            displayName: data.displayName,
+          };
+          setResolvedRecipient(currentRecipient);
+        }
+      } catch (err) {
+        setRecipientShortIdError('Failed to look up recipient. Check your connection.');
+        setIsResolving(false);
+        return;
+      }
+      setIsResolving(false);
     }
+    
+    setRecipientShortIdError(null);
 
     // Validate amount
     const numAmount = parseFloat(amount);
     if (!amount.trim() || isNaN(numAmount) || numAmount <= 0) {
       setAmountError('Please enter a valid amount');
-      hasError = true;
+      return;
     } else if (numAmount + 0.50 > currentBalance) {
       setAmountError('Insufficient balance (including ₱0.50 fee)');
-      hasError = true;
+      return;
     } else {
       setAmountError(null);
     }
 
-    if (hasError) return;
-
-    // Navigate to confirmation — pass the REAL keys fetched from the backend
+    // Navigate to confirmation
     navigation.navigate('SendMoneyConfirm', {
-      recipientShortId: resolvedRecipient!.shortId,
-      recipientName: resolvedRecipient!.displayName,
-      receiverPubKey: resolvedRecipient!.stellarPublicKey,
-      offlineDeviceKey: resolvedRecipient!.offlineDeviceKey,
+      recipientShortId: currentRecipient!.shortId,
+      recipientName: currentRecipient!.displayName,
+      receiverPubKey: currentRecipient!.stellarPublicKey,
+      offlineDeviceKey: currentRecipient!.offlineDeviceKey,
       amount: numAmount,
       note: note.trim(),
     });
@@ -272,13 +370,18 @@ export function SendMoneyScreen({ route, navigation }: any) {
                     styles.textInput,
                     isPrefilledFromQR && styles.disabledTextInput
                   ]}
-                  placeholder="Search by Short ID or phone…"
+                  placeholder="Enter Short ID or phone…"
                   placeholderTextColor="#8C98A6"
-                  value={resolvedRecipient
-                    ? `${resolvedRecipient.displayName} (${resolvedRecipient.shortId})`
-                    : recipientShortId}
-                  editable={false}
-                  selectTextOnFocus={false}
+                  value={recipientShortId}
+                  onChangeText={(text) => {
+                    setRecipientShortId(text);
+                    if (resolvedRecipient) setResolvedRecipient(null);
+                    if (recipientShortIdError) setRecipientShortIdError(null);
+                  }}
+                  editable={!isPrefilledFromQR}
+                  selectTextOnFocus={!isPrefilledFromQR}
+                  autoCapitalize="none"
+                  autoCorrect={false}
                 />
                 {isPrefilledFromQR ? (
                   <View style={styles.iconContainer}>
@@ -301,6 +404,11 @@ export function SendMoneyScreen({ route, navigation }: any) {
                 )}
               </View>
             </View>
+            {resolvedRecipient && !recipientShortIdError && (
+              <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '700', marginLeft: 16, marginTop: 6 }}>
+                ✓ {resolvedRecipient.displayName}
+              </Text>
+            )}
             {recipientShortIdError && (
               <Text style={styles.errorText}>{recipientShortIdError}</Text>
             )}
@@ -375,7 +483,9 @@ export function SendMoneyScreen({ route, navigation }: any) {
             activeOpacity={0.8}
             id="btn-send-money-continue"
           >
-            <Text style={styles.continueButtonText}>Continue  →</Text>
+            <Text style={styles.continueButtonText}>
+              {isResolving ? 'Resolving...' : 'Continue  →'}
+            </Text>
           </TouchableOpacity>
 
           {/* Bottom Mascot Illustration */}
