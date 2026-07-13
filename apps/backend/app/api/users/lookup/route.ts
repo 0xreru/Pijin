@@ -8,16 +8,16 @@
  *     description: |
  *       Resolves a Pijin `shortId` (or phone number) to the account's real
  *       `stellarPublicKey`, `offlineDeviceKey`, and display name.
- *       Used by the mobile app's Send Money flow to obtain the **canonical**
- *       receiver public key before constructing the Soroban XDR tuple —
- *       ensuring the signature the app produces matches what the backend verifies.
+ *       Used by the mobile app for optional online name/details confirmation.
+ *       Offline vouchers bind only the exact case-sensitive short ID; the
+ *       Soroban registry is authoritative for its payment address.
  *     parameters:
  *       - in: query
  *         name: shortId
  *         required: false
  *         schema:
  *           type: string
- *         description: The 6-character Base62 short ID to resolve.
+ *         description: The exact, case-sensitive 6-character Base62 short ID to resolve.
  *         example: "PVAPqf"
  *       - in: query
  *         name: phone

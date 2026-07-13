@@ -19,8 +19,12 @@ pub enum ContractError {
     ExpiredVoucher = 4,
     NonceReplayed = 5,
     InsufficientBalance = 6,
+    RecipientNotFound = 7,
     MathOverflow = 8,
     NotWhitelistedGateway = 9,
+    ShortIdAlreadyRegistered = 10,
+    RegistrarNotConfigured = 11,
+    InvalidShortId = 12,
 }
 
 /// Typed storage keys for all contract state.
@@ -28,6 +32,7 @@ pub enum ContractError {
 /// Instance storage:
 /// - `Admin`: privileged account allowed to upgrade the contract.
 /// - `Treasury`: protocol toll recipient.
+/// - `Registrar`: narrowly-scoped backend signer allowed to manage short IDs.
 ///
 /// Persistent storage:
 /// - `Vault(Address, Address)`: per-user, per-token locked balance.
@@ -36,15 +41,18 @@ pub enum ContractError {
 /// - `Nonce(BytesN<32>)`: replay protection for settled vouchers.
 /// - `RegisteredKey(Address)`: user's offline Ed25519 key.
 /// - `Gateway(Address)`: whitelisted relayer entry.
+/// - `Recipient(BytesN<6>)`: case-sensitive Base62 short ID to wallet address.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
     Treasury,
+    Registrar,
     Vault(Address, Address),
     Nonce(BytesN<32>),
     RegisteredKey(Address),
     Gateway(Address),
+    Recipient(BytesN<6>),
 }
 
 #[contracttype]
@@ -63,10 +71,18 @@ pub struct SpendEvent {
     pub gateway: Address,
     pub token: Address,
     pub receiver: Address,
+    pub receiver_short_id: BytesN<6>,
     pub amount: i128,
     pub protocol_toll: i128,
     pub nonce: BytesN<32>,
     pub balance: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct RecipientEvent {
+    pub short_id: BytesN<6>,
+    pub receiver: Address,
 }
 
 #[contracttype]
@@ -98,6 +114,9 @@ impl PijinContract {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Treasury, &treasury);
+        // New deployments start with the admin as registrar. Existing deployed
+        // contracts upgraded to this WASM must call `set_registrar` once.
+        env.storage().instance().set(&DataKey::Registrar, &admin);
     }
 
     /// Upgrade the current contract WASM.
@@ -184,13 +203,110 @@ impl PijinContract {
         key
     }
 
+    /// Assign the narrowly-scoped signer that is allowed to maintain the
+    /// short-ID registry. Only the contract admin can rotate this role.
+    pub fn set_registrar(
+        env: Env,
+        admin: Address,
+        registrar: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::Unauthorized)?;
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::Registrar, &registrar);
+        Ok(())
+    }
+
+    pub fn get_registrar(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Registrar)
+    }
+
+    /// Register one canonical case-sensitive six-byte Base62 short ID.
+    /// Repeating the exact same mapping is idempotent and avoids another write.
+    pub fn register_recipient(
+        env: Env,
+        registrar: Address,
+        short_id: BytesN<6>,
+        receiver: Address,
+    ) -> Result<(), ContractError> {
+        require_registrar(&env, &registrar)?;
+        validate_short_id(&short_id)?;
+        let key = DataKey::Recipient(short_id.clone());
+        if let Some(existing) = env.storage().persistent().get::<_, Address>(&key) {
+            extend_persistent_ttl(&env, &key);
+            if existing == receiver {
+                return Ok(());
+            }
+            return Err(ContractError::ShortIdAlreadyRegistered);
+        }
+
+        env.storage().persistent().set(&key, &receiver);
+        extend_persistent_ttl(&env, &key);
+        let event = RecipientEvent {
+            short_id,
+            receiver: receiver.clone(),
+        };
+        env.events()
+            .publish((symbol_short!("recipient"), receiver), event);
+        Ok(())
+    }
+
+    /// Explicitly rotate an existing short ID to a different wallet address.
+    /// This is deliberately separate from registration to prevent accidental
+    /// address replacement during retries.
+    pub fn update_recipient(
+        env: Env,
+        registrar: Address,
+        short_id: BytesN<6>,
+        receiver: Address,
+    ) -> Result<(), ContractError> {
+        require_registrar(&env, &registrar)?;
+        validate_short_id(&short_id)?;
+        let key = DataKey::Recipient(short_id.clone());
+        let existing: Address = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::RecipientNotFound)?;
+        if existing == receiver {
+            extend_persistent_ttl(&env, &key);
+            return Ok(());
+        }
+
+        env.storage().persistent().set(&key, &receiver);
+        extend_persistent_ttl(&env, &key);
+        let event = RecipientEvent {
+            short_id,
+            receiver: receiver.clone(),
+        };
+        env.events()
+            .publish((symbol_short!("recipupd"), receiver), event);
+        Ok(())
+    }
+
+    /// Read the authoritative address for a short ID. TTL is extended by
+    /// state-changing registration and spend calls, not by this read helper.
+    pub fn get_recipient(env: Env, short_id: BytesN<6>) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Recipient(short_id))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn spend_offline(
         env: Env,
         gateway: Address,
         sender: Address,
         token: Address,
-        receiver: Address,
+        receiver_short_id: BytesN<6>,
         amount: i128,
         protocol_toll: i128,
         nonce: BytesN<32>,
@@ -212,6 +328,16 @@ impl PijinContract {
         extend_persistent_ttl(&env, &gateway_key);
         // ─────────────────────────────────────────────────────────────────────
 
+        // Resolve the payment destination from authoritative contract storage.
+        // The phone only needs the compact short ID when signing offline.
+        let recipient_key = DataKey::Recipient(receiver_short_id.clone());
+        let receiver: Address = env
+            .storage()
+            .persistent()
+            .get(&recipient_key)
+            .ok_or(ContractError::RecipientNotFound)?;
+        extend_persistent_ttl(&env, &recipient_key);
+
         let registered_key = DataKey::RegisteredKey(sender.clone());
         let sender_pubkey: BytesN<32> = env
             .storage()
@@ -220,12 +346,13 @@ impl PijinContract {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::Unauthorized));
         extend_persistent_ttl(&env, &registered_key);
 
-        // Signature payload: (amount, protocol_toll, nonce, receiver, gateway, token)
+        // Signature payload:
+        // (amount, protocol_toll, nonce, receiver_short_id, gateway, token)
         let payload = (
             amount,
             protocol_toll,
             nonce.clone(),
-            receiver.clone(),
+            receiver_short_id.clone(),
             gateway.clone(),
             token.clone(),
         )
@@ -290,6 +417,7 @@ impl PijinContract {
             gateway: gateway.clone(),
             token: token.clone(),
             receiver: receiver.clone(),
+            receiver_short_id,
             amount,
             protocol_toll,
             nonce,
@@ -404,6 +532,31 @@ impl PijinContract {
             .remove(&DataKey::Gateway(gateway));
 
         Ok(())
+    }
+}
+
+fn require_registrar(env: &Env, registrar: &Address) -> Result<(), ContractError> {
+    registrar.require_auth();
+    let stored: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Registrar)
+        .ok_or(ContractError::RegistrarNotConfigured)?;
+    if *registrar != stored {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
+}
+
+fn validate_short_id(short_id: &BytesN<6>) -> Result<(), ContractError> {
+    if short_id
+        .to_array()
+        .iter()
+        .all(|byte| byte.is_ascii_digit() || byte.is_ascii_uppercase() || byte.is_ascii_lowercase())
+    {
+        Ok(())
+    } else {
+        Err(ContractError::InvalidShortId)
     }
 }
 

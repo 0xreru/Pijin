@@ -38,6 +38,7 @@ import {
 import { checkUserExists, registerAccount } from '../services/api/accounts';
 import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
 import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
+import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegistrySync';
 import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import { StatusBar } from 'expo-status-bar';
@@ -361,6 +362,10 @@ export function OnboardingScreen() {
 
       // Get the SEP-10 authentication JWT token using the funded main wallet.
       const token = await getSep10Token(mainWalletKeypair);
+
+      // The contract registry is the authoritative short ID -> payment address map.
+      // This response also seeds the configuration required to sign while offline.
+      await synchronizeRecipientRegistry(token);
 
       // Enroll the device key on-chain and mirror it to the database before
       // enabling offline voucher creation.

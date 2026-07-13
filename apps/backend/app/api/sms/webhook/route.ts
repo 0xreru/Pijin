@@ -100,6 +100,7 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Client } from '@upstash/qstash';
 import { sendSmsNotification } from '@/lib/sms';
+import { parseOfflineVoucher } from '@/lib/offline-voucher';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Runtime
@@ -329,15 +330,15 @@ export async function POST(req: Request) {
     }
 
     // ── Deduplication via Nonce ────────────────────────────────────────────────
-    const parts = message.split(':');
-    if (parts.length !== 6) {
-        return NextResponse.json({ error: 'Malformed payload' }, { status: 400 });
+    let voucher;
+    try {
+        voucher = parseOfflineVoucher(message);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Malformed payload';
+        return NextResponse.json({ error: reason }, { status: 400 });
     }
 
-    const [, senderShortId, , , nonce] = parts;
-    if (!senderShortId || !nonce) {
-        return NextResponse.json({ error: 'Malformed payload' }, { status: 400 });
-    }
+    const { senderShortId, nonceB64: nonce } = voucher;
 
     const deduplicationId = `${senderShortId}_${nonce}`;
 
