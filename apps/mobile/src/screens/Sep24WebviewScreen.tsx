@@ -1,7 +1,7 @@
 /**
  * Sep24WebviewScreen.tsx
  *
- * Pijin SEP-24 Interactive Deposit WebView
+ * Pijin SEP-24 Interactive Deposit / Withdrawal WebView
  * ────────────────────────────────────────
  *
  * Fully aligned with the app's design language:
@@ -17,9 +17,10 @@
  * • transactionId — The SEP-24 tx ID (shown as a compact chip).
  */
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   DeviceEventEmitter,
   Easing,
@@ -32,9 +33,15 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import type { WebViewNavigation } from 'react-native-webview';
+import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ANCHOR_DOMAIN } from '../services/stellar/anchorService';
+import {
+  ANCHOR_DOMAIN,
+  getSep24WithdrawalInstructions,
+  Keypair as StellarKeypair,
+  submitSep24WithdrawalPayment,
+} from '../services/stellar/anchorService';
+import { getMainWalletSecret } from '../services/storage/onboardingStorage';
 import { typography } from '../constants/typography';
 
 // ─── Theme tokens (mirrors app-wide theme.ts + BalanceCard colors) ────────────
@@ -211,6 +218,22 @@ const INJECTED_JS = `
       }
     \\\`;
     document.head.appendChild(style);
+
+    // Forward the withdrawal page's browser postMessage into React Native.
+    const forwardSep24Handoff = function(event) {
+      const data = event && event.data;
+      if (
+        data &&
+        typeof data === 'object' &&
+        data.type === 'success' &&
+        data.status === 'pending_user_transfer_start' &&
+        window.ReactNativeWebView
+      ) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(data));
+      }
+    };
+    window.addEventListener('message', forwardSep24Handoff);
+    document.addEventListener('message', forwardSep24Handoff);
   })();
   true;
 `;
@@ -221,6 +244,8 @@ interface Sep24WebviewRouteParams {
   url: string;
   assetCode: string;
   transactionId?: string;
+  flow?: 'deposit' | 'withdrawal';
+  sep10Token?: string;
 }
 
 interface Sep24WebviewScreenProps {
@@ -233,13 +258,50 @@ interface Sep24WebviewScreenProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function confirmNativeWithdrawal(input: {
+  amount: string;
+  assetCode: string;
+  destination: string;
+  memo?: string;
+}): Promise<boolean> {
+  const shortDestination = `${input.destination.slice(0, 8)}…${input.destination.slice(-8)}`;
+  const memoLine = input.memo ? `\nMemo: ${input.memo}` : '';
+
+  return new Promise((resolve) => {
+    Alert.alert(
+      `Confirm ${input.assetCode} cash out`,
+      `Send ${input.amount} ${input.assetCode} from your online wallet to the anchor Treasury?\n\nTreasury: ${shortDestination}${memoLine}`,
+      [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Transfer', onPress: () => resolve(true) },
+      ],
+      { cancelable: false },
+    );
+  });
+}
+
 export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProps) {
-  const { url, assetCode, transactionId } = route.params;
+  const {
+    url,
+    assetCode,
+    transactionId,
+    flow = 'deposit',
+    sep10Token,
+  } = route.params;
+  const isWithdrawal = flow === 'withdrawal';
   const insets = useSafeAreaInsets();
 
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isProcessingWithdrawal, setIsProcessingWithdrawal] = useState(false);
+  const [withdrawalHandoffReceived, setWithdrawalHandoffReceived] = useState(false);
+  const withdrawalInFlightRef = useRef(false);
 
   const progressAnim = useRef(new Animated.Value(0)).current;
   const progressOpacity = useRef(new Animated.Value(1)).current;
@@ -273,6 +335,9 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
   };
 
   const handleNavigationStateChange = (navState: WebViewNavigation) => {
+    // Deposit retains its existing URL-based success behavior. Withdrawal only
+    // succeeds after the native wallet payment is confirmed by Horizon.
+    if (isWithdrawal) return;
     const successUrl = navState.url;
     if (
       successUrl.includes('status=completed') ||
@@ -280,6 +345,74 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
       successUrl.includes('/success')
     ) {
       triggerSuccess();
+    }
+  };
+
+  const handleWebViewMessage = async (event: WebViewMessageEvent) => {
+    if (!isWithdrawal || withdrawalInFlightRef.current) return;
+
+    let message: unknown;
+    try {
+      message = JSON.parse(event.nativeEvent.data);
+    } catch {
+      return;
+    }
+
+    if (
+      !isRecord(message) ||
+      message.type !== 'success' ||
+      message.status !== 'pending_user_transfer_start'
+    ) {
+      return;
+    }
+
+    withdrawalInFlightRef.current = true;
+    setWithdrawalHandoffReceived(true);
+    setIsProcessingWithdrawal(true);
+    setHasError(false);
+    setErrorMessage('');
+
+    try {
+      if (!transactionId || !sep10Token) {
+        throw new Error('Withdrawal session is missing its authenticated transaction details.');
+      }
+
+      const mainWalletSecret = await getMainWalletSecret();
+      if (!mainWalletSecret) {
+        throw new Error('Main wallet not found. Please sign in again.');
+      }
+      const keypair = StellarKeypair.fromSecret(mainWalletSecret);
+
+      // SECURITY: destination, amount, and memo come only from the authenticated
+      // polling endpoint. Webview-controlled payment fields are never trusted.
+      const instructions = await getSep24WithdrawalInstructions(
+        transactionId,
+        sep10Token,
+        keypair.publicKey(),
+      );
+
+      const confirmed = await confirmNativeWithdrawal({
+        amount: instructions.amount,
+        assetCode: instructions.assetCode,
+        destination: instructions.destination,
+        memo: instructions.memo,
+      });
+
+      if (!confirmed) {
+        setIsProcessingWithdrawal(false);
+        if (navigation.canGoBack()) navigation.goBack();
+        return;
+      }
+
+      await submitSep24WithdrawalPayment(instructions, keypair);
+      setIsProcessingWithdrawal(false);
+      triggerSuccess();
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'The withdrawal transfer failed.';
+      console.error('[Sep24Withdrawal] Native transfer failed:', error);
+      setErrorMessage(detail);
+      setIsProcessingWithdrawal(false);
+      setHasError(true);
     }
   };
 
@@ -315,8 +448,8 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
   };
 
   const handleClose = () => {
-    // Signal the Dashboard to start polling for the updated balance.
-    // Fires on both "Done" (after success) and manual "Close".
+    // Reuse the existing balance-refresh event. Deposit behavior is unchanged;
+    // after withdrawal it refreshes the reduced online wallet balance.
     DeviceEventEmitter.emit('ON_DEPOSIT_COMPLETE');
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -346,7 +479,9 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
           <View style={styles.headerLeft}>
             <Text style={styles.wordmark}>PIJIN</Text>
             <Animated.Text style={[styles.headerTitle, { opacity: headerSubtitleAnim }]}>
-              {isSuccess ? 'Deposit Complete' : `Deposit ${assetCode}`}
+              {isSuccess
+                ? (isWithdrawal ? 'Cash Out Sent' : 'Deposit Complete')
+                : (isWithdrawal ? `Cash Out ${assetCode}` : `Deposit ${assetCode}`)}
             </Animated.Text>
           </View>
 
@@ -356,7 +491,7 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
             onPress={handleClose}
             activeOpacity={0.78}
             accessibilityRole="button"
-            accessibilityLabel="Close deposit webview"
+            accessibilityLabel={`Close ${isWithdrawal ? 'withdrawal' : 'deposit'} webview`}
             testID="sep24-close-button"
           >
             {isSuccess ? (
@@ -391,13 +526,27 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
       {/* ── WebView container ── */}
       <View style={styles.webviewContainer}>
         {/* Initial loading overlay */}
-        {!isLoaded && (
+        {!isLoaded && !withdrawalHandoffReceived && (
           <View style={styles.loadingOverlay}>
             <View style={styles.loadingSpinnerWrapper}>
               <ActivityIndicator size="large" color={T.navyAccent} />
             </View>
-            <Text style={styles.loadingTitle}>Loading deposit form</Text>
+            <Text style={styles.loadingTitle}>
+              {isWithdrawal ? 'Loading cash out form' : 'Loading deposit form'}
+            </Text>
             <Text style={styles.loadingSubText}>Connecting to secure anchor…</Text>
+          </View>
+        )}
+
+        {isProcessingWithdrawal && !hasError && !isSuccess && (
+          <View style={styles.loadingOverlay}>
+            <View style={styles.loadingSpinnerWrapper}>
+              <ActivityIndicator size="large" color={T.navyAccent} />
+            </View>
+            <Text style={styles.loadingTitle}>Preparing secure transfer</Text>
+            <Text style={styles.loadingSubText}>
+              Verifying Treasury payment instructions…
+            </Text>
           </View>
         )}
 
@@ -417,9 +566,14 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
               <Ionicons name="checkmark" size={38} color={T.success} />
             </LinearGradient>
 
-            <Text style={styles.successTitle}>Deposit Initiated!</Text>
+            <Text style={styles.successTitle}>
+              {isWithdrawal ? 'Withdrawal Transfer Sent!' : 'Deposit Initiated!'}
+            </Text>
             <Text style={styles.successSubtitle}>
-              Your {assetCode} deposit is being processed.{'\n'}Tap "Done" to return to your wallet.
+              {isWithdrawal
+                ? `Your ${assetCode} was sent to the anchor Treasury. Your fiat payout will be processed after confirmation.`
+                : `Your ${assetCode} deposit is being processed.`}
+              {'\n'}Tap "Done" to return to your wallet.
             </Text>
 
             {/* Done CTA */}
@@ -442,9 +596,15 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
             <View style={styles.errorIconWrapper}>
               <Ionicons name="wifi-outline" size={36} color={T.danger} />
             </View>
-            <Text style={styles.errorTitle}>Connection Error</Text>
+            <Text style={styles.errorTitle}>
+              {isWithdrawal ? 'Withdrawal Failed' : 'Connection Error'}
+            </Text>
             <Text style={styles.errorSubtitle}>
-              Could not load the deposit form.{'\n'}Please check your connection and try again.
+              {errorMessage || (
+                isWithdrawal
+                  ? 'The online wallet transfer could not be completed.'
+                  : 'Could not load the deposit form. Please check your connection and try again.'
+              )}
             </Text>
             <TouchableOpacity style={styles.goBackBtn} onPress={handleClose} activeOpacity={0.82}>
               <Text style={styles.goBackBtnText}>Go Back</Text>
@@ -452,7 +612,7 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
           </View>
         )}
 
-        <WebView
+        {!withdrawalHandoffReceived && <WebView
           source={{ uri: url }}
           style={styles.webview}
           originWhitelist={[
@@ -461,6 +621,7 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
           ]}
           onLoadProgress={handleLoadProgress}
           onNavigationStateChange={handleNavigationStateChange}
+          onMessage={handleWebViewMessage}
           onError={() => {
             setHasError(true);
             setIsLoaded(true);
@@ -481,7 +642,7 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
           cacheEnabled
           renderLoading={() => <View />}
           testID="sep24-webview"
-        />
+        />}
       </View>
     </View>
   );

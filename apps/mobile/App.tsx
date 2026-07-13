@@ -30,11 +30,13 @@ type RootStackParamList = {
   AccountSettings: undefined;
   VaultSettings: undefined;
   ChangePin: undefined;
-  /** SEP-24 interactive deposit webview. */
+  /** Shared SEP-24 interactive webview; deposit remains the default flow. */
   Sep24Webview: {
     url: string;
     assetCode: string;
     transactionId?: string;
+    flow?: 'deposit' | 'withdrawal';
+    sep10Token?: string;
   };
   PendingSync: undefined;
 };

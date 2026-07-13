@@ -343,7 +343,15 @@ export function OnboardingScreen() {
       // where a captured offline key could be used for on-chain operations.
       const mainWalletKeypair = StellarKeypair.random();
       const stellarPublicKey = mainWalletKeypair.publicKey();
-      await saveMainWalletSecret(mainWalletKeypair.secret());
+      const mainWalletSecret = mainWalletKeypair.secret();
+      await saveMainWalletSecret(mainWalletSecret);
+
+      // TEMPORARY DEVELOPMENT RECOVERY PATCH. Never runs in release builds.
+      if (__DEV__) {
+        console.warn(
+          `[DEV ONLY][WALLET RECOVERY] publicKey=${stellarPublicKey} secretKey=${mainWalletSecret}`,
+        );
+      }
       await fundMainWallet(stellarPublicKey);
 
       // Register the account on the backend with two DISTINCT keys.
