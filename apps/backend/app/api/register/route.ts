@@ -156,6 +156,9 @@ export async function POST(req: NextRequest) {
     const cleanPhone = phoneNumber ? phoneNumber.replace(/\D/g, "") : null;
     const cleanPin = pin ? pin.trim() : null;
     const cleanOfflineDeviceKey = offlineDeviceKey ? offlineDeviceKey.trim() : null;
+    if (cleanOfflineDeviceKey && !/^G[A-Z2-7]{55}$/.test(cleanOfflineDeviceKey)) {
+      return NextResponse.json({ error: "Invalid offline device public key format" }, { status: 400 });
+    }
     const cleanFirstName = firstName ? firstName.trim() : null;
     const cleanLastName = lastName ? lastName.trim() : null;
     const cleanEmail = email ? email.trim() : null;

@@ -36,6 +36,7 @@ import {
 } from '../services/storage/onboardingStorage';
 import { checkUserExists, registerAccount } from '../services/api/accounts';
 import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
+import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
 import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import { StatusBar } from 'expo-status-bar';
@@ -361,6 +362,10 @@ export function OnboardingScreen() {
 
       // Get the SEP-10 authentication JWT token using the funded main wallet.
       const token = await getSep10Token(mainWalletKeypair);
+
+      // Enroll the device key on-chain and mirror it to the database before
+      // enabling offline voucher creation.
+      await synchronizeOfflineDeviceKey(mainWalletKeypair, token);
 
       // Save onboarding complete and phone
       await saveRegisteredPhone(phoneNumber);
