@@ -1,13 +1,12 @@
 import { Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
-import { networks } from "pijin_core";
 import { prisma } from "@/lib/prisma";
-import { expandNonce, verifySignatureLocally } from "@/lib/crypto";
 import { sendSmsReceipt } from "@/lib/textbee";
+import { contractConfig, pijinContract } from "@/lib/pijin-contract";
 import {
-  pijinContract,
-  contractConfig,
-  sorobanRpcServer,
-} from "@/lib/pijin-contract";
+  buildOfflineSignatureXdr,
+  parseOfflineVoucher,
+  verifyOfflineVoucherSignature,
+} from "@/lib/offline-voucher";
 
 export type SettlementInput = {
   smsContent: string;
@@ -22,11 +21,6 @@ function normalizePhone(value?: string | null): string | null {
   return value.replace(/[^\d+]/g, "");
 }
 
-async function getExpiryLedger(): Promise<number> {
-  const latestLedger = await sorobanRpcServer.getLatestLedger();
-  return latestLedger.sequence + contractConfig.expiryBufferLedgers;
-}
-
 async function signWithRelayer(
   xdr: string,
   signOpts?: { networkPassphrase?: string }
@@ -37,7 +31,7 @@ async function signWithRelayer(
 
   const relayerKeypair = Keypair.fromSecret(process.env.RELAYER_SECRET_KEY);
   const passphrase =
-    signOpts?.networkPassphrase ?? networks.testnet.networkPassphrase;
+    signOpts?.networkPassphrase ?? contractConfig.networkPassphrase;
   const transaction = TransactionBuilder.fromXDR(xdr, passphrase);
   transaction.sign(relayerKeypair);
   return {
@@ -45,23 +39,30 @@ async function signWithRelayer(
     signerAddress: relayerKeypair.publicKey(),
   };
 }
-
 export async function processOfflineSettlement(
   input: SettlementInput
 ): Promise<SettlementResult> {
   const { smsContent } = input;
-  // Payload: tokenId:senderShortId:receiverShortId:amountBase62:nonce:signature
-  const [tokenIdStr, senderShortId, receiverShortId, amountBase62, nonceB64, sigB64] =
-    smsContent.split(":");
-
-  if (!tokenIdStr || !senderShortId || !receiverShortId || !amountBase62 || !nonceB64 || !sigB64) {
-    return { ok: false, status: 400, error: "Malformed Payload" };
+  let voucher;
+  try {
+    voucher = parseOfflineVoucher(smsContent);
+  } catch (error) {
+    return {
+      ok: false,
+      status: 400,
+      error: error instanceof Error ? error.message : "Malformed Payload",
+    };
   }
 
-  const tokenId = parseInt(tokenIdStr, 10);
-  if (isNaN(tokenId) || tokenId <= 0) {
-    return { ok: false, status: 400, error: "Invalid tokenId" };
-  }
+  const {
+    tokenId,
+    senderShortId,
+    receiverShortId,
+    amountStroops,
+    nonceB64,
+    nonce,
+    signature,
+  } = voucher;
 
   const [senderAccount, receiverAccount, token] = await Promise.all([
     prisma.account.findUnique({ where: { shortId: senderShortId } }),
@@ -81,8 +82,9 @@ export async function processOfflineSettlement(
     return { ok: false, status: 400, error: "Token is inactive" };
   }
 
-  const fullNonce32 = expandNonce(nonceB64);
-  const expectedSignedData = `${receiverShortId}:${amountBase62}:${fullNonce32.toString("hex")}`;
+  if (!process.env.RELAYER_PUBLIC_KEY || !process.env.RELAYER_SECRET_KEY) {
+    return { ok: false, status: 500, error: "Relayer not configured" };
+  }
 
   const verificationKey = senderAccount.offlineDeviceKey;
   if (!verificationKey) {
@@ -92,41 +94,35 @@ export async function processOfflineSettlement(
       error: 'Offline device key is not enrolled. Sign in online to synchronize this device.',
     };
   }
-  const isValid = verifySignatureLocally(
+  const tollStroops = token.symbol === "PHPC" ? 5_000_000n : 0n;
+  const signedXdr = buildOfflineSignatureXdr({
+    amountStroops,
+    tollStroops,
+    nonce,
+    receiverShortId,
+    gatewayPublicKey: process.env.RELAYER_PUBLIC_KEY,
+    tokenContractId: token.contractId,
+  });
+  const isValid = verifyOfflineVoucherSignature(
     verificationKey,
-    expectedSignedData,
-    sigB64
+    signedXdr,
+    signature,
   );
 
   if (!isValid) {
     return { ok: false, status: 403, error: "Unauthorized" };
   }
 
-  if (!process.env.RELAYER_PUBLIC_KEY || !process.env.RELAYER_SECRET_KEY) {
-    return { ok: false, status: 500, error: "Relayer not configured" };
-  }
-
-  // Decode Base62 amount -> stroops BigInt
-  const amountStroops = decodeBase62(amountBase62);
-
-  const nonce32 = Buffer.alloc(32);
-  fullNonce32.copy(nonce32);
-
-  const sigBuffer = Buffer.from(
-    restoreBase64Padding(sigB64),
-    "base64"
-  );
-
   const tx = await pijinContract.spend_offline(
     {
       gateway:       process.env.RELAYER_PUBLIC_KEY,
       sender:        senderAccount.stellarPublicKey,
       token:         token.contractId,
-      receiver:      receiverAccount.stellarPublicKey,
+      receiver_short_id: Buffer.from(receiverShortId, "ascii"),
       amount:        amountStroops,
-      protocol_toll: 0n,
-      nonce:         nonce32,
-      signature:     sigBuffer,
+      protocol_toll: tollStroops,
+      nonce,
+      signature,
     },
     {
       publicKey: process.env.RELAYER_PUBLIC_KEY,
@@ -170,34 +166,4 @@ export async function processOfflineSettlement(
     amountStroops: amountStroops.toString(),
     receiverShortId,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Decodes a Base62-encoded string into a BigInt.
- * Alphabet: 0-9A-Za-z (standard Base62, 62 characters).
- */
-function decodeBase62(str: string): bigint {
-  const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  const BASE = BigInt(62);
-  let result = 0n;
-  for (const char of str) {
-    const idx = ALPHABET.indexOf(char);
-    if (idx === -1) {
-      throw new Error(`Invalid Base62 character: '${char}'`);
-    }
-    result = result * BASE + BigInt(idx);
-  }
-  return result;
-}
-
-/**
- * Restores '=' padding stripped on the mobile side to save SMS characters.
- */
-function restoreBase64Padding(base64Str: string): string {
-  const paddingNeeded = (4 - (base64Str.length % 4)) % 4;
-  return base64Str + "=".repeat(paddingNeeded);
 }

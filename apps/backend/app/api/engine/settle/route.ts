@@ -79,9 +79,14 @@
 import { NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
-import { pijinContract } from '@/lib/pijin-contract';
+import { contractConfig, pijinContract } from '@/lib/pijin-contract';
 import { sendSmsNotification } from '@/lib/sms';
-import { Horizon, Keypair, Address, xdr, nativeToScVal } from '@stellar/stellar-sdk';
+import { Horizon } from '@stellar/stellar-sdk';
+import {
+    buildOfflineSignatureXdr,
+    parseOfflineVoucher,
+    verifyOfflineVoucherSignature,
+} from '@/lib/offline-voucher';
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -123,32 +128,24 @@ async function handler(req: Request): Promise<Response> {
     const smsPayload = body?.smsPayload ?? '';
     const senderPhone = body?.senderPhone ?? '';
 
-    const parts = smsPayload.split(':');
-
-    if (parts.length !== 6) {
-        console.error(`[Settle] Malformed smsPayload (expected 6 parts, got ${parts.length}): "${smsPayload}"`);
-        return NextResponse.json({ error: 'Malformed smsPayload' }, { status: 200 });
-    }
-
-    const [tokenIdStr, senderShortId, receiverShortId, amountBase62, nonce, signature] = parts as [
-        string, string, string, string, string, string,
-    ];
-
-    // Validate & parse tokenId
-    const tokenId = parseInt(tokenIdStr, 10);
-    if (isNaN(tokenId) || tokenId <= 0) {
-        console.error(`[Settle] Invalid tokenId: "${tokenIdStr}"`);
-        return NextResponse.json({ error: 'Invalid tokenId' }, { status: 200 });
-    }
-
-    // Decode Base62 amount into stroops (BigInt)
-    let amountStroops: bigint;
+    let voucher;
     try {
-        amountStroops = decodeBase62(amountBase62);
-    } catch (e) {
-        console.error(`[Settle] Failed to decode Base62 amount "${amountBase62}":`, e);
-        return NextResponse.json({ error: 'Invalid amount encoding' }, { status: 200 });
+        voucher = parseOfflineVoucher(smsPayload);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Malformed SMS payload';
+        console.error(`[Settle] ${reason}: "${smsPayload}"`);
+        return NextResponse.json({ error: reason }, { status: 200 });
     }
+
+    const {
+        tokenId,
+        senderShortId,
+        receiverShortId,
+        amountStroops,
+        nonceB64: nonce,
+        nonce: nonce32,
+        signature: signatureBuffer,
+    } = voucher;
 
     console.log(
         `[Settle] Processing | msgId=${qstashMessageId} | tokenId=${tokenId} | sender=${senderShortId} | receiver=${receiverShortId} | amountStroops=${amountStroops} | nonce=${nonce}`
@@ -280,33 +277,19 @@ async function handler(req: Request): Promise<Response> {
     }
 
     const { stellarPublicKey: senderPublicKey } = senderAccount;
-    const { stellarPublicKey: receiverPublicKey } = receiverAccount;
     const { contractId: tokenContractId } = token;
     const treasuryPublicKey = process.env.TREASURY_PUBLIC_KEY?.trim();
 
     // Execute Soroban spend_offline
     try {
-        // Decode nonce and signature from (padding-stripped) Base64 -> raw Buffers.
-        const nonceBuffer = Buffer.from(restoreBase64Padding(nonce), 'base64');
-        const signatureBuffer = Buffer.from(restoreBase64Padding(signature), 'base64');
-
-        if (nonceBuffer.length !== 32 || signatureBuffer.length !== 64) {
-            const failReason = `Malformed voucher bytes: nonce=${nonceBuffer.length} (expected 32), signature=${signatureBuffer.length} (expected 64)`;
-            await prisma.settlement.update({
-                where: { id: settlementId },
-                data: { status: 'FAILED', failReason },
-            });
-            return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
-        }
-
-        const nonce32 = nonceBuffer;
+        const gatewayPublicKey = process.env.RELAYER_PUBLIC_KEY?.trim();
+        if (!gatewayPublicKey) throw new Error('Server is missing RELAYER_PUBLIC_KEY');
 
         // TOLL CALCULATION 
         const tollStroops = token.symbol === 'PHPC' ? 5000000n : 0n;
         if (token.symbol === 'PHPC') {
             const issuer = process.env.PHPC_ISSUER_PUBKEY?.trim();
             if (issuer) {
-                await assertClassicTrustline(receiverPublicKey, token.symbol, issuer, 'receiver');
                 if (tollStroops > 0n && treasuryPublicKey) {
                     await assertClassicTrustline(treasuryPublicKey, token.symbol, issuer, 'treasury');
                 }
@@ -314,23 +297,14 @@ async function handler(req: Request): Promise<Response> {
         }
 
         // ─── PRE-FLIGHT LOCAL FIREWALL (Anti Gas-Drain) ──────────────────────────
-        const amountScVal = nativeToScVal(amountStroops, { type: 'i128' });
-        const tollScVal = nativeToScVal(tollStroops, { type: 'i128' }); // Updated to use dynamic toll
-        const nonceScVal = xdr.ScVal.scvBytes(nonce32);
-        const receiverScVal = Address.fromString(receiverPublicKey).toScVal();
-        const gatewayScVal = Address.fromString(process.env.RELAYER_PUBLIC_KEY!).toScVal();
-        const tokenScVal = Address.fromString(tokenContractId).toScVal();
-
-        const xdrTuple = xdr.ScVal.scvVec([
-            amountScVal,
-            tollScVal,
-            nonceScVal,
-            receiverScVal,
-            gatewayScVal,
-            tokenScVal,
-        ]);
-
-        const xdrBytes = xdrTuple.toXDR();
+        const xdrBytes = buildOfflineSignatureXdr({
+            amountStroops,
+            tollStroops,
+            nonce: nonce32,
+            receiverShortId,
+            gatewayPublicKey,
+            tokenContractId,
+        });
         
         // The main wallet and offline device are intentionally separate keys.
         // Falling back to the wallet key hides incomplete device enrollment.
@@ -343,9 +317,7 @@ async function handler(req: Request): Promise<Response> {
             });
             return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
         }
-        const senderKeypair = Keypair.fromPublicKey(verificationKey);
-        
-        if (!senderKeypair.verify(xdrBytes, signatureBuffer)) {
+        if (!verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer)) {
             const failReason = 'Local Firewall Rejected: Invalid Ed25519 signature. Dropped to save gas.';
             console.warn(`[Settle] ${failReason}`);
             
@@ -368,16 +340,16 @@ async function handler(req: Request): Promise<Response> {
 
         const assembledTx = await pijinContract.spend_offline(
             {
-                gateway:        process.env.RELAYER_PUBLIC_KEY!,
+                gateway:        gatewayPublicKey,
                 sender:         senderPublicKey,
                 token:          tokenContractId,          // Soroban SAC / contract address
-                receiver:       receiverPublicKey,
+                receiver_short_id: Buffer.from(receiverShortId, 'ascii'),
                 amount:         amountStroops,            // i128 - SDK accepts bigint natively
                 protocol_toll:  tollStroops,                       // .50 PHPC toll
                 nonce:          nonce32,
                 signature:      signatureBuffer,
             },
-            { publicKey: process.env.RELAYER_PUBLIC_KEY },
+            { publicKey: gatewayPublicKey },
         );
 
         const { sendTransactionResponse } = await assembledTx.signAndSend({
@@ -473,32 +445,6 @@ async function handler(req: Request): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 /**
- * Decodes a Base62-encoded string into a BigInt.
- * Alphabet: 0-9A-Za-z (standard Base62, 62 characters).
- */
-function decodeBase62(str: string): bigint {
-    const ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-    const BASE = BigInt(62);
-    let result = 0n;
-    for (const char of str) {
-        const idx = ALPHABET.indexOf(char);
-        if (idx === -1) {
-            throw new Error(`Invalid Base62 character: '${char}'`);
-        }
-        result = result * BASE + BigInt(idx);
-    }
-    return result;
-}
-
-/**
- * Restores the '=' padding stripped on the mobile side to save SMS characters.
- */
-function restoreBase64Padding(base64Str: string): string {
-    const paddingNeeded = (4 - (base64Str.length % 4)) % 4;
-    return base64Str + '='.repeat(paddingNeeded);
-}
-
-/**
  * Signs an assembled Soroban transaction XDR with the relayer keypair.
  * Matches the signTransaction callback signature expected by
  * AssembledTransaction.signAndSend().
@@ -508,14 +454,13 @@ async function signWithRelayer(
     signOpts?: { networkPassphrase?: string },
 ): Promise<{ signedTxXdr: string; signerAddress: string }> {
     const { Keypair, TransactionBuilder } = await import('@stellar/stellar-sdk');
-    const { networks } = await import('pijin_core');
 
     if (!process.env.RELAYER_SECRET_KEY) {
         throw new Error('Missing RELAYER_SECRET_KEY');
     }
 
     const relayerKeypair = Keypair.fromSecret(process.env.RELAYER_SECRET_KEY);
-    const passphrase = signOpts?.networkPassphrase ?? networks.testnet.networkPassphrase;
+    const passphrase = signOpts?.networkPassphrase ?? contractConfig.networkPassphrase;
     const transaction = TransactionBuilder.fromXDR(xdr, passphrase);
     transaction.sign(relayerKeypair);
 

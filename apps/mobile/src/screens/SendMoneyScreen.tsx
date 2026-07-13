@@ -27,6 +27,7 @@ import { connectionService } from '../services/connectionService';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
 const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
+const SHORT_ID_PATTERN = /^[0-9A-Za-z]{6}$/;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,28 +167,16 @@ export function SendMoneyScreen({ route, navigation }: any) {
           setSearchError('Phone number lookup requires an internet connection.');
           return;
         }
-        
-        // Offline fallback: Search local transaction history
-        const { loadTransactions } = require('../db/services/transactionDb');
-        const txs = await loadTransactions();
-        
-        const match = txs.find((tx: any) => 
-          tx.shortId && 
-          tx.shortId.toLowerCase() === q.toLowerCase() && 
-          tx.stellarPublicKey
-        );
-
-        if (match) {
-          const nameMatch = match.title.replace(/^(Paid to|Received from|Sent to)\s+/i, '').trim();
-          setSearchResult({
-            shortId: match.shortId,
-            stellarPublicKey: match.stellarPublicKey,
-            offlineDeviceKey: null,
-            displayName: nameMatch || match.shortId,
-          });
-        } else {
-          setSearchError('Recipient not found in local history. Connect to internet or scan their QR code.');
+        if (!SHORT_ID_PATTERN.test(q)) {
+          setSearchError('Enter the exact 6-character, case-sensitive Short ID.');
+          return;
         }
+        setSearchResult({
+          shortId: q,
+          stellarPublicKey: '',
+          offlineDeviceKey: null,
+          displayName: q,
+        });
         return;
       }
 
@@ -217,7 +206,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
     } finally {
       setIsSearching(false);
     }
-  }, []);
+  }, [isOnline]);
 
   const handleSearchConfirm = () => {
     if (!searchResult) return;
@@ -241,7 +230,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
       return;
     } 
 
-    if (!currentRecipient || currentRecipient.shortId.toLowerCase() !== recipientShortId.trim().toLowerCase()) {
+    if (!currentRecipient || currentRecipient.shortId !== recipientShortId.trim()) {
       // Auto-lookup the recipient
       setIsResolving(true);
       try {
@@ -254,25 +243,18 @@ export function SendMoneyScreen({ route, navigation }: any) {
             setIsResolving(false);
             return;
           }
-          const { loadTransactions } = require('../db/services/transactionDb');
-          const txs = await loadTransactions();
-          const match = txs.find((tx: any) => 
-            tx.shortId && tx.shortId.toLowerCase() === q.toLowerCase() && tx.stellarPublicKey
-          );
-          if (match) {
-            const nameMatch = match.title.replace(/^(Paid to|Received from|Sent to)\s+/i, '').trim();
-            currentRecipient = {
-              shortId: match.shortId,
-              stellarPublicKey: match.stellarPublicKey,
-              offlineDeviceKey: null,
-              displayName: nameMatch || match.shortId,
-            };
-            setResolvedRecipient(currentRecipient);
-          } else {
-            setRecipientShortIdError('Recipient not found in local history. Connect to internet or scan their QR code.');
+          if (!SHORT_ID_PATTERN.test(q)) {
+            setRecipientShortIdError('Enter the exact 6-character, case-sensitive Short ID.');
             setIsResolving(false);
             return;
           }
+          currentRecipient = {
+            shortId: q,
+            stellarPublicKey: '',
+            offlineDeviceKey: null,
+            displayName: q,
+          };
+          setResolvedRecipient(currentRecipient);
         } else {
           // Online lookup
           const paramKey = isPhone ? 'phone' : 'shortId';
@@ -323,6 +305,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
       recipientShortId: currentRecipient!.shortId,
       recipientName: currentRecipient!.displayName,
       receiverPubKey: currentRecipient!.stellarPublicKey,
+      recipientVerified: Boolean(currentRecipient!.stellarPublicKey),
       offlineDeviceKey: currentRecipient!.offlineDeviceKey,
       amount: numAmount,
       note: note.trim(),
@@ -406,7 +389,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
             </View>
             {resolvedRecipient && !recipientShortIdError && (
               <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '700', marginLeft: 16, marginTop: 6 }}>
-                ✓ {resolvedRecipient.displayName}
+                {resolvedRecipient.stellarPublicKey ? '✓ Verified: ' : 'Unverified offline: '}{resolvedRecipient.displayName}
               </Text>
             )}
             {recipientShortIdError && (

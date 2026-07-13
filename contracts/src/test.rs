@@ -18,6 +18,7 @@ struct TestContext {
     treasury: Address,
     gateway: Address,
     receiver: Address,
+    receiver_short_id: BytesN<6>,
     sender: Address,
     /// Primary token (e.g. PHPC)
     token_a: Address,
@@ -56,21 +57,22 @@ impl TestContext {
 
     /// Build and sign a spend payload for the given token.
     ///
-    /// Payload structure (6-item tuple): (amount, protocol_toll, nonce, receiver, gateway, token)
+    /// Payload structure (6-item tuple):
+    /// (amount, protocol_toll, nonce, receiver_short_id, gateway, token)
     fn sign_payload_for(
         &self,
         token: &Address,
         amount: i128,
         protocol_toll: i128,
         nonce: &BytesN<32>,
-        receiver: &Address,
+        receiver_short_id: &BytesN<6>,
         gateway: &Address,
     ) -> BytesN<64> {
         let payload: Bytes = (
             amount,
             protocol_toll,
             nonce.clone(),
-            receiver.clone(),
+            receiver_short_id.clone(),
             gateway.clone(),
             token.clone(),
         )
@@ -86,7 +88,7 @@ impl TestContext {
         amount: i128,
         protocol_toll: i128,
         nonce: &BytesN<32>,
-        receiver: &Address,
+        receiver_short_id: &BytesN<6>,
         gateway: &Address,
     ) -> BytesN<64> {
         self.sign_payload_for(
@@ -94,7 +96,7 @@ impl TestContext {
             amount,
             protocol_toll,
             nonce,
-            receiver,
+            receiver_short_id,
             gateway,
         )
     }
@@ -118,6 +120,7 @@ fn setup_test() -> TestContext {
     let treasury = Address::generate(&env);
     let gateway = Address::generate(&env);
     let receiver = Address::generate(&env);
+    let receiver_short_id = BytesN::from_array(&env, b"aB3x9Q");
 
     // ── Token A (PHPC) ────────────────────────────────────────────────────────
     let token_a_admin = Address::generate(&env);
@@ -141,6 +144,7 @@ fn setup_test() -> TestContext {
 
     let client = PijinContractClient::new(&env, &contract_id);
     client.register_gateway(&admin, &gateway);
+    client.register_recipient(&admin, &receiver_short_id, &receiver);
 
     TestContext {
         env,
@@ -149,6 +153,7 @@ fn setup_test() -> TestContext {
         treasury,
         gateway,
         receiver,
+        receiver_short_id,
         sender,
         token_a,
         token_b,
@@ -203,14 +208,20 @@ fn test_spend_offline_success() {
     let amount = 100_000_000;
     let protocol_toll = 5_000_000;
     let nonce = BytesN::from_array(&ctx.env, &[1; 32]);
-    let signature = ctx.sign_payload(amount, protocol_toll, &nonce, &ctx.receiver, &ctx.gateway);
+    let signature = ctx.sign_payload(
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
 
     ctx.deposit(DEPOSIT_AMOUNT);
     ctx.client().spend_offline(
         &ctx.gateway,
         &ctx.sender,
         &ctx.token_a,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &amount,
         &protocol_toll,
         &nonce,
@@ -239,7 +250,7 @@ fn test_spend_offline_invalid_signature_traps() {
         signed_amount,
         protocol_toll,
         &nonce,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &ctx.gateway,
     );
 
@@ -248,7 +259,7 @@ fn test_spend_offline_invalid_signature_traps() {
         &ctx.gateway,
         &ctx.sender,
         &ctx.token_a,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &mutated_amount,
         &protocol_toll,
         &nonce,
@@ -262,14 +273,20 @@ fn test_spend_offline_nonce_replayed() {
     let amount = 100_000_000;
     let protocol_toll = 5_000_000;
     let nonce = BytesN::from_array(&ctx.env, &[3; 32]);
-    let signature = ctx.sign_payload(amount, protocol_toll, &nonce, &ctx.receiver, &ctx.gateway);
+    let signature = ctx.sign_payload(
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
 
     ctx.deposit(DEPOSIT_AMOUNT);
     ctx.client().spend_offline(
         &ctx.gateway,
         &ctx.sender,
         &ctx.token_a,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &amount,
         &protocol_toll,
         &nonce,
@@ -281,7 +298,7 @@ fn test_spend_offline_nonce_replayed() {
             &ctx.gateway,
             &ctx.sender,
             &ctx.token_a,
-            &ctx.receiver,
+            &ctx.receiver_short_id,
             &amount,
             &protocol_toll,
             &nonce,
@@ -297,7 +314,13 @@ fn test_spend_offline_insufficient_balance() {
     let amount = 40;
     let protocol_toll = 1;
     let nonce = BytesN::from_array(&ctx.env, &[4; 32]);
-    let _signature = ctx.sign_payload(amount, protocol_toll, &nonce, &ctx.receiver, &ctx.gateway);
+    let _signature = ctx.sign_payload(
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
 
     ctx.deposit(50);
 
@@ -307,14 +330,20 @@ fn test_spend_offline_insufficient_balance() {
     let amount2 = 40;
     let toll2 = 15;
     let nonce2 = BytesN::from_array(&ctx.env, &[5; 32]);
-    let sig2 = ctx.sign_payload(amount2, toll2, &nonce2, &ctx.receiver, &ctx.gateway);
+    let sig2 = ctx.sign_payload(
+        amount2,
+        toll2,
+        &nonce2,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
 
     assert_eq!(
         ctx.client().try_spend_offline(
             &ctx.gateway,
             &ctx.sender,
             &ctx.token_a,
-            &ctx.receiver,
+            &ctx.receiver_short_id,
             &amount2,
             &toll2,
             &nonce2,
@@ -342,7 +371,7 @@ fn test_spend_offline_fails_unregistered_gateway() {
         amount,
         protocol_toll,
         &nonce,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &malicious_gateway,
     );
 
@@ -354,7 +383,7 @@ fn test_spend_offline_fails_unregistered_gateway() {
             &malicious_gateway,
             &ctx.sender,
             &ctx.token_a,
-            &ctx.receiver,
+            &ctx.receiver_short_id,
             &amount,
             &protocol_toll,
             &nonce,
@@ -391,7 +420,7 @@ fn test_omni_vault_isolation() {
         amount,
         protocol_toll,
         &nonce,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &ctx.gateway,
     );
 
@@ -399,7 +428,7 @@ fn test_omni_vault_isolation() {
         &ctx.gateway,
         &ctx.sender,
         &ctx.token_a,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &amount,
         &protocol_toll,
         &nonce,
@@ -456,7 +485,7 @@ fn test_insufficient_funds_cross_asset() {
         amount,
         protocol_toll,
         &nonce,
-        &ctx.receiver,
+        &ctx.receiver_short_id,
         &ctx.gateway,
     );
 
@@ -465,7 +494,7 @@ fn test_insufficient_funds_cross_asset() {
             &ctx.gateway,
             &ctx.sender,
             &ctx.token_b, // ← Token B, vault is empty → balance == 0
-            &ctx.receiver,
+            &ctx.receiver_short_id,
             &amount,
             &protocol_toll,
             &nonce,
@@ -473,6 +502,118 @@ fn test_insufficient_funds_cross_asset() {
         ),
         Err(Ok(ContractError::InsufficientBalance)),
         "spend_offline must fail with InsufficientBalance when the Token B vault is empty"
+    );
+}
+
+#[test]
+fn test_recipient_registry_is_case_sensitive_and_idempotent() {
+    let ctx = setup_test();
+    assert_eq!(ctx.client().get_registrar(), Some(ctx.admin.clone()));
+    let same_mapping =
+        ctx.client()
+            .try_register_recipient(&ctx.admin, &ctx.receiver_short_id, &ctx.receiver);
+    assert_eq!(same_mapping, Ok(Ok(())));
+
+    let different_case = BytesN::from_array(&ctx.env, b"AB3x9Q");
+    let other_receiver = Address::generate(&ctx.env);
+    ctx.client()
+        .register_recipient(&ctx.admin, &different_case, &other_receiver);
+
+    assert_eq!(
+        ctx.client().get_recipient(&ctx.receiver_short_id),
+        Some(ctx.receiver.clone())
+    );
+    assert_eq!(
+        ctx.client().get_recipient(&different_case),
+        Some(other_receiver)
+    );
+}
+
+#[test]
+fn test_recipient_registry_rejects_conflicting_mapping() {
+    let ctx = setup_test();
+    let conflicting_receiver = Address::generate(&ctx.env);
+    assert_eq!(
+        ctx.client().try_register_recipient(
+            &ctx.admin,
+            &ctx.receiver_short_id,
+            &conflicting_receiver,
+        ),
+        Err(Ok(ContractError::ShortIdAlreadyRegistered))
+    );
+}
+
+#[test]
+fn test_recipient_registry_rejects_wrong_registrar() {
+    let ctx = setup_test();
+    let wrong_registrar = Address::generate(&ctx.env);
+    let short_id = BytesN::from_array(&ctx.env, b"Z9y8X7");
+    assert_eq!(
+        ctx.client()
+            .try_register_recipient(&wrong_registrar, &short_id, &ctx.receiver,),
+        Err(Ok(ContractError::Unauthorized))
+    );
+}
+
+#[test]
+fn test_recipient_registry_rejects_non_base62_id() {
+    let ctx = setup_test();
+    let invalid_short_id = BytesN::from_array(&ctx.env, b"bad-id");
+    assert_eq!(
+        ctx.client()
+            .try_register_recipient(&ctx.admin, &invalid_short_id, &ctx.receiver),
+        Err(Ok(ContractError::InvalidShortId))
+    );
+}
+
+#[test]
+fn test_spend_offline_rejects_unknown_recipient() {
+    let ctx = setup_test();
+    let unknown_short_id = BytesN::from_array(&ctx.env, b"NoSuch");
+    let amount = 100;
+    let toll = 5;
+    let nonce = BytesN::from_array(&ctx.env, &[77; 32]);
+    let signature = ctx.sign_payload(amount, toll, &nonce, &unknown_short_id, &ctx.gateway);
+    ctx.deposit(DEPOSIT_AMOUNT);
+
+    assert_eq!(
+        ctx.client().try_spend_offline(
+            &ctx.gateway,
+            &ctx.sender,
+            &ctx.token_a,
+            &unknown_short_id,
+            &amount,
+            &toll,
+            &nonce,
+            &signature,
+        ),
+        Err(Ok(ContractError::RecipientNotFound))
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_spend_offline_signature_binds_exact_short_id() {
+    let ctx = setup_test();
+    let other_short_id = BytesN::from_array(&ctx.env, b"Ab3x9Q");
+    ctx.client()
+        .register_recipient(&ctx.admin, &other_short_id, &ctx.receiver);
+
+    let amount = 100;
+    let toll = 5;
+    let nonce = BytesN::from_array(&ctx.env, &[78; 32]);
+    let signature = ctx.sign_payload(amount, toll, &nonce, &ctx.receiver_short_id, &ctx.gateway);
+    ctx.deposit(DEPOSIT_AMOUNT);
+
+    ctx.client().spend_offline(
+        &ctx.gateway,
+        &ctx.sender,
+        &ctx.token_a,
+        &other_short_id,
+        &amount,
+        &toll,
+        &nonce,
+        &signature,
     );
 }
 

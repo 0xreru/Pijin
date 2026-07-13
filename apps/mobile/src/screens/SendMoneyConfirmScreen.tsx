@@ -151,15 +151,15 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
   const { activeAccount } = useAuth();
 
-  // Extract params — receiverPubKey and recipientName are set by SendMoneyScreen
-  // after a successful /api/users/lookup call. They represent the REAL on-chain
-  // address fetched from the DB, ensuring XDR signature parity with the backend.
+  // The public key is only needed for an online transfer. Offline vouchers bind
+  // the exact short ID; the contract registry resolves its payment address.
   const {
     recipientShortId,
     amount,
     note = '',
     recipientName: paramRecipientName,
     receiverPubKey,
+    recipientVerified = false,
   } = route.params || { recipientShortId: '', amount: 0, note: '' };
 
   const fee = 0.50;
@@ -339,21 +339,9 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         const customerId = account?.shortId || '1234';
         const merchantId = recipientShortId;
 
-        // receiverPubKey was resolved from the backend by SendMoneyScreen.
-        // Guard here in case the screen is ever reached without it.
-        if (!receiverPubKey) {
-          Alert.alert(
-            'Key Resolution Error',
-            'Receiver public key is missing. Please go back and search for the recipient again.'
-          );
-          setIsProcessing(false);
-          return;
-        }
-
         const { buildOfflineSmsVoucher } = require('../services/offline/buildSmsPayload');
         const voucher = await buildOfflineSmsVoucher({
           receiverShortId: merchantId,
-          receiverPubKey,
           amountPhp: amount,
         });
 
@@ -381,7 +369,10 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         });
       } catch (err) {
         console.error('Failed to build offline voucher:', err);
-        navigation.navigate('Dashboard');
+        Alert.alert(
+          'Could Not Create Voucher',
+          err instanceof Error ? err.message : 'Offline voucher creation failed.',
+        );
       } finally {
         setIsProcessing(false);
       }
@@ -490,6 +481,15 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
             </View>
           )}
         </View>
+
+        {!isOnlineMode && !recipientVerified && (
+          <View style={styles.offlineWarning}>
+            <Ionicons name="warning-outline" size={21} color="#B45309" />
+            <Text style={styles.offlineWarningText}>
+              Receiver details could not be verified offline. Confirm that {recipientShortId} is correct.
+            </Text>
+          </View>
+        )}
 
         {/* Breakdown Details */}
         <View style={styles.detailsCard}>
@@ -809,6 +809,25 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
     marginBottom: 16,
+  },
+  offlineWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFFBEB',
+    borderColor: '#F59E0B',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  offlineWarningText: {
+    flex: 1,
+    color: '#92400E',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 19,
   },
   partyRow: {
     flexDirection: 'row',

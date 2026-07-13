@@ -111,22 +111,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import crypto from "crypto";
-
-/**
- * Pijin Architecture: Generates a 6-character Base62 ID.
- * Max Combinations: 62^6 = 56,800,235,584
- * e.g., "aB3x9Q"
- */
-function generateBase62Id(length = 6): string {
-  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-  let result = '';
-  const randomBytes = crypto.randomBytes(length); 
-  for (let i = 0; i < length; i++) {
-    result += chars[randomBytes[i] % 62];
-  }
-  return result;
-}
+import { generateBase62Id } from '@/lib/short-id';
 
 export async function POST(req: NextRequest) {
   try {

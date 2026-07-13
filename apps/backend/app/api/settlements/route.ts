@@ -10,7 +10,7 @@
  *       QStash message broker. This is the **synchronous path** used for testing or
  *       direct client calls.
  *
- *       **Payload format** (`smsBody` string, colon-delimited, 6+ parts):
+ *       **Payload format** (`smsBody` string, colon-delimited, exactly 6 parts):
  *       ```
  *       <tokenId>:<senderShortId>:<receiverShortId>:<amountBase62>:<nonce>:<signature>
  *       ```
@@ -30,7 +30,7 @@
  *             properties:
  *               smsBody:
  *                 type: string
- *                 description: Raw colon-delimited SMS payment payload (6+ parts).
+ *                 description: Raw colon-delimited SMS payment payload (exactly 6 parts).
  *                 example: "1:aB3x9Q:Zx7mNk:3v5K:base64nonce==:base64sig=="
  *     responses:
  *       '200':
@@ -84,6 +84,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { processOfflineSettlement } from "@/lib/settlement";
+import { parseOfflineVoucher } from "@/lib/offline-voucher";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,12 +98,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing smsBody" }, { status: 400 });
     }
 
-    const parts = smsBody.split(":");
-    if (parts.length < 6) {
-      return NextResponse.json({ error: "Malformed smsBody" }, { status: 400 });
+    let nonce: string;
+    try {
+      nonce = parseOfflineVoucher(smsBody).nonceB64;
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Malformed smsBody" },
+        { status: 400 },
+      );
     }
-
-    const nonce = parts[4];
 
     // Check if the transaction with this cryptographic nonce was already processed
     const existing = await prisma.settlement.findUnique({

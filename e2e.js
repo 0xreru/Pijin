@@ -20,9 +20,6 @@ const AMOUNT_STROOPS = BigInt(AMOUNT_PHP * 10000000);
 // Using Carl's Secret Key (He signs the transaction)
 const SENDER_KEYPAIR = Keypair.fromSecret("SC7IAFJLP5UHCZFFZ5U52CITOM5M64STO3QGUB7TLDLM5HXDTHL5QAQ3");
 
-// Using Mark's Public Key (Where the money is going)
-const RECEIVER_PUBKEY = "GAIBOSYCM2ELCQYM5SBABR5NJRAW2LDWL32V74W7CHPNP224YHGLCJS5";
-
 // ---------------------------------------------------------
 // 2. CRYPTO HELPERS (Mirrors crypto.ts)
 // ---------------------------------------------------------
@@ -53,9 +50,9 @@ const nonce32 = crypto.randomBytes(32);
 
 // b. Build XDR Tuple
 const amountScVal = nativeToScVal(AMOUNT_STROOPS, { type: 'i128' });
-const tollScVal = nativeToScVal(0n, { type: 'i128' });
+const tollScVal = nativeToScVal(5000000n, { type: 'i128' });
 const nonceScVal = xdr.ScVal.scvBytes(nonce32);
-const receiverScVal = Address.fromString(RECEIVER_PUBKEY).toScVal();
+const receiverScVal = xdr.ScVal.scvBytes(Buffer.from(RECEIVER_SHORT_ID, 'ascii'));
 const gatewayScVal = Address.fromString(GATEWAY_PUBKEY).toScVal();
 const tokenScVal = Address.fromString(TOKEN_CONTRACT_ID).toScVal();
 

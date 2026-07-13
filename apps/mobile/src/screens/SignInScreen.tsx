@@ -27,6 +27,7 @@ import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/an
 import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
 import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
+import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegistrySync';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -140,6 +141,7 @@ export function SignInScreen() {
             return;
           }
           const token = await getSep10Token(mainWalletKeypair);
+          await synchronizeRecipientRegistry(token);
           await synchronizeOfflineDeviceKey(mainWalletKeypair, token);
           await login(checkRes.stellarPublicKey, checkRes.shortId, token);
         } else {

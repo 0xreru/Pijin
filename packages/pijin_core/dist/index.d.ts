@@ -16,6 +16,7 @@ export declare const networks: {
  * Instance storage:
  * - `Admin`: privileged account allowed to upgrade the contract.
  * - `Treasury`: protocol toll recipient.
+ * - `Registrar`: narrowly-scoped backend signer allowed to manage short IDs.
  *
  * Persistent storage:
  * - `Vault(Address, Address)`: per-user, per-token locked balance.
@@ -24,12 +25,16 @@ export declare const networks: {
  * - `Nonce(BytesN<32>)`: replay protection for settled vouchers.
  * - `RegisteredKey(Address)`: user's offline Ed25519 key.
  * - `Gateway(Address)`: whitelisted relayer entry.
+ * - `Recipient(BytesN<6>)`: case-sensitive Base62 short ID to wallet address.
  */
 export type DataKey = {
     tag: "Admin";
     values: void;
 } | {
     tag: "Treasury";
+    values: void;
+} | {
+    tag: "Registrar";
     values: void;
 } | {
     tag: "Vault";
@@ -43,6 +48,9 @@ export type DataKey = {
 } | {
     tag: "Gateway";
     values: readonly [string];
+} | {
+    tag: "Recipient";
+    values: readonly [Buffer];
 };
 export interface SpendEvent {
     amount: i128;
@@ -51,6 +59,7 @@ export interface SpendEvent {
     nonce: Buffer;
     protocol_toll: i128;
     receiver: string;
+    receiver_short_id: Buffer;
     sender: string;
     token: string;
 }
@@ -82,10 +91,22 @@ export declare const ContractError: {
     6: {
         message: string;
     };
+    7: {
+        message: string;
+    };
     8: {
         message: string;
     };
     9: {
+        message: string;
+    };
+    10: {
+        message: string;
+    };
+    11: {
+        message: string;
+    };
+    12: {
         message: string;
     };
 };
@@ -93,6 +114,10 @@ export interface WithdrawEvent {
     amount: i128;
     sender: string;
     token: string;
+}
+export interface RecipientEvent {
+    receiver: string;
+    short_id: Buffer;
 }
 export interface Client {
     /**
@@ -127,13 +152,34 @@ export interface Client {
         token: string;
     }, options?: MethodOptions) => Promise<AssembledTransaction<i128>>;
     /**
+     * Construct and simulate a get_recipient transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Read the authoritative address for a short ID. TTL is extended by
+     * state-changing registration and spend calls, not by this read helper.
+     */
+    get_recipient: ({ short_id }: {
+        short_id: Buffer;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>;
+    /**
+     * Construct and simulate a get_registrar transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     */
+    get_registrar: (options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>;
+    /**
+     * Construct and simulate a set_registrar transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Assign the narrowly-scoped signer that is allowed to maintain the
+     * short-ID registry. Only the contract admin can rotate this role.
+     */
+    set_registrar: ({ admin, registrar }: {
+        admin: string;
+        registrar: string;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
+    /**
      * Construct and simulate a spend_offline transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
      */
-    spend_offline: ({ gateway, sender, token, receiver, amount, protocol_toll, nonce, signature }: {
+    spend_offline: ({ gateway, sender, token, receiver_short_id, amount, protocol_toll, nonce, signature }: {
         gateway: string;
         sender: string;
         token: string;
-        receiver: string;
+        receiver_short_id: Buffer;
         amount: i128;
         protocol_toll: i128;
         nonce: Buffer;
@@ -177,6 +223,27 @@ export interface Client {
         admin: string;
         gateway: string;
     }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
+    /**
+     * Construct and simulate a update_recipient transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Explicitly rotate an existing short ID to a different wallet address.
+     * This is deliberately separate from registration to prevent accidental
+     * address replacement during retries.
+     */
+    update_recipient: ({ registrar, short_id, receiver }: {
+        registrar: string;
+        short_id: Buffer;
+        receiver: string;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
+    /**
+     * Construct and simulate a register_recipient transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Register one canonical case-sensitive six-byte Base62 short ID.
+     * Repeating the exact same mapping is idempotent and avoids another write.
+     */
+    register_recipient: ({ registrar, short_id, receiver }: {
+        registrar: string;
+        short_id: Buffer;
+        receiver: string;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
 }
 export declare class Client extends ContractClient {
     readonly options: ContractClientOptions;
@@ -201,10 +268,15 @@ export declare class Client extends ContractClient {
         upgrade: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         withdraw: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         get_vault: (json: string) => AssembledTransaction<bigint>;
+        get_recipient: (json: string) => AssembledTransaction<Option<string>>;
+        get_registrar: (json: string) => AssembledTransaction<Option<string>>;
+        set_registrar: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         spend_offline: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         remove_gateway: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         get_offline_key: (json: string) => AssembledTransaction<Option<Buffer<ArrayBufferLike>>>;
         set_offline_key: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         register_gateway: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
+        update_recipient: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
+        register_recipient: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
     };
 }

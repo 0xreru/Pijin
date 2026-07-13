@@ -1,38 +1,8 @@
 import { getEnrolledDeviceKeypair } from '../wallet/deviceKeyStore';
 import { loadStoredAccount } from '../storage/accountStorage';
-import { phpToStroops, TOKEN_ID, TOKEN_DB_ID } from '../../constants/stellar';
+import { phpToStroops } from '../../constants/stellar';
 import { generateOfflineSmsPayload } from '../../utils/crypto';
-
-// ---------------------------------------------------------------------------
-// Env helpers
-// ---------------------------------------------------------------------------
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value || value.trim() === '') {
-    throw new Error(
-      `[buildSmsPayload] Missing required environment variable: ${name}`
-    );
-  }
-  return value.trim().replace(/^['"]+|['"]+$/g, '');
-}
-
-// ---------------------------------------------------------------------------
-// Default token: PHPC
-// ---------------------------------------------------------------------------
-
-/**
- * The default offline payment token. The signed payload must use the token
- * contract/SAC address, not the Pijin vault contract address, because the
- * backend and Soroban contract include the token address in the signed tuple.
- */
-export const PHPC_TOKEN: SelectedToken = {
-  symbol:     'PHPC',
-  contractId: TOKEN_ID ||
-              'CD26OANM4I4GF2GBC47UYTSP3FUBZRQ7WGMGECEQHMZ2D6QV2LXJTNIS',
-  tokenDbId:  (process.env.EXPO_PUBLIC_TOKEN_DB_ID ?? '').replace(/^['"]|['"]$/g, '') ||
-              '1',
-};
+import { loadOfflineProtocolConfig } from '../storage/offlineProtocolStorage';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -50,8 +20,6 @@ export type SelectedToken = {
 export type OfflineVoucherInput = {
   /** Short ID of the receiver (merchant). */
   receiverShortId: string;
-  /** Stellar G-address of the receiver (merchant). */
-  receiverPubKey: string;
   /**
    * Human-readable payment amount in PHP / XLM units.
    * Converted internally to stroops (× 10,000,000).
@@ -59,7 +27,7 @@ export type OfflineVoucherInput = {
   amountPhp: number;
   /**
    * The token to use for this offline payment.
-   * Defaults to PHPC (TOKEN_ID / TOKEN_DB_ID from env) when omitted.
+   * Defaults to the server-issued token cached during registry sync.
    */
   selectedToken?: SelectedToken;
 };
@@ -96,23 +64,21 @@ export type OfflineVoucherResult = {
  * **What this function does:**
  * 1. Loads the sender's stored account (for `senderShortId`).
  * 2. Retrieves the previously enrolled device Ed25519 keypair from SecureStore.
- * 3. Reads `EXPO_PUBLIC_GATEWAY_PUBLIC_KEY` and `EXPO_PUBLIC_TOKEN_ID` from
- *    the environment.
+ * 3. Loads gateway/token configuration cached during authenticated registry sync.
  * 4. Converts `amountPhp` → `amountStroops` (BigInt, × 10_000_000).
  * 5. Delegates all cryptographic work to `generateOfflineSmsPayload` in
  *    `utils/crypto.ts` (nonce generation, XDR tuple, Ed25519 sign).
  *
  * @throws If the stored account is missing, inactive, or not a CUSTOMER.
- * @throws If any required environment variable is absent.
+ * @throws If the device has not synchronized offline configuration while online.
  */
 export async function buildOfflineSmsVoucher(
   input: OfflineVoucherInput,
 ): Promise<OfflineVoucherResult> {
   const {
     receiverShortId,
-    receiverPubKey,
     amountPhp,
-    selectedToken = PHPC_TOKEN,   // default: PHPC — change when multi-token lands
+    selectedToken,
   } = input;
 
   // ── 1. Load sender identity from secure storage ────────────────────────────
@@ -128,15 +94,15 @@ export async function buildOfflineSmsVoucher(
   const deviceKeypair = await getEnrolledDeviceKeypair();
   const senderSecretKey = deviceKeypair.secret();
 
-  // ── 3. Resolve token — caller-supplied takes priority; fall back to env ────
-  const gatewayPubKey   = requireEnv('EXPO_PUBLIC_GATEWAY_PUBLIC_KEY');
-  const tokenContractId = selectedToken?.contractId
-    || requireEnv('EXPO_PUBLIC_TOKEN_ID');
-  const tokenIdStr      = selectedToken?.tokenDbId
-    || TOKEN_DB_ID
-    || process.env.EXPO_PUBLIC_TOKEN_DB_ID
-    || '1';
-  const tokenSymbol     = selectedToken?.symbol ?? 'PHPC';
+  // ── 3. Resolve token — caller-supplied takes priority over cached config ──
+  const offlineConfig = await loadOfflineProtocolConfig();
+  if (!offlineConfig) {
+    throw new Error('Offline payments are not ready. Sign in while online to synchronize this device.');
+  }
+  const gatewayPubKey = offlineConfig.gatewayPublicKey;
+  const tokenContractId = selectedToken?.contractId ?? offlineConfig.tokenContractId;
+  const tokenIdStr = selectedToken?.tokenDbId ?? offlineConfig.tokenDbId;
+  const tokenSymbol = selectedToken?.symbol ?? offlineConfig.tokenSymbol;
 
   // ── 4. Convert amount to stroops (BigInt, 7 decimal places) ───────────────
   const amountStroops = phpToStroops(amountPhp);
@@ -149,7 +115,6 @@ export async function buildOfflineSmsVoucher(
     senderSecretKey,
     senderShortId:  account.shortId,
     receiverShortId,
-    receiverPubKey,
     amountStroops,
     gatewayPubKey,
     tokenContractId,

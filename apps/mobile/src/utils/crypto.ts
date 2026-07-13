@@ -15,12 +15,10 @@ const BASE62 = BigInt(62);
 export type SmsPayloadParams = {
   /** Ed25519 secret key (Stellar strkey, e.g. "S…") of the sender's device key */
   senderSecretKey: string;
-  /** 6–8 char short ID that identifies the sender in the Pijin registry */
+  /** Exact 6-character, case-sensitive Base62 sender ID */
   senderShortId: string;
-  /** 6–8 char short ID that identifies the receiver/merchant */
+  /** Exact 6-character, case-sensitive Base62 receiver ID */
   receiverShortId: string;
-  /** Stellar G-address of the receiver */
-  receiverPubKey: string;
   /** Payment amount expressed in stroops (1 XLM = 10_000_000 stroops) */
   amountStroops: bigint;
   /** Stellar G-address of the gateway/relayer */
@@ -28,7 +26,7 @@ export type SmsPayloadParams = {
   /** Soroban contract ID (C-address) of the token contract */
   tokenContractId: string;
   /** Asset ticker used for protocol toll calculation, e.g. "PHPC" */
-  tokenSymbol?: string;
+  tokenSymbol: string;
   /**
    * The numeric token identifier stored in the Pijin DB, serialized as a
    * decimal string.  Prefixed to the SMS payload so the backend can look up
@@ -102,7 +100,7 @@ export function stripBase64Padding(b64: string): string {
  *
  * Field order must match the Rust contract exactly:
  *   [ amount (i128), protocol_toll (i128), nonce (BytesN<32>),
- *     receiver (Address), gateway (Address), token (Address) ]
+ *     receiver_short_id (BytesN<6>), gateway (Address), token (Address) ]
  *
  * @returns A Node.js `Buffer` containing the serialised XDR bytes.
  */
@@ -110,14 +108,17 @@ function buildXdrTuple(
   amountStroops: bigint,
   tollStroops: bigint,
   nonce32: Uint8Array,
-  receiverPubKey: string,
+  receiverShortId: string,
   gatewayPubKey: string,
   tokenContractId: string,
 ): Buffer {
   const amountScVal  = nativeToScVal(amountStroops, { type: 'i128' });
   const tollScVal     = nativeToScVal(tollStroops, { type: 'i128' });
   const nonceScVal   = xdr.ScVal.scvBytes(Buffer.from(nonce32));
-  const receiverScVal = Address.fromString(receiverPubKey).toScVal();
+  if (!/^[0-9A-Za-z]{6}$/.test(receiverShortId)) {
+    throw new Error('Receiver short ID must be exactly 6 case-sensitive Base62 characters');
+  }
+  const receiverScVal = xdr.ScVal.scvBytes(Buffer.from(receiverShortId, 'ascii'));
   const gatewayScVal  = Address.fromString(gatewayPubKey).toScVal();
   const tokenScVal    = Address.fromString(tokenContractId).toScVal();
 
@@ -164,13 +165,25 @@ export async function generateOfflineSmsPayload(
     senderSecretKey,
     senderShortId,
     receiverShortId,
-    receiverPubKey,
     amountStroops,
     gatewayPubKey,
     tokenContractId,
     tokenIdStr,
     tokenSymbol,
   } = params;
+
+  if (!/^[0-9A-Za-z]{6}$/.test(senderShortId)) {
+    throw new Error('Sender short ID must be exactly 6 case-sensitive Base62 characters');
+  }
+  if (!/^[0-9A-Za-z]{6}$/.test(receiverShortId)) {
+    throw new Error('Receiver short ID must be exactly 6 case-sensitive Base62 characters');
+  }
+  if (!/^\d+$/.test(tokenIdStr)) {
+    throw new Error('Token database ID must contain decimal digits only');
+  }
+  if (amountStroops <= 0n) {
+    throw new Error('Payment amount must be greater than zero');
+  }
 
   // ── Step 1: Generate a cryptographically-secure 32-byte nonce ──────────────
   const nonce32 = new Uint8Array(32);
@@ -179,20 +192,17 @@ export async function generateOfflineSmsPayload(
   } else if (typeof global !== 'undefined' && (global as any).crypto?.getRandomValues) {
     (global as any).crypto.getRandomValues(nonce32);
   } else {
-    for (let i = 0; i < 32; i++) {
-      nonce32[i] = Math.floor(Math.random() * 256);
-    }
+    throw new Error('Secure random number generation is unavailable on this device');
   }
   
-  const configuredTokenId = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
-  const isPHPC = tokenSymbol === 'PHPC' || tokenContractId === configuredTokenId;
+  const isPHPC = tokenSymbol === 'PHPC';
   const tollStroops = isPHPC ? 5000000n : 0n; // 0.50 PHPC protocol toll
   // ── Step 2: Serialize the Soroban XDR Tuple ────────────────────────────────
   const xdrBuffer = buildXdrTuple(
     amountStroops,
     tollStroops,
     nonce32,
-    receiverPubKey,
+    receiverShortId,
     gatewayPubKey,
     tokenContractId,
   );
