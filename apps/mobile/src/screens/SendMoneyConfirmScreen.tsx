@@ -32,12 +32,44 @@ const BUTTON_WIDTH = 56;
 const TRACK_WIDTH = SCREEN_WIDTH - 40;
 const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
 const STROOPS_PER_UNIT = 10_000_000;
+const API_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app')
+  .trim()
+  .replace(/^['"]|['"]$/g, '');
 
 function amountToStroops(amount: number): bigint {
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error(`Invalid transfer amount: ${amount}`);
   }
   return BigInt(Math.round(amount * STROOPS_PER_UNIT));
+}
+
+async function resolveRecipientPublicKey(shortId: string): Promise<string> {
+  const normalizedShortId = shortId.trim();
+  if (!normalizedShortId) {
+    throw new Error('Recipient Short ID is missing.');
+  }
+
+  const response = await fetch(
+    `${API_URL}/api/users/lookup?shortId=${encodeURIComponent(normalizedShortId)}`,
+  );
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data?.found) {
+    throw new Error(data?.error ?? 'Recipient account could not be resolved.');
+  }
+
+  const publicKey =
+    typeof data.stellarPublicKey === 'string' ? data.stellarPublicKey.trim() : '';
+  if (!publicKey) {
+    throw new Error('Recipient account has no Stellar public key.');
+  }
+
+  const { StrKey } = require('@stellar/stellar-sdk');
+  if (!StrKey.isValidEd25519PublicKey(publicKey)) {
+    throw new Error('Recipient account returned an invalid Stellar public key.');
+  }
+
+  return publicKey;
 }
 
 async function executeTransfer(input: { senderPublicKey: string; recipientPublicKey: string; amount: number }): Promise<string | undefined> {
@@ -257,11 +289,16 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
               if (isOnlineMode) {
                 try {
                   if (!activeAccount?.stellarPublicKey) throw new Error('No active account key');
-                  if (!receiverPubKey) throw new Error('No recipient public key');
+
+                  // Normally populated by SendMoneyScreen. Resolve it again
+                  // here so a recipient cached while offline cannot make an
+                  // otherwise-online transfer fail before reaching the API.
+                  const recipientPublicKey = receiverPubKey?.trim()
+                    || await resolveRecipientPublicKey(recipientShortId);
                   
                   const hash = await executeTransfer({
                     senderPublicKey: activeAccount.stellarPublicKey,
-                    recipientPublicKey: receiverPubKey,
+                    recipientPublicKey,
                     amount: amount, 
                   });
                   setActualTxId(hash || null);
