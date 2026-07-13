@@ -3,10 +3,7 @@
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
-use soroban_sdk::{
-    testutils::Address as _,
-    token, Address, Bytes, BytesN, Env,
-};
+use soroban_sdk::{testutils::Address as _, token, Address, Bytes, BytesN, Env};
 
 const INITIAL_BALANCE: i128 = 1_000_000_000;
 const DEPOSIT_AMOUNT: i128 = 500_000_000;
@@ -176,7 +173,8 @@ fn test_deposit_and_withdraw_success() {
 
     // Withdraw is now instant — no timelock to advance past.
     // Pass the full deposited amount for a complete withdrawal.
-    ctx.client().withdraw(&ctx.sender, &ctx.token_a, &DEPOSIT_AMOUNT);
+    ctx.client()
+        .withdraw(&ctx.sender, &ctx.token_a, &DEPOSIT_AMOUNT);
 
     assert_eq!(token_client.balance(&ctx.sender), INITIAL_BALANCE);
     assert_eq!(token_client.balance(&ctx.contract_id), 0);
@@ -188,13 +186,7 @@ fn test_spend_offline_success() {
     let amount = 100_000_000;
     let protocol_toll = 5_000_000;
     let nonce = BytesN::from_array(&ctx.env, &[1; 32]);
-    let signature = ctx.sign_payload(
-        amount,
-        protocol_toll,
-        &nonce,
-        &ctx.receiver,
-        &ctx.gateway,
-    );
+    let signature = ctx.sign_payload(amount, protocol_toll, &nonce, &ctx.receiver, &ctx.gateway);
 
     ctx.deposit(DEPOSIT_AMOUNT);
     ctx.client().spend_offline(
@@ -209,11 +201,12 @@ fn test_spend_offline_success() {
     );
 
     let token_client = ctx.token_client_a();
-    assert_eq!(token_client.balance(&ctx.receiver), amount);
+    assert_eq!(token_client.balance(&ctx.receiver), 0);
+    assert_eq!(ctx.client().get_vault(&ctx.receiver, &ctx.token_a), amount);
     assert_eq!(token_client.balance(&ctx.treasury), protocol_toll);
     assert_eq!(
         token_client.balance(&ctx.contract_id),
-        DEPOSIT_AMOUNT - amount - protocol_toll
+        DEPOSIT_AMOUNT - protocol_toll
     );
 }
 
@@ -252,13 +245,7 @@ fn test_spend_offline_nonce_replayed() {
     let amount = 100_000_000;
     let protocol_toll = 5_000_000;
     let nonce = BytesN::from_array(&ctx.env, &[3; 32]);
-    let signature = ctx.sign_payload(
-        amount,
-        protocol_toll,
-        &nonce,
-        &ctx.receiver,
-        &ctx.gateway,
-    );
+    let signature = ctx.sign_payload(amount, protocol_toll, &nonce, &ctx.receiver, &ctx.gateway);
 
     ctx.deposit(DEPOSIT_AMOUNT);
     ctx.client().spend_offline(
@@ -293,13 +280,7 @@ fn test_spend_offline_insufficient_balance() {
     let amount = 40;
     let protocol_toll = 1;
     let nonce = BytesN::from_array(&ctx.env, &[4; 32]);
-    let _signature = ctx.sign_payload(
-        amount,
-        protocol_toll,
-        &nonce,
-        &ctx.receiver,
-        &ctx.gateway,
-    );
+    let _signature = ctx.sign_payload(amount, protocol_toll, &nonce, &ctx.receiver, &ctx.gateway);
 
     ctx.deposit(50);
 
@@ -378,7 +359,7 @@ fn test_omni_vault_isolation() {
     let ctx = setup_test();
 
     let deposit_a: i128 = 1_000_000_000; // 1,000 (7-decimal tokens)
-    let deposit_b: i128 = 500_000_000;   //   500
+    let deposit_b: i128 = 500_000_000; //   500
 
     // Deposit both tokens into the Sender's independent vault slots.
     ctx.deposit_token(&ctx.token_a.clone(), deposit_a);
@@ -410,8 +391,9 @@ fn test_omni_vault_isolation() {
 
     // ── Token A assertions ────────────────────────────────────────────────────
     let tc_a = ctx.token_client_a();
-    // Receiver got the payment in Token A.
-    assert_eq!(tc_a.balance(&ctx.receiver), amount);
+    // Receiver got the payment in their internal Token A vault.
+    assert_eq!(tc_a.balance(&ctx.receiver), 0);
+    assert_eq!(ctx.client().get_vault(&ctx.receiver, &ctx.token_a), amount);
     // Treasury got the toll in Token A.
     assert_eq!(tc_a.balance(&ctx.treasury), protocol_toll);
     // Sender's on-chain Token A vault was debited correctly (no bounty fee).
