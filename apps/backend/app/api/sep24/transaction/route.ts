@@ -153,10 +153,9 @@
 export const runtime = 'nodejs';
 
 // ── Imports ───────────────────────────────────────────────────────────────────
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
-import type { AnchorTransaction } from '@prisma/client';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -165,6 +164,21 @@ interface Sep10JwtPayload {
   iss?: string;
   iat?: number;
   exp?: number;
+}
+
+interface AnchorTransactionRecord {
+  id: string;
+  stellarAccount: string;
+  type: 'deposit' | 'withdrawal';
+  status: string;
+  assetCode: string;
+  amountIn: string | null;
+  amountOut: string | null;
+  amountFee: string | null;
+  memo: string | null;
+  memoType: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 /**
@@ -185,6 +199,9 @@ interface Sep24TransactionResponse {
   updated_at: string;
   memo: string | null;
   memo_type: string | null;
+  withdraw_anchor_account?: string;
+  withdraw_memo?: string;
+  withdraw_memo_type?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -217,7 +234,7 @@ function verifyBearerToken(authHeader: string | null, secret: string): Sep10JwtP
  * The spec uses `kind` (not `type`) in the response object, and snake_case field
  * names.  All Prisma camelCase fields are remapped here.
  */
-function toSep24Transaction(tx: AnchorTransaction): Sep24TransactionResponse {
+function toSep24Transaction(tx: AnchorTransactionRecord): Sep24TransactionResponse {
   return {
     id: tx.id,
     kind: tx.type,                              // Prisma: `type` → SEP-24: `kind`
@@ -242,7 +259,7 @@ function toSep24Transaction(tx: AnchorTransaction): Sep24TransactionResponse {
  * Returns the current status of a single SEP-24 transaction.
  * Authentication is required; users can only access their own transactions.
  */
-export async function GET(request: Request): Promise<Response> {
+export async function GET(request: NextRequest): Promise<Response> {
   try {
     // ── 1. Authenticate: verify the SEP-10 session JWT ──────────────────────
     const sep10Secret = requireEnv('SECRET_SEP10_JWT_SECRET');
@@ -299,6 +316,20 @@ export async function GET(request: Request): Promise<Response> {
 
     // ── 5. Map to SEP-24 response format and return ──────────────────────────
     const transactionResponse = toSep24Transaction(anchorTx);
+
+    if (anchorTx.type === 'withdrawal') {
+      if (!process.env.TREASURY_PUBLIC_KEY?.trim()) {
+        throw new Error('[SEP-24 Transaction] Missing env var: TREASURY_PUBLIC_KEY');
+      }
+
+      // 🛡️ SECURITY: Route user withdrawals to the secure Treasury Cold Wallet
+      // instead of the vulnerable Vercel Hot Wallet (Relayer).
+      transactionResponse.withdraw_anchor_account = process.env.TREASURY_PUBLIC_KEY;
+      if (anchorTx.memo) {
+        transactionResponse.withdraw_memo = anchorTx.memo;
+        transactionResponse.withdraw_memo_type = anchorTx.memoType;
+      }
+    }
 
     console.info(
       `[SEP-24 Transaction] Fetched | id=${anchorTx.id} | status=${anchorTx.status}`,
