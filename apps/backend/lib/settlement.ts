@@ -84,8 +84,14 @@ export async function processOfflineSettlement(
   const fullNonce32 = expandNonce(nonceB64);
   const expectedSignedData = `${receiverShortId}:${amountBase62}:${fullNonce32.toString("hex")}`;
 
-  const verificationKey =
-    senderAccount.offlineDeviceKey ?? senderAccount.stellarPublicKey;
+  const verificationKey = senderAccount.offlineDeviceKey;
+  if (!verificationKey) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'Offline device key is not enrolled. Sign in online to synchronize this device.',
+    };
+  }
   const isValid = verifySignatureLocally(
     verificationKey,
     expectedSignedData,

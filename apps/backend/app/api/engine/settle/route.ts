@@ -332,9 +332,17 @@ async function handler(req: Request): Promise<Response> {
 
         const xdrBytes = xdrTuple.toXDR();
         
-        // 🔥 ARCHITECT FIX: Use the offline device key to verify the signature!
-        // We fallback to the stellarPublicKey only for old accounts that haven't migrated.
-        const verificationKey = senderAccount.offlineDeviceKey || senderPublicKey;
+        // The main wallet and offline device are intentionally separate keys.
+        // Falling back to the wallet key hides incomplete device enrollment.
+        const verificationKey = senderAccount.offlineDeviceKey;
+        if (!verificationKey) {
+            const failReason = 'Offline device key is not enrolled. Sign in online to synchronize this device.';
+            await prisma.settlement.update({
+                where: { id: settlementId },
+                data: { status: 'FAILED', failReason },
+            });
+            return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+        }
         const senderKeypair = Keypair.fromPublicKey(verificationKey);
         
         if (!senderKeypair.verify(xdrBytes, signatureBuffer)) {

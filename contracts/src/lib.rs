@@ -138,7 +138,12 @@ impl PijinContract {
         token_client.transfer(&sender, &env.current_contract_address(), &amount);
 
         env.storage().persistent().set(&vault_key, &new_balance);
-        env.storage().persistent().set(&registered_key, &pubkey);
+        // A deposit must not silently rotate the key and invalidate vouchers
+        // already signed by the enrolled device. Initial enrollment remains
+        // backwards compatible; later rotations use `set_offline_key`.
+        if !env.storage().persistent().has(&registered_key) {
+            env.storage().persistent().set(&registered_key, &pubkey);
+        }
         extend_persistent_ttl(&env, &vault_key);
         extend_persistent_ttl(&env, &registered_key);
 
