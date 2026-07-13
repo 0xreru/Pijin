@@ -17,6 +17,7 @@ import {
   ActivityIndicator,
   Platform,
   KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -81,8 +82,6 @@ export function OnboardingScreen() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-
-
 
   // Phone form
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -440,7 +439,7 @@ export function OnboardingScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: isDark ? ONBOARDING_DARK_BLUE : ONBOARDING_LIGHT_GRAY }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* Header */}
         <View style={styles.header}>
           {renderBackArrow()}
@@ -855,6 +854,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 44,
   },
+  formContentContainerCollapsed: {
+    paddingTop: 12,
+  },
   illustrationContainer: {
     height: SCREEN_HEIGHT * 0.35, // Reverted to original 0.35
     justifyContent: 'center',
@@ -862,7 +864,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   illustrationContainerCollapsed: {
-    height: SCREEN_HEIGHT * 0.12,
+    display: 'none',
   },
   illustrationImage: {
     width: '110%', // Reverted to original 85%
@@ -875,8 +877,7 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
   otpIllustrationContainerCollapsed: {
-    height: SCREEN_HEIGHT * 0.10,
-    flex: 0,
+    display: 'none',
   },
   otpIllustrationImage: {
     width: '75%', // Reverted to original 75%
@@ -988,6 +989,9 @@ const styles = StyleSheet.create({
   footer: {
     width: '100%',
     paddingBottom: 48,
+  },
+  footerCollapsed: {
+    paddingBottom: 16,
   },
   dotsContainer: {
     flexDirection: 'row',
