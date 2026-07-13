@@ -10,6 +10,12 @@ interface SubmitResponse {
   error?: string;
 }
 
+interface ReactNativeWindow extends Window {
+  ReactNativeWebView?: {
+    postMessage: (message: string) => void;
+  };
+}
+
 const STYLES = `
   * { box-sizing: border-box; }
   html, body { margin: 0; min-height: 100%; background: #f1f5f9; }
@@ -81,8 +87,15 @@ function WithdrawalForm() {
 
       // SEP-24 magic handoff: close the webview and let the Wallet SDK build
       // the user-signed payment to the Treasury Cold Storage destination.
-      if (typeof window !== "undefined" && window.parent) {
-        window.parent.postMessage({ type: "success", status: "pending_user_transfer_start" }, "*");
+      if (typeof window !== 'undefined') {
+        const handoff = { type: 'success', status: 'pending_user_transfer_start' };
+        const nativeBridge = (window as ReactNativeWindow).ReactNativeWebView;
+
+        if (nativeBridge) {
+          nativeBridge.postMessage(JSON.stringify(handoff));
+        } else if (window.parent) {
+          window.parent.postMessage(handoff, '*');
+        }
       }
     } catch (error: unknown) {
       setState('error');

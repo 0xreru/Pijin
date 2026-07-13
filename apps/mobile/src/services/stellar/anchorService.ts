@@ -85,6 +85,7 @@ export type AnchorErrorCode =
   | 'SEP24_WITHDRAWAL_FAILED'
   | 'SEP24_WITHDRAWAL_INSTRUCTIONS_FAILED'
   | 'SEP24_WITHDRAWAL_PAYMENT_FAILED'
+  | 'SEP24_WITHDRAWAL_CONFIRMATION_FAILED'
   | 'NETWORK_ERROR';
 
 /** The resolved URLs needed to execute the anchor flow. */
@@ -130,6 +131,43 @@ export interface Sep24WithdrawalPaymentResult {
   amount: string;
   assetCode: AssetCode;
   destination: string;
+}
+
+/** Notifies the anchor after Horizon has accepted the wallet payment. */
+export async function confirmSep24WithdrawalPayment(
+  transactionId: string,
+  token: string,
+  stellarTransactionId: string,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${ANCHOR_BASE_URL}/api/anchor/confirm-withdraw`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        transaction_id: transactionId,
+        stellar_transaction_id: stellarTransactionId,
+      }),
+    });
+  } catch (err) {
+    throw new AnchorServiceError(
+      'Payment was sent, but the anchor could not confirm it. Keep the transaction ID for support.',
+      'SEP24_WITHDRAWAL_CONFIRMATION_FAILED',
+      String(err),
+    );
+  }
+
+  const body = await safeJson(response);
+  if (!response.ok || body?.success !== true || body?.status !== 'pending_external') {
+    throw new AnchorServiceError(
+      'Payment was sent, but the anchor could not confirm it. Keep the transaction ID for support.',
+      'SEP24_WITHDRAWAL_CONFIRMATION_FAILED',
+      typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`,
+    );
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

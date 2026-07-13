@@ -37,6 +37,8 @@ import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webvie
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   ANCHOR_DOMAIN,
+  AnchorServiceError,
+  confirmSep24WithdrawalPayment,
   getSep24WithdrawalInstructions,
   Keypair as StellarKeypair,
   submitSep24WithdrawalPayment,
@@ -78,7 +80,7 @@ const INJECTED_JS = `
   (function() {
     const style = document.createElement('style');
     style.type = 'text/css';
-    style.innerHTML = \\\`
+    style.innerHTML = \`
       /* Force body styling to match app theme */
       body, html {
         background-color: #FFFFFF !important;
@@ -216,7 +218,7 @@ const INJECTED_JS = `
         border: 1px solid rgba(22, 199, 132, 0.2) !important;
         color: #16C784 !important;
       }
-    \\\`;
+    \`;
     document.head.appendChild(style);
 
     // Forward the withdrawal page's browser postMessage into React Native.
@@ -234,6 +236,10 @@ const INJECTED_JS = `
     };
     window.addEventListener('message', forwardSep24Handoff);
     document.addEventListener('message', forwardSep24Handoff);
+
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'sep24_bridge_ready' }));
+    }
   })();
   true;
 `;
@@ -355,6 +361,12 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
     try {
       message = JSON.parse(event.nativeEvent.data);
     } catch {
+      console.warn('[Sep24Withdrawal] Ignored non-JSON WebView message.');
+      return;
+    }
+
+    if (isRecord(message) && message.type === 'sep24_bridge_ready') {
+      console.info('[Sep24Withdrawal] WebView bridge ready.');
       return;
     }
 
@@ -366,6 +378,7 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
       return;
     }
 
+    console.info(`[Sep24Withdrawal] Handoff received | transactionId=${transactionId ?? 'missing'}`);
     withdrawalInFlightRef.current = true;
     setWithdrawalHandoffReceived(true);
     setIsProcessingWithdrawal(true);
@@ -382,6 +395,7 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
         throw new Error('Main wallet not found. Please sign in again.');
       }
       const keypair = StellarKeypair.fromSecret(mainWalletSecret);
+      console.info(`[Sep24Withdrawal] Wallet loaded | account=${keypair.publicKey()}`);
 
       // SECURITY: destination, amount, and memo come only from the authenticated
       // polling endpoint. Webview-controlled payment fields are never trusted.
@@ -389,6 +403,9 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
         transactionId,
         sep10Token,
         keypair.publicKey(),
+      );
+      console.info(
+        `[Sep24Withdrawal] Instructions verified | amount=${instructions.amount} | asset=${instructions.assetCode}`,
       );
 
       const confirmed = await confirmNativeWithdrawal({
@@ -399,18 +416,30 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
       });
 
       if (!confirmed) {
+        console.info('[Sep24Withdrawal] User cancelled wallet transfer confirmation.');
         setIsProcessingWithdrawal(false);
         if (navigation.canGoBack()) navigation.goBack();
         return;
       }
 
-      await submitSep24WithdrawalPayment(instructions, keypair);
+      console.info('[Sep24Withdrawal] Building and submitting Stellar payment.');
+      const payment = await submitSep24WithdrawalPayment(instructions, keypair);
+      console.info(`[Sep24Withdrawal] Horizon confirmed payment | hash=${payment.hash}`);
+      console.info('[Sep24Withdrawal] Asking anchor to verify the payment.');
+      await confirmSep24WithdrawalPayment(transactionId, sep10Token, payment.hash);
+      console.info('[Sep24Withdrawal] Anchor moved withdrawal to pending_external.');
       setIsProcessingWithdrawal(false);
       triggerSuccess();
     } catch (error: unknown) {
-      const detail = error instanceof Error ? error.message : 'The withdrawal transfer failed.';
-      console.error('[Sep24Withdrawal] Native transfer failed:', error);
-      setErrorMessage(detail);
+      const message = error instanceof Error ? error.message : 'The withdrawal transfer failed.';
+      const diagnostic = error instanceof AnchorServiceError ? error.detail : undefined;
+      console.error(
+        `[Sep24Withdrawal] Native transfer failed | code=${
+          error instanceof AnchorServiceError ? error.code : 'UNKNOWN'
+        } | detail=${diagnostic ?? 'none'}`,
+        error,
+      );
+      setErrorMessage(diagnostic ? `${message}\n${diagnostic}` : message);
       setIsProcessingWithdrawal(false);
       setHasError(true);
     }
