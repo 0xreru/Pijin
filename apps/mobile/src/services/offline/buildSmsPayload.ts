@@ -1,4 +1,4 @@
-import { getOrGenerateDeviceKeypair } from '../wallet/deviceKeyStore';
+import { getEnrolledDeviceKeypair } from '../wallet/deviceKeyStore';
 import { loadStoredAccount } from '../storage/accountStorage';
 import { phpToStroops, TOKEN_ID, TOKEN_DB_ID } from '../../constants/stellar';
 import { generateOfflineSmsPayload } from '../../utils/crypto';
@@ -95,7 +95,7 @@ export type OfflineVoucherResult = {
  *
  * **What this function does:**
  * 1. Loads the sender's stored account (for `senderShortId`).
- * 2. Retrieves / generates the device Ed25519 keypair from the secure enclave.
+ * 2. Retrieves the previously enrolled device Ed25519 keypair from SecureStore.
  * 3. Reads `EXPO_PUBLIC_GATEWAY_PUBLIC_KEY` and `EXPO_PUBLIC_TOKEN_ID` from
  *    the environment.
  * 4. Converts `amountPhp` → `amountStroops` (BigInt, × 10_000_000).
@@ -124,8 +124,8 @@ export async function buildOfflineSmsVoucher(
     throw new Error('Only USER accounts can generate offline SMS vouchers.');
   }
 
-  // ── 2. Retrieve (or create) the device signing key from the enclave ────────
-  const deviceKeypair = await getOrGenerateDeviceKeypair();
+  // ── 2. Load the enrolled key. Never create a replacement while offline. ────
+  const deviceKeypair = await getEnrolledDeviceKeypair();
   const senderSecretKey = deviceKeypair.secret();
 
   // ── 3. Resolve token — caller-supplied takes priority; fall back to env ────

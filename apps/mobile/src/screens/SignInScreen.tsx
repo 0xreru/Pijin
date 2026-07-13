@@ -26,6 +26,7 @@ import { checkUserExists } from '../services/api/accounts';
 import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
+import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -139,6 +140,7 @@ export function SignInScreen() {
             return;
           }
           const token = await getSep10Token(mainWalletKeypair);
+          await synchronizeOfflineDeviceKey(mainWalletKeypair, token);
           await login(checkRes.stellarPublicKey, checkRes.shortId, token);
         } else {
           // Phone number not found in DB

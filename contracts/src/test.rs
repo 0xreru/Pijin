@@ -181,6 +181,23 @@ fn test_deposit_and_withdraw_success() {
 }
 
 #[test]
+fn test_deposit_does_not_rotate_existing_offline_key() {
+    let ctx = setup_test();
+    ctx.deposit(DEPOSIT_AMOUNT);
+    let enrolled_key = ctx.client().get_offline_key(&ctx.sender).unwrap();
+
+    let replacement = SigningKey::generate(&mut OsRng);
+    let replacement_key = BytesN::from_array(&ctx.env, &replacement.verifying_key().to_bytes());
+    ctx.client()
+        .deposit(&ctx.sender, &ctx.token_a, &replacement_key, &1);
+
+    assert_eq!(
+        ctx.client().get_offline_key(&ctx.sender),
+        Some(enrolled_key)
+    );
+}
+
+#[test]
 fn test_spend_offline_success() {
     let ctx = setup_test();
     let amount = 100_000_000;
