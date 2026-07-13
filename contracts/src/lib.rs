@@ -239,9 +239,18 @@ impl PijinContract {
         env.storage().persistent().set(&vault_key, &new_balance);
         extend_persistent_ttl(&env, &vault_key);
 
+        let receiver_vault_key = DataKey::Vault(receiver.clone(), token.clone());
+        let receiver_balance = get_persistent_i128(&env, &receiver_vault_key);
+        let receiver_new_balance = receiver_balance
+            .checked_add(amount)
+            .ok_or(ContractError::MathOverflow)?;
+        env.storage()
+            .persistent()
+            .set(&receiver_vault_key, &receiver_new_balance);
+        extend_persistent_ttl(&env, &receiver_vault_key);
+
         let token_client = token::Client::new(&env, &token);
         let contract = env.current_contract_address();
-        token_client.transfer(&contract, &receiver, &amount);
         if protocol_toll > 0 {
             token_client.transfer(&contract, &treasury, &protocol_toll);
         }
@@ -348,11 +357,7 @@ impl PijinContract {
     /// Remove a previously whitelisted gateway relayer.
     ///
     /// Only the stored admin may call this.
-    pub fn remove_gateway(
-        env: Env,
-        admin: Address,
-        gateway: Address,
-    ) -> Result<(), ContractError> {
+    pub fn remove_gateway(env: Env, admin: Address, gateway: Address) -> Result<(), ContractError> {
         admin.require_auth();
 
         let stored_admin: Address = env

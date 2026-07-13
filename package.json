@@ -18,7 +18,7 @@
       "packages/pijin_core/**/*.ts": [],
       "apps/backend/**/*.{js,jsx}": [],
       "apps/mobile/**/*.{js,jsx,ts,tsx}": [],
-      "contracts/**/*.rs": "cargo fmt --"
+      "contracts/**/*.rs": "cargo fmt --manifest-path contracts/Cargo.toml --"
   },
   "overrides": {
     "react-native": "0.76.9",
