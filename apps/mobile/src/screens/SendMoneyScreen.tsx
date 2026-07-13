@@ -221,20 +221,27 @@ export function SendMoneyScreen({ route, navigation }: any) {
   const handleContinue = async () => {
     if (isResolving) return;
     
-    let hasError = false;
     let currentRecipient = resolvedRecipient;
+    const normalizedRecipientId = recipientShortId.trim();
 
     // Validate recipient
-    if (!recipientShortId.trim()) {
+    if (!normalizedRecipientId) {
       setRecipientShortIdError('Recipient Short ID is required');
       return;
     } 
 
-    if (!currentRecipient || currentRecipient.shortId !== recipientShortId.trim()) {
-      // Auto-lookup the recipient
+    // An offline lookup deliberately has no public key. If connectivity is
+    // restored while this screen is open, refresh that stale recipient before
+    // opening an online confirmation.
+    const needsRecipientLookup =
+      !currentRecipient ||
+      currentRecipient.shortId !== normalizedRecipientId ||
+      (isOnline && !currentRecipient.stellarPublicKey.trim());
+
+    if (needsRecipientLookup) {
       setIsResolving(true);
       try {
-        const q = recipientShortId.trim();
+        const q = normalizedRecipientId;
         const isPhone = /^\d+$/.test(q) && q.length >= 7;
         
         if (!isOnline) {
@@ -285,6 +292,16 @@ export function SendMoneyScreen({ route, navigation }: any) {
       }
       setIsResolving(false);
     }
+
+    if (!currentRecipient) {
+      setRecipientShortIdError('No account found with that Short ID or phone number.');
+      return;
+    }
+
+    if (isOnline && !currentRecipient.stellarPublicKey.trim()) {
+      setRecipientShortIdError('Recipient public key could not be resolved. Please try again.');
+      return;
+    }
     
     setRecipientShortIdError(null);
 
@@ -302,11 +319,11 @@ export function SendMoneyScreen({ route, navigation }: any) {
 
     // Navigate to confirmation
     navigation.navigate('SendMoneyConfirm', {
-      recipientShortId: currentRecipient!.shortId,
-      recipientName: currentRecipient!.displayName,
-      receiverPubKey: currentRecipient!.stellarPublicKey,
-      recipientVerified: Boolean(currentRecipient!.stellarPublicKey),
-      offlineDeviceKey: currentRecipient!.offlineDeviceKey,
+      recipientShortId: currentRecipient.shortId,
+      recipientName: currentRecipient.displayName,
+      receiverPubKey: currentRecipient.stellarPublicKey,
+      recipientVerified: Boolean(currentRecipient.stellarPublicKey),
+      offlineDeviceKey: currentRecipient.offlineDeviceKey,
       amount: numAmount,
       note: note.trim(),
     });
