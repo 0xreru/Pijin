@@ -8,9 +8,10 @@ export type TabType = 'home' | 'notifications' | 'scan' | 'transactions' | 'prof
 interface BottomNavBarProps {
   activeTab: TabType;
   onChangeTab: (tab: TabType) => void;
+  unreadCount?: number;
 }
 
-export function BottomNavBar({ activeTab, onChangeTab }: BottomNavBarProps) {
+export function BottomNavBar({ activeTab, onChangeTab, unreadCount }: BottomNavBarProps) {
   const insets = useSafeAreaInsets();
 
   const renderTabItem = (
@@ -26,11 +27,18 @@ export function BottomNavBar({ activeTab, onChangeTab }: BottomNavBarProps) {
         onPress={() => onChangeTab(tab)}
         activeOpacity={0.7}
       >
-        <Ionicons
-          name={isActive ? activeIcon : inactiveIcon}
-          size={22}
-          color={isActive ? '#3B82F6' : '#8E9CAE'}
-        />
+        <View style={{ position: 'relative' }}>
+          <Ionicons
+            name={isActive ? activeIcon : inactiveIcon}
+            size={22}
+            color={isActive ? '#3B82F6' : '#8E9CAE'}
+          />
+          {tab === 'notifications' && unreadCount !== undefined && unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+            </View>
+          )}
+        </View>
         <Text style={[styles.tabLabel, isActive ? styles.tabLabelActive : styles.tabLabelInactive]}>
           {label}
         </Text>
@@ -115,6 +123,26 @@ const styles = StyleSheet.create({
   },
   tabLabelInactive: {
     color: '#8E9CAE', // Muted color matching inactive icon
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    zIndex: 10,
+    borderWidth: 1.5,
+    borderColor: '#00112A',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: 'bold',
   },
   qrButtonWrapper: {
     position: 'absolute',

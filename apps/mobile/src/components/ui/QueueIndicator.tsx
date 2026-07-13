@@ -1,51 +1,38 @@
 import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppCard } from './AppCard';
 
 interface QueueIndicatorProps {
   queueCount: number;
-  onSyncPress?: () => void;
+  onPress?: () => void;
   syncing?: boolean;
 }
 
-export function QueueIndicator({ queueCount, onSyncPress, syncing = false }: QueueIndicatorProps) {
+export function QueueIndicator({ queueCount, onPress, syncing = false }: QueueIndicatorProps) {
   if (queueCount === 0) return null;
 
   return (
-    <AppCard style={styles.card}>
-      <View style={styles.container}>
-        <View style={styles.leftSection}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="cloud-offline-outline" size={20} color="#EA580C" />
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={{ marginVertical: 8 }}>
+      <AppCard style={styles.card}>
+        <View style={styles.container}>
+          <View style={styles.leftSection}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="cloud-offline-outline" size={20} color="#EA580C" />
+            </View>
+            <View style={styles.textContainer}>
+              <Text style={styles.title}>Offline Payments Saved</Text>
+              <Text style={styles.subtitle}>
+                {queueCount} transaction{queueCount > 1 ? 's' : ''} pending connection sync.
+              </Text>
+            </View>
           </View>
-          <View style={styles.textContainer}>
-            <Text style={styles.title}>Offline Payments Saved</Text>
-            <Text style={styles.subtitle}>
-              {queueCount} transaction{queueCount > 1 ? 's' : ''} pending connection sync.
-            </Text>
+          <View style={styles.rightIcon}>
+             <Ionicons name="chevron-forward" size={20} color="#C2410C" />
           </View>
         </View>
-
-        {onSyncPress && (
-          <TouchableOpacity
-            style={[styles.syncButton, syncing && styles.syncButtonDisabled]}
-            onPress={onSyncPress}
-            disabled={syncing}
-            activeOpacity={0.8}
-          >
-            {syncing ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Ionicons name="sync-outline" size={14} color="#FFFFFF" style={styles.syncIcon} />
-                <Text style={styles.syncButtonText}>Sync</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-      </View>
-    </AppCard>
+      </AppCard>
+    </TouchableOpacity>
   );
 }
 
@@ -55,7 +42,6 @@ const styles = StyleSheet.create({
     borderColor: '#FED7AA',
     borderWidth: 1,
     padding: 14,
-    marginVertical: 8,
   },
   container: {
     flexDirection: 'row',
@@ -91,28 +77,8 @@ const styles = StyleSheet.create({
     color: '#C2410C',
     marginTop: 2,
   },
-  syncButton: {
-    backgroundColor: '#EA580C',
-    flexDirection: 'row',
+  rightIcon: {
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    shadowColor: '#EA580C',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  syncButtonDisabled: {
-    backgroundColor: '#FDBA74',
-  },
-  syncIcon: {
-    marginRight: 4,
-  },
-  syncButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
+  }
 });

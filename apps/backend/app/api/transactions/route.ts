@@ -121,10 +121,28 @@ export async function GET(req: NextRequest) {
       take: 50,
     });
 
+    const shortIdsToFetch = new Set<string>();
+    settlements.forEach(s => {
+      if (s.senderShortId) shortIdsToFetch.add(s.senderShortId);
+      if (s.receiverShortId) shortIdsToFetch.add(s.receiverShortId);
+    });
+
+    const accounts = await prisma.account.findMany({
+      where: { shortId: { in: Array.from(shortIdsToFetch) } },
+      select: { shortId: true, firstName: true },
+    });
+
+    const accountMap = new Map<string, string>();
+    accounts.forEach(acc => {
+      accountMap.set(acc.shortId, acc.firstName || acc.shortId);
+    });
+
     // We must serialize BigInt (amountStroops) to strings so JSON.stringify doesn't crash
     const serializedSettlements = settlements.map((settlement: typeof settlements[number]) => ({
         ...settlement,
         amountStroops: settlement.amountStroops.toString(),
+        senderName: accountMap.get(settlement.senderShortId) || settlement.senderShortId,
+        receiverName: accountMap.get(settlement.receiverShortId) || settlement.receiverShortId,
     }));
 
     return NextResponse.json({

@@ -3,11 +3,13 @@ export { DashboardScreen } from './DashboardScreen';
 export { SignInScreen } from './SignInScreen';
 export { TransactionReceiptScreen } from './TransactionReceiptScreen';
 export { LoadOfflineFundsScreen } from './LoadOfflineFundsScreen';
+export { LoadOnlineFundsScreen } from './LoadOnlineFundsScreen';
 export { ScanQRScreen } from './ScanQRScreen';
 export { TransportChoiceScreen } from './TransportChoiceScreen';
 export { SendMoneyScreen } from './SendMoneyScreen';
 export { SendMoneyConfirmScreen } from './SendMoneyConfirmScreen';
 export { GenerateQRScreen } from './GenerateQRScreen';
-
-
-
+export { AccountSettingsScreen } from './AccountSettingsScreen';
+export { VaultSettingsScreen } from './VaultSettingsScreen';
+export { ChangePinScreen } from './ChangePinScreen';
+export { PendingSyncScreen } from './PendingSyncScreen';

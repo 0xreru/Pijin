@@ -79,13 +79,38 @@ export const TransactionsTab = memo(function TransactionsTab({ mockTxs, insets }
     return isIncoming ? `+ ${formatted}` : `- ${formatted}`;
   }, []);
 
+  const formatTimeAgo = useCallback((dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    
+    if (diffMs < 0) return 'Just now';
+    
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hr${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 30) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    if (diffMonths < 12) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+    return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
+  }, []);
+
   const mappedTxs = useMemo(
     () =>
       (mockTxs || []).map(tx => ({
         ...tx,
         amountPhp: formatPhp(tx.amount, tx.type),
+        timeAgo: tx.createdAt 
+          ? formatTimeAgo(tx.createdAt)
+          : tx.timeAgo,
       })),
-    [mockTxs, formatPhp],
+    [mockTxs, formatPhp, formatTimeAgo],
   );
 
   // Build SectionList-compatible sections from a flat list grouped by dateGroup

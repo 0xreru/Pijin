@@ -31,6 +31,9 @@ import { ScanTab } from './dashboard/ScanTab';
 import { TransactionsTab } from './dashboard/TransactionsTab';
 import { ProfileTab } from './dashboard/ProfileTab';
 
+// Import Offline Notice Modal
+import { OfflineNoticeModal } from '../components/ui/OfflineNoticeModal';
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
 const OFFLINE_BALANCE_KEY = 'pijn.offline_balance';
@@ -76,6 +79,8 @@ export function DashboardScreen({ navigation }: any) {
   const [syncing, setSyncing] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
+  const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
+  const [offlineNoticeVisible, setOfflineNoticeVisible] = useState(false);
 
   // Live Queries for automatic, reactive UI updates
   const { data: transactions = [] } = useLiveQuery(
@@ -118,6 +123,7 @@ export function DashboardScreen({ navigation }: any) {
   useEffect(() => {
     const initData = async () => {
       try {
+        await AsyncStorage.removeItem('pijn.hide_offline_notice'); // Ensure modal appears for testing
         await ensureMigration();
         const hasReset = await AsyncStorage.getItem('pijn.initial_reset_v2');
         if (!hasReset) {
@@ -140,6 +146,12 @@ export function DashboardScreen({ navigation }: any) {
           } else {
             setServerOfflineBalance(0.00);
             await AsyncStorage.setItem(OFFLINE_BALANCE_KEY, '0.00');
+          }
+          const storedReadIds = await AsyncStorage.getItem('pijn.read_notifs');
+          if (storedReadIds) {
+            try {
+              setReadNotifIds(JSON.parse(storedReadIds));
+            } catch (e) {}
           }
         }
 
@@ -177,6 +189,19 @@ export function DashboardScreen({ navigation }: any) {
       });
     });
 
+    const subLoadOnline = DeviceEventEmitter.addListener('ON_LOAD_ONLINE_FUNDS', (amount: number) => {
+      setServerOfflineBalance((prevOffline) => {
+        const newOffline = Math.max(0, prevOffline - amount);
+        AsyncStorage.setItem(OFFLINE_BALANCE_KEY, newOffline.toString());
+        return newOffline;
+      });
+      setCachedBalance((prevOnline) => {
+        const newOnline = prevOnline + amount;
+        AsyncStorage.setItem(CACHED_BALANCE_KEY, newOnline.toString());
+        return newOnline;
+      });
+    });
+
     const subSendOffline = DeviceEventEmitter.addListener('ON_SEND_MONEY_OFFLINE', (amount: number) => {
       // Handled reactively via Drizzle useLiveQuery + pendingPayments subtraction.
     });
@@ -184,6 +209,7 @@ export function DashboardScreen({ navigation }: any) {
     return () => {
       subLoad.remove();
       subSendOnline.remove();
+      subLoadOnline.remove();
       subSendOffline.remove();
     };
   }, []);
@@ -336,14 +362,32 @@ export function DashboardScreen({ navigation }: any) {
     return () => sub.unsubscribe();
   }, [isOnline]);
 
-  // Automatically trigger smart sync when online mode is active and shortId is loaded
+  // Automatically trigger smart sync when internet is detected and shortId is loaded
   useEffect(() => {
-    if (isOnline && shortId !== '0000') {
-      syncService.syncTransactions(shortId, publicKey)
+    if (hasInternet && shortId !== '0000') {
+      syncService.flush()
+        .then(() => {
+          if (isOnline) {
+             return syncService.syncTransactions(shortId, publicKey);
+          }
+        })
         .then(() => refreshBalance())
-        .catch((err) => console.warn('[DashboardScreen] Sync failed:', err));
+        .catch((err) => console.warn('[DashboardScreen] Auto-sync failed:', err));
     }
-  }, [isOnline, shortId, publicKey]);
+  }, [hasInternet, isOnline, shortId, publicKey]);
+
+  // Handle offline notice modal
+  useEffect(() => {
+    if (!hasInternet) {
+      AsyncStorage.getItem('pijn.hide_offline_notice').then(val => {
+        if (val !== 'true') {
+          setOfflineNoticeVisible(true);
+        }
+      });
+    } else {
+      setOfflineNoticeVisible(false);
+    }
+  }, [hasInternet]);
 
   // Switch transition handler
   const handleStateTransition = (targetOnline: boolean) => {
@@ -421,6 +465,10 @@ export function DashboardScreen({ navigation }: any) {
     navigation.navigate('LoadOfflineFunds', { balance: cachedBalance });
   }, [navigation, cachedBalance]);
 
+  const handleLoadOnlineFundsPress = useCallback(() => {
+    navigation.navigate('LoadOnlineFunds', { balance: offlineBalance });
+  }, [navigation, offlineBalance]);
+
   const handleSendPress = useCallback(() => {
     navigation.navigate('SendMoney');
   }, [navigation]);
@@ -442,13 +490,50 @@ export function DashboardScreen({ navigation }: any) {
   const handleLogoutConfirm = useCallback(async () => {
     setLogoutModalVisible(false);
     await logout();
-  }, [logout]);
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'SignIn' }],
+    });
+  }, [logout, navigation]);
 
   const handleLogoutCancel = useCallback(() => setLogoutModalVisible(false), []);
 
   // ── Memoized derived transaction lists ────────────────────────────────────
   const onlineTxs = useMemo(() => transactions.filter(t => t.tag === 'WALLET'), [transactions]);
   const offlineTxs = useMemo(() => transactions.filter(t => t.tag === 'OFFLINE'), [transactions]);
+
+  const markNotifAsRead = useCallback((id: string) => {
+    setReadNotifIds(prev => {
+      if (prev.includes(id)) return prev;
+      const newIds = [...prev, id];
+      AsyncStorage.setItem('pijn.read_notifs', JSON.stringify(newIds)).catch(() => {});
+      return newIds;
+    });
+  }, []);
+
+  const markAllNotifsAsRead = useCallback(() => {
+    const now = new Date().getTime();
+    const unreadIds = transactions
+      .filter(t => t.createdAt && (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000 && !readNotifIds.includes(t.id))
+      .map(t => t.id);
+
+    if (unreadIds.length === 0) return;
+
+    setReadNotifIds(prev => {
+      const newIds = [...prev, ...unreadIds];
+      AsyncStorage.setItem('pijn.read_notifs', JSON.stringify(newIds)).catch(() => {});
+      return newIds;
+    });
+  }, [transactions, readNotifIds]);
+
+  const unreadCount = useMemo(() => {
+    const now = new Date().getTime();
+    return transactions.filter(t => 
+      t.createdAt && 
+      (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000 &&
+      !readNotifIds.includes(t.id)
+    ).length;
+  }, [transactions, readNotifIds]);
 
   const renderActiveTabContent = () => {
     return (
@@ -483,6 +568,7 @@ export function DashboardScreen({ navigation }: any) {
               onSyncQueue={handleSyncQueue}
               onAddMockQueueItem={handleAddMockQueueItem}
               onLoadOfflineFundsPress={handleLoadOfflineFundsPress}
+              onLoadOnlineFundsPress={handleLoadOnlineFundsPress}
               onSendPress={handleSendPress}
               onReceivePress={handleReceivePress}
               onViewAllTransactions={handleViewAllTransactions}
@@ -491,7 +577,13 @@ export function DashboardScreen({ navigation }: any) {
 
           {/* Tab 2: Notifications */}
           <View style={styles.tabPanel}>
-            <NotificationsTab insets={insets} />
+            <NotificationsTab 
+              insets={insets} 
+              transactions={transactions} 
+              readIds={readNotifIds}
+              onMarkAsRead={markNotifAsRead}
+              onMarkAllAsRead={markAllNotifsAsRead}
+            />
           </View>
 
           {/* Tab 3: Scan */}
@@ -534,6 +626,7 @@ export function DashboardScreen({ navigation }: any) {
       <BottomNavBar
         activeTab={activeTab}
         onChangeTab={handleChangeTab}
+        unreadCount={unreadCount}
       />
 
       {/* Logout Modal */}
@@ -541,6 +634,12 @@ export function DashboardScreen({ navigation }: any) {
         visible={logoutModalVisible}
         onConfirm={handleLogoutConfirm}
         onCancel={handleLogoutCancel}
+      />
+
+      {/* Offline Notice Modal */}
+      <OfflineNoticeModal
+        visible={offlineNoticeVisible}
+        onClose={() => setOfflineNoticeVisible(false)}
       />
     </View>
   );
