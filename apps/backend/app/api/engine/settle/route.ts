@@ -125,7 +125,7 @@ async function handler(req: Request): Promise<Response> {
 
     const parts = smsPayload.split(':');
 
-    if (parts.length < 6) {
+    if (parts.length !== 6) {
         console.error(`[Settle] Malformed smsPayload (expected 6 parts, got ${parts.length}): "${smsPayload}"`);
         return NextResponse.json({ error: 'Malformed smsPayload' }, { status: 200 });
     }
@@ -290,9 +290,16 @@ async function handler(req: Request): Promise<Response> {
         const nonceBuffer = Buffer.from(restoreBase64Padding(nonce), 'base64');
         const signatureBuffer = Buffer.from(restoreBase64Padding(signature), 'base64');
 
-        // Expand nonce to 32-byte Buffer (Soroban BytesN<32> requirement).
-        const nonce32 = Buffer.alloc(32);
-        nonceBuffer.copy(nonce32);
+        if (nonceBuffer.length !== 32 || signatureBuffer.length !== 64) {
+            const failReason = `Malformed voucher bytes: nonce=${nonceBuffer.length} (expected 32), signature=${signatureBuffer.length} (expected 64)`;
+            await prisma.settlement.update({
+                where: { id: settlementId },
+                data: { status: 'FAILED', failReason },
+            });
+            return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+        }
+
+        const nonce32 = nonceBuffer;
 
         // TOLL CALCULATION 
         const tollStroops = token.symbol === 'PHPC' ? 5000000n : 0n;
@@ -554,6 +561,9 @@ async function assertClassicTrustline(
 
 function normalizeSettlementFailure(err: unknown): string {
     const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('verify_sig_ed25519') || message.includes('failed ED25519 verification')) {
+        return 'Offline device key mismatch: this voucher is valid for the database key, but the vault has a different Ed25519 key registered on-chain. Re-sync it with an authenticated set_offline_key call or make a new deposit using the current device key.';
+    }
     const trustlineMatch = message.match(/trustline entry is missing for account["\s,]+(G[A-Z2-7]{55})/);
     if (trustlineMatch?.[1]) {
         return `Missing token trustline for account ${trustlineMatch[1]}. Create a PHPC trustline before retrying settlement.`;

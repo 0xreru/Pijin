@@ -330,7 +330,7 @@ export async function POST(req: Request) {
 
     // ── Deduplication via Nonce ────────────────────────────────────────────────
     const parts = message.split(':');
-    if (parts.length < 6) {
+    if (parts.length !== 6) {
         return NextResponse.json({ error: 'Malformed payload' }, { status: 400 });
     }
 

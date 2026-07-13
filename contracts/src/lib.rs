@@ -154,6 +154,31 @@ impl PijinContract {
         Ok(())
     }
 
+    /// Rotate the Ed25519 key used for offline vouchers without requiring a
+    /// token deposit. Only the vault owner can authorize this change.
+    pub fn set_offline_key(
+        env: Env,
+        sender: Address,
+        pubkey: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        sender.require_auth();
+        let registered_key = DataKey::RegisteredKey(sender);
+        env.storage().persistent().set(&registered_key, &pubkey);
+        extend_persistent_ttl(&env, &registered_key);
+        Ok(())
+    }
+
+    /// Read the key currently registered for a vault so clients can detect a
+    /// stale device registration before creating an SMS voucher.
+    pub fn get_offline_key(env: Env, sender: Address) -> Option<BytesN<32>> {
+        let registered_key = DataKey::RegisteredKey(sender);
+        let key = env.storage().persistent().get(&registered_key);
+        if key.is_some() {
+            extend_persistent_ttl(&env, &registered_key);
+        }
+        key
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn spend_offline(
         env: Env,

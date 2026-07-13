@@ -1,13 +1,13 @@
 import { Buffer } from "buffer";
 import { AssembledTransaction, Client as ContractClient, ClientOptions as ContractClientOptions, MethodOptions, Result } from "@stellar/stellar-sdk/contract";
-import type { i128 } from "@stellar/stellar-sdk/contract";
+import type { i128, Option } from "@stellar/stellar-sdk/contract";
 export * from "@stellar/stellar-sdk";
 export * as contract from "@stellar/stellar-sdk/contract";
 export * as rpc from "@stellar/stellar-sdk/rpc";
 export declare const networks: {
     readonly testnet: {
         readonly networkPassphrase: "Test SDF Network ; September 2015";
-        readonly contractId: "CDCICA2MUKQ4JBIC2NP5HDCQP7JPKEXM3MRHDDXE7KBU4IFE6ERE462S";
+        readonly contractId: "CCJHL55WLKQI56YSMJTA5KUOVHUGGJB3FL32HEBKHLXT75UEBUSK4IFU";
     };
 };
 /**
@@ -150,6 +150,23 @@ export interface Client {
         gateway: string;
     }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
     /**
+     * Construct and simulate a get_offline_key transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Read the key currently registered for a vault so clients can detect a
+     * stale device registration before creating an SMS voucher.
+     */
+    get_offline_key: ({ sender }: {
+        sender: string;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Option<Buffer>>>;
+    /**
+     * Construct and simulate a set_offline_key transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Rotate the Ed25519 key used for offline vouchers without requiring a
+     * token deposit. Only the vault owner can authorize this change.
+     */
+    set_offline_key: ({ sender, pubkey }: {
+        sender: string;
+        pubkey: Buffer;
+    }, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>;
+    /**
      * Construct and simulate a register_gateway transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
      * Whitelist a gateway relayer address.
      *
@@ -186,6 +203,8 @@ export declare class Client extends ContractClient {
         get_vault: (json: string) => AssembledTransaction<bigint>;
         spend_offline: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         remove_gateway: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
+        get_offline_key: (json: string) => AssembledTransaction<Option<Buffer<ArrayBufferLike>>>;
+        set_offline_key: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
         register_gateway: (json: string) => AssembledTransaction<Result<void, import("@stellar/stellar-sdk/contract").ErrorMessage>>;
     };
 }
