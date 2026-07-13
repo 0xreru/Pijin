@@ -154,7 +154,9 @@ async function handler(req: Request): Promise<Response> {
         `[Settle] Processing | msgId=${qstashMessageId} | tokenId=${tokenId} | sender=${senderShortId} | receiver=${receiverShortId} | amountStroops=${amountStroops} | nonce=${nonce}`
     );
 
-    // Create PENDING settlement record (idempotency guard)
+    // Create or resume a PENDING settlement record (idempotency guard).
+    // QStash retries must be able to continue after an infra failure that
+    // happened after the DB row was created but before the Stellar tx settled.
     let settlementId: number;
 
     try {
@@ -180,13 +182,45 @@ async function handler(req: Request): Promise<Response> {
             'code' in err &&
             (err as { code: string }).code === 'P2002';
 
-        if (isDuplicate) {
-            console.warn(`[Settle] Duplicate delivery skipped | nonce=${nonce} | msgId=${qstashMessageId}`);
-            return NextResponse.json({ status: 'DUPLICATE_SKIPPED' }, { status: 200 });
+        if (!isDuplicate) {
+            console.error('[Settle] DB create failed (infra error):', err);
+            return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
         }
 
-        console.error('[Settle] DB create failed (infra error):', err);
-        return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
+        try {
+            const existing = await prisma.settlement.findFirst({
+                where: {
+                    OR: [
+                        { nonce },
+                        { qstashMessageId },
+                    ],
+                },
+            });
+
+            if (!existing) {
+                console.error('[Settle] Duplicate constraint hit but no existing settlement was found:', err);
+                return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
+            }
+
+            if (existing.status === 'SETTLED') {
+                console.warn(`[Settle] Duplicate settled delivery skipped | settlementId=${existing.id} | nonce=${nonce} | msgId=${qstashMessageId}`);
+                return NextResponse.json({ status: 'DUPLICATE_SKIPPED', txHash: existing.txHash }, { status: 200 });
+            }
+
+            const resumed = await prisma.settlement.update({
+                where: { id: existing.id },
+                data: {
+                    status: 'PENDING',
+                    failReason: null,
+                },
+            });
+
+            settlementId = resumed.id;
+            console.warn(`[Settle] Resuming existing settlement | settlementId=${settlementId} | previousStatus=${existing.status} | nonce=${nonce} | msgId=${qstashMessageId}`);
+        } catch (lookupErr: unknown) {
+            console.error('[Settle] DB duplicate lookup failed (infra error):', lookupErr);
+            return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
+        }
     }
 
     // Hydrate Stellar public keys + Token record (parallel)
