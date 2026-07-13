@@ -25,6 +25,7 @@ import { ensureMigration } from '../services/storage/migration';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
+import { connectionService } from '../services/connectionService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 56;
@@ -181,12 +182,10 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
-    const checkState = async () => {
-      await ensureMigration();
-      const onlineStr = await AsyncStorage.getItem('pijn.is_online');
-      setIsOnlineMode(onlineStr !== 'false');
-    };
-    checkState();
+    const sub = connectionService.state$.subscribe((state) => {
+      setIsOnlineMode(state.isOnlineMode);
+    });
+    return () => sub.unsubscribe();
   }, []);
 
   const [actualTxId, setActualTxId] = useState<string | null>(null);
