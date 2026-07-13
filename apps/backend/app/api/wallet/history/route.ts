@@ -227,6 +227,31 @@ export async function GET(req: NextRequest) {
         take: 50,
       }),
     ]);
+
+    // Fetch accounts to resolve names for sender and receiver
+    const shortIdsToFetch = new Set<string>();
+    settlements.forEach(s => {
+      if (s.senderShortId) shortIdsToFetch.add(s.senderShortId);
+      if (s.receiverShortId) shortIdsToFetch.add(s.receiverShortId);
+    });
+
+    const accounts = await prisma.account.findMany({
+      where: { shortId: { in: Array.from(shortIdsToFetch) } },
+      select: { shortId: true, firstName: true },
+    });
+
+    const accountMap = new Map<string, string>();
+    accounts.forEach(acc => {
+      accountMap.set(acc.shortId, acc.firstName || acc.shortId);
+    });
+
+    // We mutate the settlements to include the resolved names for ease of mapping later
+    settlements = settlements.map(s => ({
+      ...s,
+      senderName: accountMap.get(s.senderShortId) || s.senderShortId,
+      receiverName: accountMap.get(s.receiverShortId) || s.receiverShortId,
+    }));
+
   } catch (err) {
     console.error('[Wallet History] DB parallel query failed:', err);
     return NextResponse.json({ error: 'Failed to fetch transaction history.' }, { status: 502 });
@@ -246,7 +271,7 @@ export async function GET(req: NextRequest) {
     return {
       id:        s.id.toString(),
       type:      isSender ? 'SEND' : 'RECEIVE',
-      title:     isSender ? `Sent to ${s.receiverShortId}` : `Received from ${s.senderShortId}`,
+      title:     isSender ? `Sent to ${s.receiverName}` : `Received from ${s.senderName}`,
       amount:    isSender ? `-${decimalAmount}` : decimalAmount, // Debits show negative
       assetCode,
       status:    s.status,

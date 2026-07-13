@@ -30,6 +30,118 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 56;
 const TRACK_WIDTH = SCREEN_WIDTH - 40;
 const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
+const STROOPS_PER_UNIT = 10_000_000;
+
+function amountToStroops(amount: number): bigint {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`Invalid transfer amount: ${amount}`);
+  }
+  return BigInt(Math.round(amount * STROOPS_PER_UNIT));
+}
+
+async function executeTransfer(input: { senderPublicKey: string; recipientPublicKey: string; amount: number }): Promise<string | undefined> {
+  const { Keypair, TransactionBuilder } = require('@stellar/stellar-sdk');
+  const { getMainWalletSecret } = require('../services/storage/onboardingStorage');
+
+  const mainWalletSecret = await getMainWalletSecret();
+  if (!mainWalletSecret) {
+    throw new Error('No main wallet secret found in SecureStore.');
+  }
+
+  const mainWalletKeypair = Keypair.fromSecret(mainWalletSecret);
+  const mainWalletPublicKey = mainWalletKeypair.publicKey();
+  if (mainWalletPublicKey !== input.senderPublicKey) {
+    throw new Error('Main wallet mismatch.');
+  }
+
+  const amountStroops = amountToStroops(input.amount).toString();
+
+  const canonicalMessage = `transfer:${mainWalletPublicKey}:${input.recipientPublicKey}:${amountStroops}`;
+  const sigBuffer = mainWalletKeypair.sign(Buffer.from(canonicalMessage));
+  const sigBase64 = Buffer.from(sigBuffer).toString('base64');
+
+  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/^['"]|['"]$/g, '');
+  const tokenAddress = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
+  const rpcUrl = process.env.EXPO_PUBLIC_SOROBAN_RPC_URL?.trim().replace(/^['"]|['"]$/g, '');
+  const networkPassphrase = process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE?.trim().replace(/^['"]|['"]$/g, '');
+
+  const assembleResponse = await fetch(`${apiBase}/api/engine/transfer`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${sigBase64}`,
+    },
+    body: JSON.stringify({
+      senderPublicKey: mainWalletPublicKey,
+      recipientPublicKey: input.recipientPublicKey,
+      tokenAddress,
+      amountStroops,
+    }),
+  });
+
+  const assembleData = await assembleResponse.json().catch(() => ({}));
+  if (!assembleResponse.ok) {
+    throw new Error(`Transfer failed: ${assembleData?.error ?? `HTTP ${assembleResponse.status}`}`);
+  }
+
+  const xdr = assembleData.xdr;
+  if (!xdr) {
+    throw new Error('Backend did not return an XDR envelope');
+  }
+
+  const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase);
+  tx.sign(mainWalletKeypair);
+  const rawXdr = tx.toEnvelope().toXDR();
+  let bytes: Uint8Array;
+  if (rawXdr instanceof Uint8Array) {
+    bytes = rawXdr;
+  } else if (typeof rawXdr === 'string') {
+    bytes = new Uint8Array(rawXdr.length);
+    for (let i = 0; i < rawXdr.length; i++) {
+      bytes[i] = rawXdr.charCodeAt(i) & 0xff;
+    }
+  } else {
+    bytes = new Uint8Array(rawXdr);
+  }
+  const signedXdrBase64 = Buffer.from(bytes).toString('base64');
+
+  const sendResp = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'sendTransaction',
+      params: { transaction: signedXdrBase64 },
+    }),
+  });
+  const sendData = await sendResp.json();
+  if (sendData.error) throw new Error(sendData.error.message);
+  if (sendData.result?.status === 'ERROR') throw new Error(`Sending failed on network`);
+  
+  const txHash = sendData.result?.hash;
+
+  if (txHash) {
+    for (let attempt = 0; attempt < 15; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const pollResp = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'getTransaction',
+          params: { hash: txHash },
+        }),
+      });
+      const pollData = await pollResp.json();
+      const status = pollData.result?.status;
+      if (status === 'SUCCESS') break;
+      if (status === 'FAILED') throw new Error(`On-chain transaction FAILED.`);
+    }
+  }
+  return txHash;
+}
 
 // No mock contacts — recipient data is always fetched live from the backend
 // by SendMoneyScreen before navigating here.
@@ -77,6 +189,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
     checkState();
   }, []);
 
+  const [actualTxId, setActualTxId] = useState<string | null>(null);
   const [txId] = useState(() => {
     let id = 'TX-';
     for (let i = 0; i < 12; i++) {
@@ -138,14 +251,34 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
                 duration: 500,
                 useNativeDriver: false,
               }),
-            ]).start(() => {
+            ]).start(async () => {
               setIsLoading(true);
               swipeAnim.setValue(0); // reset
 
-              setTimeout(() => {
-                setIsLoading(false);
-                setSuccessVisible(true);
-              }, 1800);
+              if (isOnlineMode) {
+                try {
+                  if (!activeAccount?.stellarPublicKey) throw new Error('No active account key');
+                  if (!receiverPubKey) throw new Error('No recipient public key');
+                  
+                  const hash = await executeTransfer({
+                    senderPublicKey: activeAccount.stellarPublicKey,
+                    recipientPublicKey: receiverPubKey,
+                    amount: amount, 
+                  });
+                  setActualTxId(hash || null);
+                  setIsLoading(false);
+                  setSuccessVisible(true);
+                } catch (err: any) {
+                  console.error('Online transfer failed:', err);
+                  setIsLoading(false);
+                  Alert.alert('Transfer Failed', String(err.message || err));
+                }
+              } else {
+                setTimeout(() => {
+                  setIsLoading(false);
+                  setSuccessVisible(true);
+                }, 1800);
+              }
             });
           });
         } else {
@@ -534,7 +667,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
                   <>
                     <View style={styles.ticketRow}>
                       <Text style={styles.ticketLabel}>Ref. Number</Text>
-                      <Text style={styles.ticketIdValue}>{txId}</Text>
+                      <Text style={styles.ticketIdValue}>{actualTxId ? actualTxId.slice(0, 12) + '...' : txId}</Text>
                     </View>
                     <View style={styles.ticketRow}>
                       <Text style={styles.ticketLabel}>Stellar Ledger</Text>

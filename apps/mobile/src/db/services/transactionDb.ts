@@ -174,7 +174,7 @@ export async function upsertServerTransactions(
         const type = isIncoming ? 'incoming' : 'outgoing';
         const title = isIncoming
           ? `Received from ${sTx.customerShortId}`
-          : `Paid to ${sTx.merchantShortId}`;
+          : `Sent to ${sTx.merchantShortId}`;
         
         const now = new Date(sTx.createdAt);
         const dateGroup = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2, '0')}, ${now.getFullYear()}`;
