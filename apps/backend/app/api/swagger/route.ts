@@ -26,7 +26,15 @@ export async function GET() {
       servers: [
         {
           url: process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001',
-          description: 'Active server',
+          description: 'Current environment',
+        },
+        {
+          url: 'https://pijin-api.vercel.app',
+          description: 'Production (Vercel)',
+        },
+        {
+          url: 'http://localhost:3001',
+          description: 'Localhost',
         },
       ],
       components: {
