@@ -1,8 +1,8 @@
 
 <br />
 <div align="left">
-  <img align="left" width="140" height="140" src="https://github.com/user-attachments/assets/e361efc9-970a-4ad3-bf69-93c297d955b5" alt="Pijin Logo" />
-  
+  <img width="140" height="140" alt="Pijin Logo" src="https://github.com/user-attachments/assets/0b4bfc34-ee26-4633-bc0d-39e9d0d6cbee" />
+
   <br />
   <h3>&nbsp;&nbsp;Pijin</h3>
   <p>&nbsp;&nbsp;<b><i>Bringing digital money within reach, even offline.</i></b></p>
