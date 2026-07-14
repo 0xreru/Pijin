@@ -230,8 +230,13 @@ For detailed request/response schemas, testing, and OpenAPI specifications, <br>
 
 <img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
 
-
+<div align="center">
+  
 ## 👨‍💻 Team
+
+</div>
+<div align="center">
+  
 | Name | Role | GitHub |
 |---|---|---|
 |Mark Kengie Aldabon| Frontend Developer / DevOps | [@Mark](https://github.com/tambayNgOrtigasAvenue ) |
@@ -239,6 +244,7 @@ For detailed request/response schemas, testing, and OpenAPI specifications, <br>
 | Erickson Guhilde | Backend Developer / Quality Assurance | [@Erickson](https://github.com/riXoon) |
 | Cedric Paul Mendoza | System Architect / System Analyst | [@Cedric](https://github.com/daeroSys) |
 | Janrell Quiaroro | Backend Developer / Quality Assurance | [@Janrell](https://github.com/0xreru) |
+</div>
 
 ## 📜 License
 MIT
