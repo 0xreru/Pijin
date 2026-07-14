@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
   Dimensions,
-  Image,
   Animated,
   StatusBar,
   Alert,
@@ -236,7 +236,7 @@ export function ScanQRScreen({ navigation }: any) {
         <Image
           source={require('../../assets/qr scanning/piji-qr.png')}
           style={styles.mascotImage}
-          resizeMode="contain"
+          contentFit="contain"
         />
       </View>
 
@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
   },
   mascotImage: {
     width: SCREEN_WIDTH * 0.9,
-    height: '100%',
+    height: 120,
   },
   footerContainer: {
     borderTopWidth: 1,

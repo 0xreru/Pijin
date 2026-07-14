@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
-  Image,
   TextInput,
   TouchableOpacity,
   SafeAreaView,
@@ -475,14 +475,14 @@ export function OnboardingScreen() {
             <Image
               source={require('../../assets/onboarding/onboarding-map.png')}
               style={styles.mapBackground}
-              resizeMode="contain"
+              contentFit="contain"
             />
             
             <View style={styles.welcomeTextContainer}>
               <Text style={styles.welcomeTitle}>Welcome to</Text>
               <Text style={styles.welcomeAppName}>Pijin!</Text>
               <Text style={styles.welcomeSubtitle}>
-                Universal Web3 Liquidity, Powered by Cellular.
+                Bridging digital money within reach, even offline.
               </Text>
             </View>
 
@@ -491,7 +491,7 @@ export function OnboardingScreen() {
               <Image
                 source={require('../../assets/onboarding/onboarding-1.png')}
                 style={styles.welcomePigeonImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             </View>
 
@@ -512,7 +512,7 @@ export function OnboardingScreen() {
               <Image
                 source={require('../../assets/onboarding/onboarding-2.png')}
                 style={styles.illustrationImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             </View>
 
@@ -604,7 +604,7 @@ export function OnboardingScreen() {
               <Image
                 source={require('../../assets/onboarding/onboarding-3.png')}
                 style={styles.otpIllustrationImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             </View>
 
@@ -631,7 +631,7 @@ export function OnboardingScreen() {
               <Image
                 source={require('../../assets/onboarding/onboarding-2.png')}
                 style={styles.illustrationImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             </View>
 
@@ -700,7 +700,7 @@ export function OnboardingScreen() {
               <Image
                 source={require('../../assets/onboarding/onboarding-4.png')}
                 style={styles.illustrationImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             </View>
 
@@ -745,7 +745,7 @@ export function OnboardingScreen() {
               <Image
                 source={require('../../assets/onboarding/onboarding-5.png')}
                 style={styles.successIllustrationImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             </View>
 

@@ -1,10 +1,10 @@
 import React from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
-  Image,
   Dimensions,
   ScrollView,
   StatusBar,
@@ -182,7 +182,7 @@ export function TransportChoiceScreen({ route, navigation }: any) {
             <Image
               source={require('../../assets/transport choice/piji-send.png')}
               style={styles.mascotImage}
-              resizeMode="contain"
+              contentFit="contain"
             />
           </View>
           <View style={styles.textWrapper}>
@@ -208,7 +208,7 @@ export function TransportChoiceScreen({ route, navigation }: any) {
             <Image
               source={require('../../assets/transport choice/piji-relay.png')}
               style={styles.mascotImage}
-              resizeMode="contain"
+              contentFit="contain"
             />
           </View>
           <View style={styles.textWrapper}>
@@ -313,8 +313,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   mascotImage: {
-    width: '100%',
-    height: '100%',
+    width: 120,
+    height: 120,
   },
   textWrapper: {
     flex: 1,

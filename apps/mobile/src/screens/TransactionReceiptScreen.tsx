@@ -1,9 +1,9 @@
 import React from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
-  Image,
   TouchableOpacity,
   Share,
   ScrollView,
@@ -106,7 +106,7 @@ export function TransactionReceiptScreen({ route, navigation }: any) {
                   <Image
                     source={require('../../assets/logos/gcash-logo.png')}
                     style={styles.gcashLogo}
-                    resizeMode="contain"
+                    contentFit="contain"
                   />
                 ) : (
                   <Ionicons 

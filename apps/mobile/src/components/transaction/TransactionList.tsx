@@ -48,7 +48,7 @@ export function TransactionList({ transactions, onViewAll }: TransactionListProp
           <Image
             source={require('../../../assets/home/piji-no-recent.png')}
             style={styles.emptyImage}
-            resizeMode="contain"
+            contentFit="contain"
           />
           <Text style={styles.emptyTitle}>No Activity Yet</Text>
           <Text style={styles.emptySubtitle}>

@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
-  Image,
   TouchableOpacity,
   TextInput,
   Animated,
@@ -542,7 +542,7 @@ export function LoadOnlineFundsScreen({ route, navigation }: any) {
         <Image
           source={require('../../assets/offline funds/piji-cashin.png')}
           style={styles.mascotImage}
-          resizeMode="contain"
+          contentFit="contain"
         />
       </View>
 
@@ -640,7 +640,7 @@ export function LoadOnlineFundsScreen({ route, navigation }: any) {
             <Image
               source={require('../../assets/success/piji-success.png')}
               style={styles.successImage}
-              resizeMode="contain"
+              contentFit="contain"
             />
 
             {/* Success Info */}

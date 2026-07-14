@@ -343,7 +343,9 @@ export async function correctLegacyTags(): Promise<void> {
  */
 export async function resolveOfflineTransactionNames(): Promise<void> {
   try {
-    const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
+    const API_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app')
+      .trim()
+      .replace(/^['"]|['"]$/g, '');
     
     // Find all OFFLINE transactions
     const unresolvedTxs = await db
@@ -353,7 +355,7 @@ export async function resolveOfflineTransactionNames(): Promise<void> {
 
     for (const tx of unresolvedTxs) {
       // Regex to extract the short ID from the title
-      const match = tx.title.match(/Sent to ([A-Za-z0-9_.-]+) \(Offline\)/) || 
+      const match = tx.title.match(/(?:Sent to|Paid to) ([A-Za-z0-9_.-]+) \(Offline\)/) || 
                     tx.title.match(/Received from ([A-Za-z0-9_.-]+) \(Offline\)/);
       if (match && match[1]) {
         const shortId = match[1];

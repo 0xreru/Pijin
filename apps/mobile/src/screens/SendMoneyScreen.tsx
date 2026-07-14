@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
   TextInput,
   TouchableOpacity,
-  Image,
   Dimensions,
   StatusBar,
   Alert,
@@ -494,7 +494,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
             <Image
               source={require('../../assets/send money/piji-send.png')}
               style={styles.mascotImage}
-              resizeMode="contain"
+              contentFit="contain"
             />
           </View>
 

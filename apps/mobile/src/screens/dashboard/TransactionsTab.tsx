@@ -214,7 +214,7 @@ export const TransactionsTab = memo(function TransactionsTab({ mockTxs, insets, 
         <Image
           source={require('../../../assets/transactions/piji-transactions.png')}
           style={styles.emptyStateImage}
-          resizeMode="contain"
+          contentFit="contain"
         />
         <Text style={styles.emptyStateText}>No transactions.</Text>
       </ScrollView>

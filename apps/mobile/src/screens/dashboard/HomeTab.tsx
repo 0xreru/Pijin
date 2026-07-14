@@ -232,7 +232,7 @@ export const HomeTab = memo(function HomeTab({
                 <Image
                   source={require('../../../assets/home/piji-online.png')}
                   style={styles.imageFill}
-                  resizeMode="contain"
+                  contentFit="contain"
                 />
               </View>
               <BalanceCard
@@ -320,7 +320,7 @@ export const HomeTab = memo(function HomeTab({
                 <Image
                   source={require('../../../assets/home/piji-offline.png')}
                   style={styles.imageFill}
-                  resizeMode="contain"
+                  contentFit="contain"
                 />
               </View>
               <BalanceCard

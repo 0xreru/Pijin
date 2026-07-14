@@ -206,7 +206,7 @@ export const NotificationsTab = memo(function NotificationsTab({ insets, transac
           <Image
             source={require('../../../assets/notifications/piji-notif.png')}
             style={styles.emptyStateImage}
-            resizeMode="contain"
+            contentFit="contain"
           />
           <Text style={styles.emptyStateText}>No notifications found.</Text>
         </ScrollView>

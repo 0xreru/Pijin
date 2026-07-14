@@ -1,11 +1,11 @@
 import React, { useRef, useState, useEffect } from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
   StatusBar,
-  Image,
   Dimensions,
   Alert,
   Platform,
@@ -201,13 +201,13 @@ export function GenerateQRScreen({ route, navigation }: any) {
         </Text>
 
         {/* Mascot Image */}
-        {/* <View style={styles.mascotContainer}>
+        <View style={styles.mascotContainer}>
           <Image
             source={require('../../assets/qr generation/pijin-qr.png')}
             style={styles.mascotImage}
-            resizeMode="contain"
+            contentFit="contain"
           />
-        </View> */}
+        </View>
 
         {/* Pijin Branding */}
         <View style={styles.footerBranding}>
@@ -424,7 +424,7 @@ const styles = StyleSheet.create({
   },
   mascotImage: {
     width: 120,
-    height: '100%',
+    height: 120,
   },
   footerBranding: {
     alignItems: 'center',
