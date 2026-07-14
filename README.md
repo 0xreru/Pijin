@@ -1,7 +1,8 @@
 
 <br />
 <div align="left">
-  <img align="left" width="140" height="140" src="https://github.com/user-attachments/assets/e361efc9-970a-4ad3-bf69-93c297d955b5" alt="Pijin Logo" />
+  <img align="left" width="140" height="140" alt="Pijin Logo" src="https://github.com/user-attachments/assets/9af6a61f-d587-446a-ab2b-6a5245b11d50" />
+
   
   <br />
   <h3>&nbsp;&nbsp;Pijin</h3>
