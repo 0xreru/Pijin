@@ -61,14 +61,17 @@ The app uses familiar, **non-technical** labels:
 - Receive Money
 
 ## ✨ Pijin Features
-- Non-Custodial Offline Cryptography: Pijin generates local private keys on the device. Transactions are mathematically signed and sealed completely offline, guaranteeing that central servers act only as "dumb pipes" and cannot intercept or alter user funds.
-- Dynamic Zero-Data Routing: Intelligent transport switching that instantly defaults to compressed SMS transmission (or low-power LoRaWAN modules) the moment the device loses internet connectivity.
-- Bystander "Dumb-Pipe" Relay (Payload QR): A novel fallback mechanism allowing users with zero cellular load to generate a signed "Payload QR." Any bystander with a text promo can scan and broadcast the transaction on their behalf without compromising the sender's security.
-- Deterministic Mathematical Compression: A proprietary local compression engine that maps massive Web3 variables into Base62 encodings and unpadded Base64 strings, shrinking 294-character ledger intents into 152-character payloads that fit perfectly inside a single SMS frame.
-- On-Chain State Resolution: Eliminates the need for backend state synchronization. The Soroban smart contract independently resolves 6-character ShortIDs into 56-character public keys via an on-chain admin registry, solving the "cold start" problem for offline mobile nodes.
-- Seamless Fiat On-Ramp (SEP-24): Direct integration with regulated Stellar Anchors allowing users to easily convert physical cash into highly liquid, fiat-backed stablecoins (e.g., PHPC) via interactive, KYC-compliant webviews.
-
-
+- **Non-Custodial Offline Cryptography:** Pijin generates local private keys on the device. Transactions are mathematically signed and sealed completely offline, guaranteeing that central servers act only as "dumb pipes" and cannot intercept or alter user funds.
+- **Dynamic Zero-Data Routing:** Intelligent transport switching that instantly defaults to compressed SMS transmission (or low-power LoRaWAN modules) the moment the device loses internet connectivity.
+- **Bystander "Dumb-Pipe" Relay (Payload QR):** A novel fallback mechanism allowing users with zero cellular load to generate a signed "Payload QR." Any bystander with a text promo can scan and broadcast the transaction on their behalf without compromising the sender's security.
+- **Deterministic Mathematical Compression:** A proprietary local compression engine that maps massive Web3 variables into Base62 encodings and unpadded Base64 strings, shrinking 294-character ledger intents into 152-character payloads that fit perfectly inside a single SMS frame.
+- **On-Chain State Resolution:** Eliminates the need for backend state synchronization. The Soroban smart contract independently resolves 6-character ShortIDs into 56-character public keys via an on-chain admin registry, solving the "cold start" problem for offline mobile nodes.
+- **Seamless Fiat On-Ramp (SEP-24):** Direct integration with regulated Stellar Anchors allowing users to easily convert physical cash into highly liquid, fiat-backed stablecoins (e.g., PHPC) via interactive, KYC-compliant webviews.
+- **Dual Wallet and Offline Vault Architecture:** Pijin separates online wallet funds from an offline spending vault. Users can move funds between both balances, with offline funds explicitly restricted to face-to-face payments.
+- **Automatic Offline Payment Queue and Reconciliation:** Offline payments are stored locally in SQLite, queued while disconnected, and automatically submitted when connectivity returns. The app reconciles nonces against backend settlements, prevents duplicate settlement, and retries failures.
+- **Local-First Transaction History:** Transaction history is persisted in SQLite and synchronized with backend records using upsert logic. The app supports separate Wallet, Offline Funds, and combined transaction views.
+- **SEP-10 Authentication for SEP-24:** The anchor flow authenticates the user by fetching a challenge, signing it with the wallet key, and exchanging it for a short-lived authorization token before starting deposits or withdrawals.
+- **SMS Transaction Receipts:** After successful offline settlement, the backend can send a receipt notification to the sender and receiver through the configured SMS gateway.
 
 ## 🏛️ Pijin Architecture
 
@@ -225,7 +228,8 @@ For detailed request/response schemas, testing, and OpenAPI specifications, <br>
 - 🎬 **Demo Video:** [Google Drive link](Link)
 - 🖼️ **Pitch Deck:** [Canva link](Link)
 
-<img width="2000" height="650" alt="Gemini_Generated_Image_o9kp8oo9kp8oo9kp" src="https://github.com/user-attachments/assets/6608b6f6-25b2-4e41-b275-ae1d30cfdbdb" />
+<img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
+
 
 ## 👨‍💻 Team
 | Name | Role | GitHub |
