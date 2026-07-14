@@ -23,7 +23,7 @@ export default function ApiDocsPage() {
     <>
       {/* Header */}
       <header className="api-docs-header">
-        <div className="api-docs-logo">P</div>
+        <img className="api-docs-logo" src="/icon.png" alt="Pijin logo" />
         <div className="api-docs-title">
           <h1>Pijin API Reference</h1>
           <p>Stellar P2P Offline Payment Engine — Interactive Documentation</p>
