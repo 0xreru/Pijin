@@ -64,7 +64,8 @@ model Token {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  settlements Settlement[]
+  settlements     Settlement[]
+  onlineTransfers OnlineTransfer[]
 
   @@map("token")
 }
@@ -120,4 +121,25 @@ model AnchorTransaction {
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@map("anchor_transaction")
+}
+
+/// Authoritative record of a direct online Soroban token transfer.
+/// The transaction hash is computed from the server-assembled transaction and
+/// later promoted to SETTLED only after Soroban RPC confirms it.
+model OnlineTransfer {
+  id                 String           @id @default(uuid())
+  txHash             String           @unique @map("tx_hash")
+  senderPublicKey    String           @map("sender_public_key")
+  recipientPublicKey String           @map("recipient_public_key")
+  tokenId            Int              @map("token_id")
+  amountStroops      BigInt           @map("amount_stroops")
+  status             SettlementStatus @default(PENDING)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  confirmedAt        DateTime?        @map("confirmed_at")
+
+  token Token @relation(fields: [tokenId], references: [id])
+
+  @@index([senderPublicKey, createdAt])
+  @@index([recipientPublicKey, createdAt])
+  @@map("online_transfer")
 }

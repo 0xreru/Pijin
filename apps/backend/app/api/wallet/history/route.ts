@@ -6,12 +6,15 @@
  *       - Wallet & Balances
  *     summary: Get unified transaction history
  *     description: |
- *       Aggregates transaction history from **two data sources in parallel**:
+ *       Aggregates transaction history from **three data sources in parallel**:
  *
  *       1. **Offline Settlements** (`Settlement` table) — SMS-based P2P transactions
  *          routed through the offline engine. Maps to `SEND` / `RECEIVE` types.
  *       2. **SEP-24 Anchor Transactions** (`AnchorTransaction` table) — Online
  *          GCash deposits and withdrawals. Maps to `TRANSFER` / `WITHDRAWAL` types.
+ *
+ *       3. **Online Soroban Transfers** (`OnlineTransfer` table) — Direct wallet
+ *          payments. Maps to `SEND` / `RECEIVE` types with a `WALLET` tag.
  *
  *       Results are merged, sorted by timestamp (newest first), and capped at **50 items**.
  *       BigInt `amountStroops` values are converted to decimal strings using pure BigInt
@@ -55,6 +58,10 @@
  *                       type:
  *                         type: string
  *                         enum: [SEND, RECEIVE, TRANSFER, WITHDRAWAL]
+ *                       tag:
+ *                         type: string
+ *                         enum: [WALLET, OFFLINE]
+ *                         description: Authoritative transaction channel, independent of direction.
  *                       title:
  *                         type: string
  *                         example: "Sent to aB3x9Q"
@@ -108,6 +115,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import type { AnchorTransaction, Prisma } from '@prisma/client';
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
@@ -131,10 +139,12 @@ const ratelimit = new Ratelimit({
 // TYPES & INTERFACES
 // ---------------------------------------------------------------------------
 type TransactionType = 'SEND' | 'RECEIVE' | 'TRANSFER' | 'WITHDRAWAL';
+type TransactionTag = 'WALLET' | 'OFFLINE';
 
 interface TransactionHistoryItem {
   id: string;
   type: TransactionType;
+  tag: TransactionTag;
   title: string;
   amount: string; // Human-readable decimal string. Debits are prefixed with '-'
   assetCode: string;
@@ -142,6 +152,16 @@ interface TransactionHistoryItem {
   timestamp: string; // ISO 8601 string for reliable frontend sorting
   txHash?: string;
 }
+
+type SettlementRecord = Prisma.SettlementGetPayload<{ include: { token: true } }> & {
+  senderName?: string;
+  receiverName?: string;
+};
+
+type OnlineTransferRecord = Prisma.OnlineTransferGetPayload<{ include: { token: true } }> & {
+  senderName?: string;
+  recipientName?: string;
+};
 
 // ---------------------------------------------------------------------------
 // HELPER: PURE BIGINT MATH FOR DECIMALS
@@ -202,11 +222,12 @@ export async function GET(req: NextRequest) {
   // offline Settlement table and online AnchorTransaction table simultaneously.
   // Promise.all ensures both queries run at the exact same time, halving response time.
   
-  let settlements: any[] = [];
-  let anchorTransactions: any[] = [];
+  let settlements: SettlementRecord[] = [];
+  let anchorTransactions: AnchorTransaction[] = [];
+  let onlineTransfers: OnlineTransferRecord[] = [];
 
   try {
-    [settlements, anchorTransactions] = await Promise.all([
+    [settlements, anchorTransactions, onlineTransfers] = await Promise.all([
       // QUERY 1: Offline SMS Settlements
       prisma.settlement.findMany({
         where: {
@@ -226,6 +247,19 @@ export async function GET(req: NextRequest) {
         orderBy: { createdAt: 'desc' },
         take: 50,
       }),
+
+      // QUERY 3: Direct Online Soroban Transfers
+      prisma.onlineTransfer.findMany({
+        where: {
+          OR: [
+            { senderPublicKey: publicKey },
+            { recipientPublicKey: publicKey },
+          ],
+        },
+        include: { token: true },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
     ]);
 
     // Fetch accounts to resolve names for sender and receiver
@@ -235,21 +269,42 @@ export async function GET(req: NextRequest) {
       if (s.receiverShortId) shortIdsToFetch.add(s.receiverShortId);
     });
 
-    const accounts = await prisma.account.findMany({
-      where: { shortId: { in: Array.from(shortIdsToFetch) } },
-      select: { shortId: true, firstName: true },
+    const publicKeysToFetch = new Set<string>();
+    onlineTransfers.forEach(t => {
+      if (t.senderPublicKey) publicKeysToFetch.add(t.senderPublicKey);
+      if (t.recipientPublicKey) publicKeysToFetch.add(t.recipientPublicKey);
     });
 
-    const accountMap = new Map<string, string>();
+    const accounts = await prisma.account.findMany({
+      where: {
+        OR: [
+          { shortId: { in: Array.from(shortIdsToFetch) } },
+          { stellarPublicKey: { in: Array.from(publicKeysToFetch) } },
+        ],
+      },
+      select: { shortId: true, stellarPublicKey: true, firstName: true },
+    });
+
+    const shortIdAccountMap = new Map<string, string>();
+    const publicKeyAccountMap = new Map<string, string>();
     accounts.forEach(acc => {
-      accountMap.set(acc.shortId, acc.firstName || acc.shortId);
+      const displayName = acc.firstName || acc.shortId;
+      shortIdAccountMap.set(acc.shortId, displayName);
+      publicKeyAccountMap.set(acc.stellarPublicKey, displayName);
     });
 
     // We mutate the settlements to include the resolved names for ease of mapping later
     settlements = settlements.map(s => ({
       ...s,
-      senderName: accountMap.get(s.senderShortId) || s.senderShortId,
-      receiverName: accountMap.get(s.receiverShortId) || s.receiverShortId,
+      senderName: shortIdAccountMap.get(s.senderShortId) || s.senderShortId,
+      receiverName: shortIdAccountMap.get(s.receiverShortId) || s.receiverShortId,
+    }));
+
+    const abbreviatedKey = (key: string) => `${key.slice(0, 6)}...${key.slice(-4)}`;
+    onlineTransfers = onlineTransfers.map(t => ({
+      ...t,
+      senderName: publicKeyAccountMap.get(t.senderPublicKey) || abbreviatedKey(t.senderPublicKey),
+      recipientName: publicKeyAccountMap.get(t.recipientPublicKey) || abbreviatedKey(t.recipientPublicKey),
     }));
 
   } catch (err) {
@@ -259,7 +314,7 @@ export async function GET(req: NextRequest) {
 
   // --- 5. MAP SETTLEMENT RECORDS ---
   // We map the raw database rows into our standardized unified `TransactionHistoryItem` interface.
-  const settlementItems: TransactionHistoryItem[] = settlements.map((s: any) => {
+  const settlementItems: TransactionHistoryItem[] = settlements.map((s) => {
     const decimals  = s.token?.decimals ?? 7;
     const assetCode = s.token?.symbol   ?? 'UNKNOWN';
     
@@ -271,6 +326,7 @@ export async function GET(req: NextRequest) {
     return {
       id:        s.id.toString(),
       type:      isSender ? 'SEND' : 'RECEIVE',
+      tag:       'OFFLINE',
       title:     isSender ? `Sent to ${s.receiverName}` : `Received from ${s.senderName}`,
       amount:    isSender ? `-${decimalAmount}` : decimalAmount, // Debits show negative
       assetCode,
@@ -281,7 +337,7 @@ export async function GET(req: NextRequest) {
   });
 
   // --- 6. MAP ANCHOR TRANSACTION RECORDS ---
-  const anchorItems: TransactionHistoryItem[] = anchorTransactions.map((a: any) => {
+  const anchorItems: TransactionHistoryItem[] = anchorTransactions.map((a) => {
     const isDeposit = a.type === 'deposit';
     
     // SEP-24 semantics: amountOut is the actual crypto the user received. 
@@ -291,6 +347,7 @@ export async function GET(req: NextRequest) {
     return {
       id:        a.id,
       type:      isDeposit ? 'TRANSFER' : 'WITHDRAWAL', 
+      tag:       'WALLET',
       title:     isDeposit ? 'Wallet Transfer' : 'Wallet Withdrawal',
       amount:    isDeposit ? rawAmount : `-${rawAmount}`,
       assetCode: a.assetCode,
@@ -299,8 +356,27 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // --- 7. COMBINE, SORT, AND CULL ---
-  const transactions = [...settlementItems, ...anchorItems]
+  // --- 7. MAP DIRECT ONLINE TRANSFERS ---
+  const onlineTransferItems: TransactionHistoryItem[] = onlineTransfers.map((t) => {
+    const isSender = t.senderPublicKey === publicKey;
+    const decimals = t.token?.decimals ?? 7;
+    const decimalAmount = stroopsToDecimalString(t.amountStroops, decimals);
+
+    return {
+      id:        `online:${t.id}`,
+      type:      isSender ? 'SEND' : 'RECEIVE',
+      tag:       'WALLET',
+      title:     isSender ? `Sent to ${t.recipientName}` : `Received from ${t.senderName}`,
+      amount:    isSender ? `-${decimalAmount}` : decimalAmount,
+      assetCode: t.token?.symbol ?? 'UNKNOWN',
+      status:    t.status,
+      timestamp: (t.confirmedAt ?? t.createdAt).toISOString(),
+      txHash:    t.txHash,
+    };
+  });
+
+  // --- 8. COMBINE, SORT, AND CULL ---
+  const transactions = [...settlementItems, ...anchorItems, ...onlineTransferItems]
     // Sort everything universally by Timestamp (Newest first)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     // Enforce the ultimate limit of 50 items returning to the client to ensure mobile UI snappiness

@@ -29,7 +29,7 @@ import {
   markSyncError,
 } from '../db/services/paymentQueueDb';
 import type { PaymentQueueRow } from '../db/schema';
-import { addTransaction, upsertServerTransactions, upsertHistoryTransactions, correctLegacyTags } from '../db/services/transactionDb';
+import { addTransaction, upsertServerTransactions, upsertHistoryTransactions } from '../db/services/transactionDb';
 import { loadStoredAccount } from './storage/accountStorage';
 import { getUserSettlements, getWalletHistory } from './api/transactions';
 import { getApiBaseUrl } from '../constants/api';
@@ -43,7 +43,7 @@ import { getApiBaseUrl } from '../constants/api';
  */
 async function postToBackend(
   item: PaymentQueueRow
-): Promise<{ txHash: string | null; status: string }> {
+): Promise<{ txHash: string | null; status: string; error?: string }> {
   const apiBase = getApiBaseUrl();
   const res = await fetch(`${apiBase}/api/engine/settle`, {
     method: 'POST',
@@ -287,9 +287,6 @@ class SyncService {
   async syncTransactions(shortId: string, publicKey: string): Promise<void> {
     try {
       console.log(`[SyncService] Starting smart sync for account ${shortId}...`);
-      
-      // Correct any legacy mis-tagged offline transactions (e.g. from previous app versions)
-      await correctLegacyTags();
       
       const serverHistory = await getWalletHistory(shortId, publicKey);
       
