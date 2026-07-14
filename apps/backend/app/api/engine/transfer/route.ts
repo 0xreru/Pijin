@@ -11,7 +11,7 @@
  *       #### Authentication
  *       The caller must include an `Authorization: Bearer <sig>` header where `<sig>`
  *       is the Base64-encoded Ed25519 signature over the canonical message:
- *       `transfer:<senderPublicKey>:<recipientPublicKey>:<amountStroops>`
+ *       `transfer:v2:online:<tokenAddress>:<senderPublicKey>:<recipientPublicKey>:<amountStroops>`
  *       signed with the user's main wallet secret key.
  *     requestBody:
  *       required: true
@@ -24,6 +24,8 @@
  *               - recipientPublicKey
  *               - tokenAddress
  *               - amountStroops
+ *               - paymentMode
+ *               - clientProtocol
  *             properties:
  *               senderPublicKey:
  *                 type: string
@@ -33,6 +35,12 @@
  *                 type: string
  *               amountStroops:
  *                 type: string
+ *               paymentMode:
+ *                 type: string
+ *                 enum: [online]
+ *               clientProtocol:
+ *                 type: integer
+ *                 enum: [2]
  *     responses:
  *       '200':
  *         description: Assembled unsigned XDR returned for mobile to sign and submit.
@@ -43,6 +51,8 @@
  *               properties:
  *                 xdr:
  *                   type: string
+ *       '426':
+ *         description: The mobile bundle is too old to declare versioned online-transfer intent.
  */
 import { NextResponse } from 'next/server';
 import { Keypair, xdr, StrKey, TransactionBuilder, Address, nativeToScVal, Contract } from '@stellar/stellar-sdk';
@@ -50,6 +60,7 @@ import { sorobanRpcServer, contractConfig } from '@/lib/pijin-contract';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+const ONLINE_TRANSFER_PROTOCOL = 2;
 
 function injectSourceAccountAuth(
     xdrBase64: string,
@@ -103,6 +114,8 @@ export async function POST(req: Request): Promise<Response> {
         recipientPublicKey?: string;
         tokenAddress?: string;
         amountStroops?: string;
+        paymentMode?: string;
+        clientProtocol?: number;
     };
 
     try {
@@ -111,12 +124,40 @@ export async function POST(req: Request): Promise<Response> {
         return NextResponse.json({ error: 'Bad payload' }, { status: 400 });
     }
 
-    const { senderPublicKey, recipientPublicKey, tokenAddress, amountStroops } = body ?? {};
+    const {
+        senderPublicKey,
+        recipientPublicKey,
+        tokenAddress,
+        amountStroops,
+        paymentMode,
+        clientProtocol,
+    } = body ?? {};
 
     if (!senderPublicKey || !recipientPublicKey || !tokenAddress || !amountStroops) {
         return NextResponse.json(
             { error: 'Missing required fields: senderPublicKey, recipientPublicKey, tokenAddress, amountStroops' },
             { status: 400 },
+        );
+    }
+
+    // Fail closed for old mobile bundles. Before protocol v2, a stale React
+    // closure could call this online endpoint while the visible flow was
+    // offline. Requiring an explicit versioned rail also prevents a proxy from
+    // changing the user's signed intent.
+    if (paymentMode !== 'online' || clientProtocol !== ONLINE_TRANSFER_PROTOCOL) {
+        console.warn('[Online Transfer] Rejected stale or ambiguous client intent', {
+            clientProtocol: clientProtocol ?? null,
+            paymentMode: paymentMode ?? null,
+            senderPublicKey,
+            recipientPublicKey,
+            amountStroops,
+        });
+        return NextResponse.json(
+            {
+                error: 'Client upgrade required: explicit online transfer intent is missing.',
+                code: 'ONLINE_TRANSFER_PROTOCOL_REQUIRED',
+            },
+            { status: 426 },
         );
     }
 
@@ -141,7 +182,9 @@ export async function POST(req: Request): Promise<Response> {
 
     try {
         const sigBuf = Buffer.from(sigBase64, 'base64');
-        const msgBuf = Buffer.from(`transfer:${senderPublicKey}:${recipientPublicKey}:${amountStroops}`);
+        const msgBuf = Buffer.from(
+            `transfer:v${ONLINE_TRANSFER_PROTOCOL}:online:${tokenAddress}:${senderPublicKey}:${recipientPublicKey}:${amountStroops}`,
+        );
         const senderKeypair = Keypair.fromPublicKey(senderPublicKey);
 
         if (!senderKeypair.verify(msgBuf, sigBuf)) {
@@ -150,6 +193,14 @@ export async function POST(req: Request): Promise<Response> {
     } catch (err) {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
+
+    console.info('[Online Transfer] Authorized explicit online intent', {
+        clientProtocol,
+        senderPublicKey,
+        recipientPublicKey,
+        tokenAddress,
+        amountStroops,
+    });
 
     const relayerPublicKey = process.env.RELAYER_PUBLIC_KEY;
     if (!relayerPublicKey) {

@@ -31,6 +31,7 @@ const BUTTON_WIDTH = 56;
 const TRACK_WIDTH = SCREEN_WIDTH - 40;
 const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
 const STROOPS_PER_UNIT = 10_000_000;
+const PAYMENT_RAIL_PROTOCOL = 2;
 const API_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app')
   .trim()
   .replace(/^['"]|['"]$/g, '');
@@ -75,6 +76,14 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
   const { Keypair, TransactionBuilder } = require('@stellar/stellar-sdk');
   const { getMainWalletSecret } = require('../services/storage/onboardingStorage');
 
+  // Defense in depth: a stale route/state must not turn an explicitly selected
+  // offline payment into a main-wallet transfer. The dashboard persists manual
+  // offline mode before this screen can be opened.
+  const persistedMode = await AsyncStorage.getItem('pijn.is_online');
+  if (persistedMode === 'false') {
+    throw new Error('Online transfer blocked because the app is in offline-vault mode.');
+  }
+
   const mainWalletSecret = await getMainWalletSecret();
   if (!mainWalletSecret) {
     throw new Error('No main wallet secret found in SecureStore.');
@@ -87,15 +96,14 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
   }
 
   const amountStroops = amountToStroops(input.amount).toString();
-
-  const canonicalMessage = `transfer:${mainWalletPublicKey}:${input.recipientPublicKey}:${amountStroops}`;
-  const sigBuffer = mainWalletKeypair.sign(Buffer.from(canonicalMessage));
-  const sigBase64 = Buffer.from(sigBuffer).toString('base64');
-
   const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/^['"]|['"]$/g, '');
   const tokenAddress = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
   const rpcUrl = process.env.EXPO_PUBLIC_SOROBAN_RPC_URL?.trim().replace(/^['"]|['"]$/g, '');
   const networkPassphrase = process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE?.trim().replace(/^['"]|['"]$/g, '');
+
+  const canonicalMessage = `transfer:v${PAYMENT_RAIL_PROTOCOL}:online:${tokenAddress}:${mainWalletPublicKey}:${input.recipientPublicKey}:${amountStroops}`;
+  const sigBuffer = mainWalletKeypair.sign(Buffer.from(canonicalMessage));
+  const sigBase64 = Buffer.from(sigBuffer).toString('base64');
 
   const assembleResponse = await fetch(`${apiBase}/api/engine/transfer`, {
     method: 'POST',
@@ -108,6 +116,8 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
       recipientPublicKey: input.recipientPublicKey,
       tokenAddress,
       amountStroops,
+      paymentMode: 'online',
+      clientProtocol: PAYMENT_RAIL_PROTOCOL,
     }),
   });
 
@@ -185,7 +195,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   // The public key is only needed for an online transfer. Offline vouchers bind
   // the exact short ID; the contract registry resolves its payment address.
   const {
-    paymentMode = 'online',
+    paymentMode,
     recipientShortId,
     amount,
     note = '',
@@ -199,7 +209,9 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   // PanResponder is created only once, its callback permanently captured that
   // initial online value even after the UI changed to offline mode. That caused
   // one swipe to submit an online transfer, followed by an offline voucher.
-  const isOnlineMode = paymentMode !== 'offline';
+  // Fail closed. Older callers that omit paymentMode are treated as offline and
+  // therefore cannot reach executeTransfer.
+  const isOnlineMode = paymentMode === 'online';
 
   const fee = 0.50;
   const total = amount + fee;
@@ -305,6 +317,12 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
               setIsLoading(true);
               swipeAnim.setValue(0); // reset
               const submission = submissionInputRef.current;
+              console.info('[Payment Rail] Submitting locked payment intent', {
+                protocol: PAYMENT_RAIL_PROTOCOL,
+                paymentMode: submission.isOnlineMode ? 'online' : 'offline',
+                recipientShortId: submission.recipientShortId,
+                amount: submission.amount,
+              });
 
               if (submission.isOnlineMode) {
                 try {

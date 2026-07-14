@@ -22,7 +22,6 @@ import { ensureMigration } from '../services/storage/migration';
 import { useAuth } from '../context/AuthContext';
 import { useVaultBalance } from '../hooks/useVaultBalance';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
-import { connectionService } from '../services/connectionService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
@@ -48,8 +47,13 @@ export function SendMoneyScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
   const { activeAccount } = useAuth();
 
+  // The originating Online/Offline button owns the payment rail. Missing or
+  // unknown values fail closed to the offline vault path.
+  const paymentMode: 'online' | 'offline' =
+    route?.params?.paymentMode === 'online' ? 'online' : 'offline';
+  const isOnline = paymentMode === 'online';
+
   // Balance state
-  const [isOnline, setIsOnline] = useState(true);
   const [walletBalance, setWalletBalance] = useState<number>(25000.00);
 
   // Form states
@@ -72,32 +76,24 @@ export function SendMoneyScreen({ route, navigation }: any) {
   const [isResolving, setIsResolving] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Fetch cached balance on mount and subscribe to network state
+  // Fetch the cached balance for the explicitly selected payment rail.
   useEffect(() => {
     const getCached = async () => {
       try {
         await ensureMigration();
-        const onlineStr = await AsyncStorage.getItem('pijn.is_online');
-        const online = onlineStr !== 'false';
-
-        const key = online ? CACHED_BALANCE_KEY : 'pijn.offline_balance';
+        const key = isOnline ? CACHED_BALANCE_KEY : 'pijn.offline_balance';
         const stored = await AsyncStorage.getItem(key);
         if (stored) {
           setWalletBalance(parseFloat(stored));
         } else {
-          setWalletBalance(online ? 25000.00 : 0.00);
+          setWalletBalance(isOnline ? 25000.00 : 0.00);
         }
       } catch (e) {
         console.warn('Failed to load cached balance in SendMoney:', e);
       }
     };
     getCached();
-    
-    const sub = connectionService.state$.subscribe((state) => {
-      setIsOnline(state.isOnlineMode);
-    });
-    return () => sub.unsubscribe();
-  }, []);
+  }, [isOnline]);
 
   // Prefill scanned QR data
   useEffect(() => {
@@ -323,7 +319,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
       // screen. Connection state can change while that screen is open; it must
       // never turn one confirmation into both an online transfer and an offline
       // voucher.
-      paymentMode: isOnline ? 'online' : 'offline',
+      paymentMode,
       recipientShortId: currentRecipient.shortId,
       recipientName: currentRecipient.displayName,
       receiverPubKey: currentRecipient.stellarPublicKey,

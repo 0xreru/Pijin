@@ -46,7 +46,7 @@ interface HomeTabProps {
   onAddMockQueueItem: () => void;
   onLoadOfflineFundsPress: () => void;
   onLoadOnlineFundsPress: () => void;
-  onSendPress: () => void;
+  onSendPress: (paymentMode: 'online' | 'offline') => void;
   onReceivePress: () => void;
   onViewAllTransactions: () => void;
   isOnlineDisabled?: boolean;
@@ -235,7 +235,7 @@ export const HomeTab = memo(function HomeTab({
               <View style={styles.actionItem}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={onSendPress}
+                  onPress={() => onSendPress('online')}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="paper-plane" size={20} color="#FFFFFF" />
@@ -331,7 +331,7 @@ export const HomeTab = memo(function HomeTab({
               <View style={styles.actionItemOffline}>
                 <TouchableOpacity
                   style={styles.actionCircle}
-                  onPress={onSendPress}
+                  onPress={() => onSendPress('offline')}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="paper-plane" size={20} color="#FFFFFF" />
