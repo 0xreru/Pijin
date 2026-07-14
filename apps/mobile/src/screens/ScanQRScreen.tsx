@@ -33,7 +33,8 @@ export function ScanQRScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { activeAccount } = useAuth();
   const isFocused = useIsFocused();
-  const [isOnline, setIsOnline] = useState(true);
+  // Fail closed until the persisted rail is loaded.
+  const [isOnline, setIsOnline] = useState(false);
 
   useEffect(() => {
     const checkState = async () => {
@@ -107,9 +108,17 @@ export function ScanQRScreen({ navigation }: any) {
     } else {
       // Receiver Short ID or standard prefilled format
       if (data.includes(':')) {
-        navigation.navigate('SendMoney', { qrData: data, isScanned: true });
+        navigation.navigate('SendMoney', {
+          qrData: data,
+          isScanned: true,
+          paymentMode: isOnline ? 'online' : 'offline',
+        });
       } else {
-        navigation.navigate('SendMoney', { recipientShortId: data, isScanned: true });
+        navigation.navigate('SendMoney', {
+          recipientShortId: data,
+          isScanned: true,
+          paymentMode: isOnline ? 'online' : 'offline',
+        });
       }
     }
   };

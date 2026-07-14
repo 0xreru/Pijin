@@ -484,8 +484,8 @@ export function DashboardScreen({ navigation }: any) {
     navigation.navigate('LoadOnlineFunds', { balance: offlineBalance });
   }, [navigation, offlineBalance]);
 
-  const handleSendPress = useCallback(() => {
-    navigation.navigate('SendMoney');
+  const handleSendPress = useCallback((paymentMode: 'online' | 'offline') => {
+    navigation.navigate('SendMoney', { paymentMode });
   }, [navigation]);
 
   const handleReceivePress = useCallback(() => {
