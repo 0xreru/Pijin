@@ -32,12 +32,19 @@ export async function getUserSettlements(
 export interface TransactionHistoryItem {
   id: string;
   type: 'SEND' | 'RECEIVE' | 'TRANSFER' | 'WITHDRAWAL';
+  tag: 'WALLET' | 'OFFLINE';
   title: string;
   amount: string;
   assetCode: string;
   status: string;
   timestamp: string;
   txHash?: string;
+}
+
+interface OnlineTransferConfirmationResponse {
+  txHash: string;
+  status: 'PENDING' | 'SETTLED' | 'FAILED';
+  confirmedAt?: string;
 }
 
 interface WalletHistoryResponse {
@@ -56,6 +63,18 @@ export async function getWalletHistory(
     throw new Error('[getWalletHistory] API responded with invalid transactions list');
   }
   return result.transactions;
+}
+
+export async function confirmOnlineTransfer(
+  txHash: string
+): Promise<OnlineTransferConfirmationResponse> {
+  return apiRequest<OnlineTransferConfirmationResponse>(
+    '/api/wallet/transfers/confirm',
+    {
+      method: 'POST',
+      body: JSON.stringify({ txHash }),
+    }
+  );
 }
 
 

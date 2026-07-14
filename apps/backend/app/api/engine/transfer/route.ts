@@ -55,8 +55,9 @@
  *         description: The mobile bundle is too old to declare versioned online-transfer intent.
  */
 import { NextResponse } from 'next/server';
-import { Keypair, xdr, StrKey, TransactionBuilder, Address, nativeToScVal, Contract } from '@stellar/stellar-sdk';
+import { Keypair, xdr, TransactionBuilder, Address, nativeToScVal, Contract } from '@stellar/stellar-sdk';
 import { sorobanRpcServer, contractConfig } from '@/lib/pijin-contract';
+import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -78,9 +79,7 @@ function injectSourceAccountAuth(
 
         const invokeOp = body.invokeHostFunctionOp();
         
-        const tokenScAddr = xdr.ScAddress.scAddressTypeContract(
-            StrKey.decodeContract(tokenAddress) as any
-        );
+        const tokenScAddr = new Address(tokenAddress).toScAddress();
 
         const senderScVal = new Address(senderPublicKey).toScVal();
         const recipientScVal = new Address(recipientPublicKey).toScVal();
@@ -190,7 +189,7 @@ export async function POST(req: Request): Promise<Response> {
         if (!senderKeypair.verify(msgBuf, sigBuf)) {
             return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
         }
-    } catch (err) {
+    } catch {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
@@ -202,6 +201,18 @@ export async function POST(req: Request): Promise<Response> {
         amountStroops,
     });
 
+    // Resolve the token from the allowlisted backend registry. Besides
+    // providing authoritative asset metadata for history, this prevents a
+    // signed request from making the relayer assemble calls to arbitrary
+    // contracts.
+    const token = await prisma.token.findUnique({
+        where: { contractId: tokenAddress },
+        select: { id: true, symbol: true, isActive: true },
+    });
+    if (!token?.isActive) {
+        return NextResponse.json({ error: 'Unsupported or inactive token contract' }, { status: 400 });
+    }
+
     const relayerPublicKey = process.env.RELAYER_PUBLIC_KEY;
     if (!relayerPublicKey) {
         return NextResponse.json({ error: 'Server misconfiguration: RELAYER_PUBLIC_KEY not set' }, { status: 500 });
@@ -211,7 +222,7 @@ export async function POST(req: Request): Promise<Response> {
         const relayerAccount = await sorobanRpcServer.getAccount(relayerPublicKey);
         const tokenContract = new Contract(tokenAddress);
         
-        let tx = new TransactionBuilder(relayerAccount, {
+        const tx = new TransactionBuilder(relayerAccount, {
             fee: '100000',
             networkPassphrase: contractConfig.networkPassphrase,
         })
@@ -260,8 +271,29 @@ export async function POST(req: Request): Promise<Response> {
 
         const finalTx = rebuilt.build();
         const xdrOut = finalTx.toEnvelope().toXDR('base64');
+        const txHash = finalTx.hash().toString('hex');
 
-        return NextResponse.json({ xdr: xdrOut }, { status: 200 });
+        // Store the authenticated intent before returning the XDR. The unique
+        // network hash makes retries idempotent. A separate confirmation route
+        // promotes this record only after Soroban RPC reports SUCCESS.
+        await prisma.onlineTransfer.upsert({
+            where: { txHash },
+            update: {
+                senderPublicKey,
+                recipientPublicKey,
+                tokenId: token.id,
+                amountStroops: amountBigInt,
+            },
+            create: {
+                txHash,
+                senderPublicKey,
+                recipientPublicKey,
+                tokenId: token.id,
+                amountStroops: amountBigInt,
+            },
+        });
+
+        return NextResponse.json({ xdr: xdrOut, txHash }, { status: 200 });
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return NextResponse.json({ error: `Failed to extract assembled XDR: ${msg}` }, { status: 500 });

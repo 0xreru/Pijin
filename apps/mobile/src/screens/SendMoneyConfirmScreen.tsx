@@ -25,6 +25,7 @@ import { ensureMigration } from '../services/storage/migration';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
+import { confirmOnlineTransfer } from '../services/api/transactions';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 56;
@@ -162,8 +163,18 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
   if (sendData.result?.status === 'ERROR') throw new Error(`Sending failed on network`);
   
   const txHash = sendData.result?.hash;
+  const expectedTxHash = typeof assembleData.txHash === 'string' ? assembleData.txHash : null;
+
+  if (!txHash) {
+    throw new Error('Soroban RPC did not return a transaction hash.');
+  }
+
+  if (expectedTxHash && txHash.toLowerCase() !== expectedTxHash.toLowerCase()) {
+    throw new Error('Submitted transaction hash does not match the backend transfer intent.');
+  }
 
   if (txHash) {
+    let confirmed = false;
     for (let attempt = 0; attempt < 15; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       const pollResp = await fetch(rpcUrl, {
@@ -178,8 +189,22 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
       });
       const pollData = await pollResp.json();
       const status = pollData.result?.status;
-      if (status === 'SUCCESS') break;
+      if (status === 'SUCCESS') {
+        confirmed = true;
+        break;
+      }
       if (status === 'FAILED') throw new Error(`On-chain transaction FAILED.`);
+    }
+
+    if (confirmed) {
+      // Confirmation is idempotent and the backend independently verifies the
+      // hash with Soroban RPC. Do not misreport an already-successful payment
+      // as failed if only the history acknowledgement is temporarily offline.
+      try {
+        await confirmOnlineTransfer(txHash);
+      } catch (confirmationError) {
+        console.warn('[Online Transfer] History confirmation deferred:', confirmationError);
+      }
     }
   }
   return txHash;
@@ -388,23 +413,11 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
     setIsProcessing(true);
     setSuccessVisible(false);
     
-    const { addTransaction } = require('../db/services/transactionDb');
     if (isOnlineMode) {
-      try {
-        await addTransaction({
-          title: `Paid to ${recipientName}`,
-          amount: -total,
-          type: 'outgoing',
-          tag: 'WALLET',
-          description: `You paid ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} service fee via Pijin.`,
-          stellarPublicKey: activeAccount?.stellarPublicKey,
-          shortId: activeAccount?.shortId,
-        });
-      } catch (err) {
-        console.error('Failed to log online transaction:', err);
-      } finally {
-        setIsProcessing(false);
-      }
+      // The confirmed transfer is persisted by the backend and fetched into
+      // SQLite by DashboardScreen. Avoid a second random local row for the
+      // same transaction.
+      setIsProcessing(false);
       DeviceEventEmitter.emit('ON_SEND_MONEY_ONLINE', total);
       submissionStartedRef.current = false;
       navigation.navigate('Dashboard');

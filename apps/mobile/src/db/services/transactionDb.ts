@@ -15,7 +15,7 @@
 
 import { db } from '../client';
 import { transactions, type TransactionRow, type NewTransactionRow } from '../schema';
-import { desc, eq, and, or } from 'drizzle-orm';
+import { desc, eq, like } from 'drizzle-orm';
 import type { TransactionType } from '../../types/transaction';
 
 // ---------------------------------------------------------------------------
@@ -261,7 +261,12 @@ export async function upsertHistoryTransactions(
           subtitle,
           amount: amountNum,
           type,
-          tag: (hTx.type === 'SEND' || hTx.type === 'RECEIVE') ? 'OFFLINE' : 'WALLET',
+          // Direction (SEND/RECEIVE) is independent from the transaction
+          // channel. Prefer the backend's authoritative tag, with the legacy
+          // inference retained only for staged deployments.
+          tag: hTx.tag === 'WALLET' || hTx.tag === 'OFFLINE'
+            ? hTx.tag
+            : (hTx.type === 'SEND' || hTx.type === 'RECEIVE') ? 'OFFLINE' : 'WALLET',
           dateGroup,
           timeAgo: 'Synced',
           description: hTx.txHash ? `Stellar Tx Hash: ${hTx.txHash}` : `Status: ${hTx.status}`,
@@ -294,14 +299,15 @@ export async function upsertHistoryTransactions(
 }
 
 /**
- * Clears the transaction cache to force a fresh re-sync of all historical
- * transactions with their correct tags (using the updated hTx.type logic).
+ * Clears only server-derived cache rows so they can be re-fetched with current
+ * authoritative tags. Locally-created WALLET/OFFLINE history must survive the
+ * one-time migration.
  */
 export async function correctLegacyTags(): Promise<void> {
   try {
-    await clearTransactions();
+    await db.delete(transactions).where(like(transactions.id, 'TX-SVR-%'));
   } catch (error) {
-    console.error('[transactionDb] Failed to correct legacy tags by clearing:', error);
+    console.error('[transactionDb] Failed to refresh legacy server tags:', error);
   }
 }
 

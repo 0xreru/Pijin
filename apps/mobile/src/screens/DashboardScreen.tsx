@@ -202,6 +202,11 @@ export function DashboardScreen({ navigation }: any) {
         AsyncStorage.setItem(CACHED_BALANCE_KEY, newOnline.toString());
         return newOnline;
       });
+
+      if (shortId !== '0000' && publicKey) {
+        syncService.syncTransactions(shortId, publicKey)
+          .catch((err) => console.warn('[DashboardScreen] Online transfer history sync failed:', err));
+      }
     });
 
     const subLoadOnline = DeviceEventEmitter.addListener('ON_LOAD_ONLINE_FUNDS', (amount: number) => {
@@ -227,7 +232,7 @@ export function DashboardScreen({ navigation }: any) {
       subLoadOnline.remove();
       subSendOffline.remove();
     };
-  }, []);
+  }, [shortId, publicKey]);
 
   // Poll for updated balance after a SEP-24 deposit completes.
   // Strategy: re-fetch with a progressive backoff setTimeout chain (up to 15 attempts).
