@@ -35,6 +35,7 @@ apps/mobile/dist/
 apps/mobile/*.jks
 apps/mobile/*.p8
 apps/mobile/*.mobileprovision
+apps/mobile/eas.json
 
 apps/mobile/.env
 apps/mobile/.env.local
@@ -84,3 +85,4 @@ apps/backend/.eslintcache
 
 #markdown
 walkthrough.md
+apps/mobile/eas.json

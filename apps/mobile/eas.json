@@ -6,7 +6,22 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://pijin-api.vercel.app",
+        "EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID": "5af2fb3bebe74b2806e6f9a57b9d79ff",
+        "EXPO_PUBLIC_WALLETCONNECT_RELAY_URL": "wss://relay.walletconnect.com",
+        "EXPO_PUBLIC_WALLETCONNECT_SIGN_DEEPLINK": "lobstr://",
+        "EXPO_PUBLIC_SOROBAN_RPC_URL": "https://soroban-testnet.stellar.org",
+        "EXPO_PUBLIC_HORIZON_URL": "https://horizon-testnet.stellar.org",
+        "EXPO_PUBLIC_CONTRACT_ID": "CCGXMMXAYI4EHTGSH65ML3VK6TTRBQGT3BT2NN3P6Y3LGN6XIL2HILPX",
+        "EXPO_PUBLIC_TOKEN_ID": "CD26OANM4I4GF2GBC47UYTSP3FUBZRQ7WGMGECEQHMZ2D6QV2LXJTNIS",
+        "EXPO_PUBLIC_TOKEN_DB_ID": "1",
+        "EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE": "Test SDF Network ; September 2015",
+        "EXPO_PUBLIC_STELLAR_WALLET_CHAIN": "stellar:testnet",
+        "EXPO_PUBLIC_SMS_GATEWAY_NUMBER": "+639915984988",
+        "EXPO_PUBLIC_GATEWAY_PUBLIC_KEY": "GDTDK62M4ZJU6QPCEFUSQWOPYED4I4GPHLB4ZZTMBZZL2AO2VK63VQUH"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -30,7 +45,22 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://pijin-api.vercel.app",
+        "EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID": "5af2fb3bebe74b2806e6f9a57b9d79ff",
+        "EXPO_PUBLIC_WALLETCONNECT_RELAY_URL": "wss://relay.walletconnect.com",
+        "EXPO_PUBLIC_WALLETCONNECT_SIGN_DEEPLINK": "lobstr://",
+        "EXPO_PUBLIC_SOROBAN_RPC_URL": "https://soroban-testnet.stellar.org",
+        "EXPO_PUBLIC_HORIZON_URL": "https://horizon-testnet.stellar.org",
+        "EXPO_PUBLIC_CONTRACT_ID": "CCGXMMXAYI4EHTGSH65ML3VK6TTRBQGT3BT2NN3P6Y3LGN6XIL2HILPX",
+        "EXPO_PUBLIC_TOKEN_ID": "CD26OANM4I4GF2GBC47UYTSP3FUBZRQ7WGMGECEQHMZ2D6QV2LXJTNIS",
+        "EXPO_PUBLIC_TOKEN_DB_ID": "1",
+        "EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE": "Test SDF Network ; September 2015",
+        "EXPO_PUBLIC_STELLAR_WALLET_CHAIN": "stellar:testnet",
+        "EXPO_PUBLIC_SMS_GATEWAY_NUMBER": "+639915984988",
+        "EXPO_PUBLIC_GATEWAY_PUBLIC_KEY": "GDTDK62M4ZJU6QPCEFUSQWOPYED4I4GPHLB4ZZTMBZZL2AO2VK63VQUH"
+      }
     }
   },
   "submit": {

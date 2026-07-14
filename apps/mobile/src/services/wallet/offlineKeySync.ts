@@ -10,10 +10,10 @@ type PrepareResponse =
   | { status: 'synced' }
   | { status: 'rotation_required'; xdr: string };
 
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim().replace(/^['"]|['"]$/g, '');
-  if (!value) throw new Error(`Missing ${name}`);
-  return value;
+function requiredEnv(name: string, value: string | undefined): string {
+  const cleanValue = value?.trim().replace(/^['"]|['"]$/g, '');
+  if (!cleanValue) throw new Error(`Missing ${name}`);
+  return cleanValue;
 }
 
 async function keyRequest<T>(
@@ -37,8 +37,8 @@ async function keyRequest<T>(
 }
 
 async function submitAndConfirm(xdrEnvelope: string, mainWallet: Keypair): Promise<void> {
-  const rpcUrl = requiredEnv('EXPO_PUBLIC_SOROBAN_RPC_URL');
-  const networkPassphrase = requiredEnv('EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE');
+  const rpcUrl = requiredEnv('EXPO_PUBLIC_SOROBAN_RPC_URL', process.env.EXPO_PUBLIC_SOROBAN_RPC_URL);
+  const networkPassphrase = requiredEnv('EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE', process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE);
   const transaction = TransactionBuilder.fromXDR(xdrEnvelope, networkPassphrase);
   transaction.sign(mainWallet);
 
