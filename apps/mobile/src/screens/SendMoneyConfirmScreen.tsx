@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
-  Image,
   TouchableOpacity,
   Animated,
   PanResponder,
@@ -723,7 +723,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
               <Image
                 source={require('../../assets/success/piji-success.png')}
                 style={styles.successImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
 
               {/* Success Info */}

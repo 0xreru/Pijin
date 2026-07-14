@@ -151,6 +151,7 @@ interface TransactionHistoryItem {
   status: string; // e.g., 'SETTLED', 'PENDING', 'FAILED'
   timestamp: string; // ISO 8601 string for reliable frontend sorting
   txHash?: string;
+  nonce?: string;
 }
 
 type SettlementRecord = Prisma.SettlementGetPayload<{ include: { token: true } }> & {
@@ -333,6 +334,7 @@ export async function GET(req: NextRequest) {
       status:    s.status,
       timestamp: s.createdAt.toISOString(),
       ...(s.txHash ? { txHash: s.txHash } : {}), // Only include txHash if it exists
+      ...(s.nonce ? { nonce: s.nonce } : {}),
     };
   });
 

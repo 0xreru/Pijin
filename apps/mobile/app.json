@@ -8,6 +8,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -43,7 +46,7 @@
     "owner": "senec4",
     "extra": {
       "eas": {
-        "projectId": "4534ff86-8f8a-4743-b363-5cb145f34626"
+        "projectId": "a893d514-e18c-4928-8cdd-dacf4e85c690"
       }
     }
   }

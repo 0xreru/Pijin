@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Image } from 'expo-image';
 import {
   StyleSheet,
   Text,
   View,
-  Image,
   TouchableOpacity,
   Animated,
   Dimensions,
@@ -241,7 +241,7 @@ export function SignInScreen() {
           <Image
             source={require('../../assets/onboarding/sign-in.png')}
             style={styles.illustrationImage}
-            resizeMode="contain"
+            contentFit="contain"
           />
           {/* Cover/Overlay for the hardcoded number inside the badge */}
           <View style={styles.badgeOverlay}>

@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
   ScrollView,
+  RefreshControl,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -21,9 +22,11 @@ interface NotificationsTabProps {
   readIds?: string[];
   onMarkAsRead?: (id: string) => void;
   onMarkAllAsRead?: () => void;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
-export const NotificationsTab = memo(function NotificationsTab({ insets, transactions = [], readIds = [], onMarkAsRead, onMarkAllAsRead }: NotificationsTabProps) {
+export const NotificationsTab = memo(function NotificationsTab({ insets, transactions = [], readIds = [], onMarkAsRead, onMarkAllAsRead, refreshing = false, onRefresh }: NotificationsTabProps) {
   const navigation = useNavigation<any>();
   const NOTIF_SCREEN_WIDTH = SCREEN_WIDTH - 40;
 
@@ -131,6 +134,14 @@ export const NotificationsTab = memo(function NotificationsTab({ insets, transac
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 40 }}
           style={{ flex: 1 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#001E42"
+              colors={['#001E42']}
+            />
+          }
         >
           <View style={styles.notifList}>
             {items.map((item, index) => (
@@ -181,15 +192,24 @@ export const NotificationsTab = memo(function NotificationsTab({ insets, transac
       );
     } else {
       return (
-        /* Empty State View */
-        <View style={styles.emptyStateContainer}>
+        <ScrollView
+          contentContainerStyle={styles.emptyStateContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#001E42"
+              colors={['#001E42']}
+            />
+          }
+        >
           <Image
             source={require('../../../assets/notifications/piji-notif.png')}
             style={styles.emptyStateImage}
-            resizeMode="contain"
+            contentFit="contain"
           />
           <Text style={styles.emptyStateText}>No notifications found.</Text>
-        </View>
+        </ScrollView>
       );
     }
   };

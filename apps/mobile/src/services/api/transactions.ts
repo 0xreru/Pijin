@@ -39,6 +39,7 @@ export interface TransactionHistoryItem {
   status: string;
   timestamp: string;
   txHash?: string;
+  nonce?: string;
 }
 
 interface OnlineTransferConfirmationResponse {
