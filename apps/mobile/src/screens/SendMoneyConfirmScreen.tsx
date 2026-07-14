@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -25,7 +25,6 @@ import { ensureMigration } from '../services/storage/migration';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
-import { connectionService } from '../services/connectionService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 56;
@@ -186,6 +185,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   // The public key is only needed for an online transfer. Offline vouchers bind
   // the exact short ID; the contract registry resolves its payment address.
   const {
+    paymentMode = 'online',
     recipientShortId,
     amount,
     note = '',
@@ -193,6 +193,13 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
     receiverPubKey,
     recipientVerified = false,
   } = route.params || { recipientShortId: '', amount: 0, note: '' };
+
+  // Payment mode is an immutable property of this confirmation. Previously it
+  // came from a subscription-backed state value initialised to `true`. Because
+  // PanResponder is created only once, its callback permanently captured that
+  // initial online value even after the UI changed to offline mode. That caused
+  // one swipe to submit an online transfer, followed by an offline voucher.
+  const isOnlineMode = paymentMode !== 'offline';
 
   const fee = 0.50;
   const total = amount + fee;
@@ -210,15 +217,24 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
   const [successVisible, setSuccessVisible] = useState(false);
   const [isChecked, setIsChecked] = useState(false);
   const isCheckedRef = useRef(false);
-  const [isOnlineMode, setIsOnlineMode] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-
-  useEffect(() => {
-    const sub = connectionService.state$.subscribe((state) => {
-      setIsOnlineMode(state.isOnlineMode);
-    });
-    return () => sub.unsubscribe();
-  }, []);
+  const submissionStartedRef = useRef(false);
+  const submissionInputRef = useRef({
+    isOnlineMode,
+    activeAccount,
+    receiverPubKey,
+    recipientShortId,
+    amount,
+  });
+  // PanResponder itself is stable, so read changing route/account values from
+  // a ref instead of permanently capturing the first render's values.
+  submissionInputRef.current = {
+    isOnlineMode,
+    activeAccount,
+    receiverPubKey,
+    recipientShortId,
+    amount,
+  };
 
   const [actualTxId, setActualTxId] = useState<string | null>(null);
   const [txId] = useState(() => {
@@ -262,6 +278,9 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
       onPanResponderRelease: (evt, gestureState) => {
         if (!isCheckedRef.current) return;
         if (gestureState.dx >= MAX_SWIPE * 0.85) {
+          if (submissionStartedRef.current) return;
+          submissionStartedRef.current = true;
+
           // Snap to end & trigger action
           Animated.timing(swipeAnim, {
             toValue: MAX_SWIPE,
@@ -285,27 +304,29 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
             ]).start(async () => {
               setIsLoading(true);
               swipeAnim.setValue(0); // reset
+              const submission = submissionInputRef.current;
 
-              if (isOnlineMode) {
+              if (submission.isOnlineMode) {
                 try {
-                  if (!activeAccount?.stellarPublicKey) throw new Error('No active account key');
+                  if (!submission.activeAccount?.stellarPublicKey) throw new Error('No active account key');
 
                   // Normally populated by SendMoneyScreen. Resolve it again
                   // here so a recipient cached while offline cannot make an
                   // otherwise-online transfer fail before reaching the API.
-                  const recipientPublicKey = receiverPubKey?.trim()
-                    || await resolveRecipientPublicKey(recipientShortId);
+                  const recipientPublicKey = submission.receiverPubKey?.trim()
+                    || await resolveRecipientPublicKey(submission.recipientShortId);
                   
                   const hash = await executeTransfer({
-                    senderPublicKey: activeAccount.stellarPublicKey,
+                    senderPublicKey: submission.activeAccount.stellarPublicKey,
                     recipientPublicKey,
-                    amount: amount, 
+                    amount: submission.amount,
                   });
                   setActualTxId(hash || null);
                   setIsLoading(false);
                   setSuccessVisible(true);
                 } catch (err: any) {
                   console.error('Online transfer failed:', err);
+                  submissionStartedRef.current = false;
                   setIsLoading(false);
                   Alert.alert('Transfer Failed', String(err.message || err));
                 }
@@ -367,6 +388,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         setIsProcessing(false);
       }
       DeviceEventEmitter.emit('ON_SEND_MONEY_ONLINE', total);
+      submissionStartedRef.current = false;
       navigation.navigate('Dashboard');
     } else {
       // Build offline payment payload and navigate to TransportChoice.
@@ -395,6 +417,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
           expiresInMinutes: 10,
         };
 
+        submissionStartedRef.current = false;
         navigation.navigate('TransportChoice', {
           qrData: voucher.smsBody,
           payload,
@@ -406,6 +429,7 @@ export function SendMoneyConfirmScreen({ route, navigation }: any) {
         });
       } catch (err) {
         console.error('Failed to build offline voucher:', err);
+        submissionStartedRef.current = false;
         Alert.alert(
           'Could Not Create Voucher',
           err instanceof Error ? err.message : 'Offline voucher creation failed.',

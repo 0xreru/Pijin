@@ -4,7 +4,12 @@ import { rpc } from "@stellar/stellar-sdk";
 const sorobanRpcUrl =
   process.env.SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
 
-const contractId = process.env.CONTRACT_ID || 'CBSGTQCZKOLRCIPG4LQVZOAC2ITBM5UNH7J4XRXCFGGPUI45AQYILVIB'; 
+const contractId = process.env.CONTRACT_ID?.trim();
+if (!contractId) {
+  throw new Error(
+    "Missing CONTRACT_ID. Refusing to fall back to an arbitrary deployed contract.",
+  );
+}
 
 const networkPassphrase =
   process.env.STELLAR_NETWORK_PASSPHRASE ??

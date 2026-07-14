@@ -319,6 +319,11 @@ export function SendMoneyScreen({ route, navigation }: any) {
 
     // Navigate to confirmation
     navigation.navigate('SendMoneyConfirm', {
+      // Lock the rail selected by the user for the lifetime of the confirmation
+      // screen. Connection state can change while that screen is open; it must
+      // never turn one confirmation into both an online transfer and an offline
+      // voucher.
+      paymentMode: isOnline ? 'online' : 'offline',
       recipientShortId: currentRecipient.shortId,
       recipientName: currentRecipient.displayName,
       receiverPubKey: currentRecipient.stellarPublicKey,
