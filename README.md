@@ -223,7 +223,7 @@ For detailed request/response schemas, testing, and OpenAPI specifications, <br>
 
 ## 🎥 Demo
 - 📱 **Live Mobile App:** [Link to Vercel/APK]
-- 🔗 **Backend Api:**
+- 🔗 **Backend Api:** [Pijin API](https://pijin-api.vercel.app)
 - 🔗 **Treasury Portal:** 
 - 🎬 **Demo Video:** [Google Drive link](Link)
 - 🖼️ **Pitch Deck:** [Canva link](Link)
@@ -243,7 +243,7 @@ For detailed request/response schemas, testing, and OpenAPI specifications, <br>
 | Carl Arbolado | Backend Developer / Frontend Developer / Team Lead | [@Carl](https://github.com/Kaido147) |
 | Erickson Guhilde | Backend Developer / Quality Assurance | [@Erickson](https://github.com/riXoon) |
 | Cedric Paul Mendoza | System Architect / System Analyst | [@Cedric](https://github.com/daeroSys) |
-| Janrell Quiaroro | Backend Developer / Quality Assurance | [@Janrell](https://github.com/0xreru) |
+| Janrell Quiaroro | Backend Developer / Quality Assurance / Web3 Architect | [@Janrell](https://github.com/0xreru) |
 </div>
 
 ## 📜 License
