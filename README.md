@@ -1,8 +1,8 @@
 
 <br />
 <div align="left">
-  <img align="left" width="140" height="140" alt="Pijin Logo" src="https://github.com/user-attachments/assets/0b4bfc34-ee26-4633-bc0d-39e9d0d6cbee" />
-
+  <img align="left" width="140" height="140" src="https://github.com/user-attachments/assets/e361efc9-970a-4ad3-bf69-93c297d955b5" alt="Pijin Logo" />
+  
   <br />
   <h3>&nbsp;&nbsp;Pijin</h3>
   <p>&nbsp;&nbsp;<b><i>Bringing digital money within reach, even offline.</i></b></p>
@@ -68,7 +68,57 @@ The app uses familiar, **non-technical** labels:
 - Seamless Fiat On-Ramp (SEP-24): Direct integration with regulated Stellar Anchors allowing users to easily convert physical cash into highly liquid, fiat-backed stablecoins (e.g., PHPC) via interactive, KYC-compliant webviews.
 
 
+
 ## 🏛️ Pijin Architecture
+
+```mermaid
+sequenceDiagram
+    autonumber
+    
+    actor Sender as Sender (Offline, No Load)
+    actor Receiver as Receiver (Offline)
+    actor Relayer as Relaying Agent (Receiver or Bystander)
+    participant Gateway as Inbound SMS Gateway
+    participant RelayerNode as Cloud Relayer (Vercel)
+    participant Blockchain as Soroban Smart Contract
+
+    Note over Sender, Receiver: Phase 1: Identification & Offline Signing
+    
+    alt In-Person Transfer
+        Receiver->>Sender: Displays Static ShortID QR
+        Sender->>Sender: Scans QR to capture ShortID
+    else Remote Transfer
+        Sender->>Sender: Manually types Receiver's ShortID into app
+    end
+    
+    Sender->>Sender: Inputs Amount & Signs ShortID Payload (Ed25519)
+    Sender->>Sender: Generates Dynamic Payload QR
+    
+    Note over Sender, Relayer: Phase 2: The Trustless "Dumb-Pipe" Relay
+    Sender->>Relayer: Shows Payload QR (Pays bounty OR Merchant scans for payment)
+    Relayer->>Relayer: Scans Payload QR via Pijin App
+    
+    Note over Relayer, Blockchain: Phase 3: Cellular Transport & Settlement
+    Relayer->>Gateway: Broadcasts Compressed Payload via Standard SMS
+    Gateway->>Gateway: Generates SHA-256 HMAC Token
+    Gateway->>RelayerNode: HTTP POST Webhook (with X-Pijin-Signature)
+    
+    RelayerNode->>RelayerNode: Verifies HMAC Authentication
+    RelayerNode->>RelayerNode: Restores Base64 Padding (Preserves ShortIDs)
+    RelayerNode->>RelayerNode: Assembles XDR Meta-Transaction & Sponsors Gas
+    RelayerNode->>Blockchain: Submits Reconstructed Envelope to Ledger
+    
+    Blockchain->>Blockchain: Queries On-Chain Admin Registry (ShortID -> 56-Char PubKey)
+    Blockchain->>Blockchain: ed25519_verify(Unpadded Signature against ShortID)
+    Blockchain->>Blockchain: Verifies Nonce (Replay Protection)
+    Blockchain->>Blockchain: Executes Atomic 2-Way Split (Amount + Toll)
+    
+    Blockchain-->>RelayerNode: Settlement Success Receipt
+    RelayerNode-->>Gateway: Trigger Confirmation Webhooks
+    Gateway-->>Sender: SMS/RF Receipt: Transfer Successful
+    Gateway-->>Receiver: SMS/RF Receipt: Funds Received
+```
+    
 
 ## 🌍 Stellar Ecosystem Proposal(SEP) Protocol Integration
 - SEP-1 (Stellar Info File)
