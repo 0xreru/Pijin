@@ -1,16 +1,16 @@
-/* ── OmniFi Dark Theme for Swagger UI ──────────────────────────────────────── */
+/* ── OmniFi Light Theme for Swagger UI (SEP-24 Palette) ─────────────────────── */
 :root {
-  --omnifi-bg: #0d0f1a;
-  --omnifi-surface: #13162a;
-  --omnifi-border: #1e2340;
-  --omnifi-accent: #6c63ff;
-  --omnifi-accent2: #00d4aa;
-  --omnifi-text: #e2e8f0;
-  --omnifi-muted: #8892b0;
-  --omnifi-get: #00d4aa;
-  --omnifi-post: #6c63ff;
+  --omnifi-bg: #EFF1F5;
+  --omnifi-surface: #FFFFFF;
+  --omnifi-border: #E6E9EE;
+  --omnifi-accent: #02132B;
+  --omnifi-accent2: #04295A;
+  --omnifi-text: #08090A;
+  --omnifi-muted: #707984;
+  --omnifi-get: #04295A;
+  --omnifi-post: #16C784;
   --omnifi-put: #f59e0b;
-  --omnifi-delete: #ef4444;
+  --omnifi-delete: #F04438;
 }
 
 * {
@@ -26,7 +26,7 @@ body {
 
 /* ── Top header banner ──────────────────────────────────────────────────────── */
 .api-docs-header {
-  background: linear-gradient(135deg, #0d0f1a 0%, #1a1040 50%, #0d1a2a 100%);
+  background: var(--omnifi-surface);
   border-bottom: 1px solid var(--omnifi-border);
   padding: 32px 48px 24px;
   display: flex;
@@ -37,25 +37,23 @@ body {
 .api-docs-logo {
   width: 44px;
   height: 44px;
-  background: linear-gradient(135deg, var(--omnifi-accent), var(--omnifi-accent2));
+  background: var(--omnifi-accent);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
   font-size: 18px;
-  color: white;
+  color: #FFFFFF;
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(2, 19, 43, 0.15);
 }
 
 .api-docs-title h1 {
   margin: 0;
   font-size: 22px;
-  font-weight: 700;
-  background: linear-gradient(90deg, #fff 0%, var(--omnifi-accent2) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-weight: 800;
+  color: var(--omnifi-accent2);
 }
 
 .api-docs-title p {
@@ -66,13 +64,13 @@ body {
 
 .api-docs-badge {
   margin-left: auto;
-  background: rgba(108, 99, 255, 0.15);
-  border: 1px solid rgba(108, 99, 255, 0.4);
-  color: var(--omnifi-accent);
+  background: #F5F6F8;
+  border: 1px solid var(--omnifi-border);
+  color: var(--omnifi-accent2);
   padding: 4px 12px;
   border-radius: 20px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ── Swagger UI overrides ───────────────────────────────────────────────────── */
@@ -142,7 +140,7 @@ body {
 
 .swagger-ui .opblock.opblock-get .opblock-summary-method {
   background: var(--omnifi-get) !important;
-  color: #0d0f1a !important;
+  color: #FFFFFF !important;
 }
 
 .swagger-ui .opblock.opblock-post .opblock-summary-method {
@@ -151,7 +149,7 @@ body {
 
 .swagger-ui .opblock.opblock-put .opblock-summary-method {
   background: var(--omnifi-put) !important;
-  color: #0d0f1a !important;
+  color: #FFFFFF !important;
 }
 
 .swagger-ui .opblock.opblock-delete .opblock-summary-method {
@@ -215,6 +213,18 @@ body {
   border-radius: 6px !important;
 }
 
+.swagger-ui select {
+  background: var(--omnifi-bg) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M13.418 7.859a.695.695 0 0 1 .978 0 .68.68 0 0 1 0 .969l-3.908 3.83a.697.697 0 0 1-.979 0l-3.908-3.83a.68.68 0 0 1 0-.969.695.695 0 0 1 .978 0L10 11l3.418-3.141z' fill='%238892b0'/%3E%3C/svg%3E") right 10px center no-repeat !important;
+  background-size: 20px !important;
+  appearance: none !important;
+  padding-right: 40px !important;
+}
+
+/* Fix SVG colors for carets and icons */
+.swagger-ui svg:not(.star) {
+  fill: var(--omnifi-muted) !important;
+}
+
 .swagger-ui input:focus,
 .swagger-ui textarea:focus {
   border-color: var(--omnifi-accent) !important;
@@ -235,6 +245,7 @@ body {
 .swagger-ui .btn.execute {
   background: var(--omnifi-accent) !important;
   border-color: var(--omnifi-accent) !important;
+  color: #FFFFFF !important;
 }
 
 .swagger-ui .btn.cancel {
@@ -244,18 +255,19 @@ body {
 }
 
 .swagger-ui .btn.authorize {
-  background: rgba(0, 212, 170, 0.1) !important;
+  background: #FFFFFF !important;
   border-color: var(--omnifi-accent2) !important;
   color: var(--omnifi-accent2) !important;
 }
 
 /* Code / JSON blocks */
 .swagger-ui .microlight {
-  background: #0a0c18 !important;
+  background: #F5F6F8 !important;
   border-radius: 6px !important;
   padding: 12px !important;
   font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
   font-size: 12px !important;
+  color: var(--omnifi-accent2) !important;
 }
 
 /* Auth modal */
@@ -311,9 +323,9 @@ body {
   margin: 48px auto;
   max-width: 480px;
   padding: 24px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: #FEF2F2;
+  border: 1px solid #FEE2E2;
   border-radius: 10px;
   text-align: center;
-  color: #ef4444;
+  color: var(--omnifi-delete);
 }
