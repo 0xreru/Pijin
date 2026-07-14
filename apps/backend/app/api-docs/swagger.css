@@ -37,14 +37,9 @@ body {
 .api-docs-logo {
   width: 44px;
   height: 44px;
-  background: var(--omnifi-accent);
   border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 18px;
-  color: #FFFFFF;
+  display: block;
+  object-fit: cover;
   flex-shrink: 0;
   box-shadow: 0 4px 12px rgba(2, 19, 43, 0.15);
 }
