@@ -1,11 +1,19 @@
 import { createSwaggerSpec } from 'next-swagger-doc';
 import { NextResponse } from 'next/server';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  // next-swagger-doc resolves apiFolder from process.cwd(). In this monorepo,
+  // cwd is the repository root locally but the backend root on Vercel.
+  const apiFolder = existsSync(join(process.cwd(), 'app', 'api'))
+    ? 'app/api'
+    : 'apps/backend/app/api';
+
   const spec = createSwaggerSpec({
-    apiFolder: 'app/api',
+    apiFolder,
     definition: {
       openapi: '3.0.0',
       info: {
@@ -25,8 +33,8 @@ export async function GET() {
       },
       servers: [
         {
-          url: process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001',
-          description: 'Current environment',
+          url: '/',
+          description: 'Current deployment (recommended)',
         },
         {
           url: 'https://pijin-api.vercel.app',
