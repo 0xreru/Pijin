@@ -206,6 +206,7 @@ fn test_deposit_does_not_rotate_existing_offline_key() {
 fn test_spend_offline_success() {
     let ctx = setup_test();
     let amount = 100_000_000;
+    let receiver_online_balance = 2_000_000_000;
     let protocol_toll = 5_000_000;
     let nonce = BytesN::from_array(&ctx.env, &[1; 32]);
     let signature = ctx.sign_payload(
@@ -217,6 +218,10 @@ fn test_spend_offline_success() {
     );
 
     ctx.deposit(DEPOSIT_AMOUNT);
+    // Mirror the reported regression: the receiver starts with an existing
+    // online wallet balance. An offline-to-offline spend must not change it.
+    token::StellarAssetClient::new(&ctx.env, &ctx.token_a)
+        .mint(&ctx.receiver, &receiver_online_balance);
     ctx.client().spend_offline(
         &ctx.gateway,
         &ctx.sender,
@@ -229,7 +234,7 @@ fn test_spend_offline_success() {
     );
 
     let token_client = ctx.token_client_a();
-    assert_eq!(token_client.balance(&ctx.receiver), 0);
+    assert_eq!(token_client.balance(&ctx.receiver), receiver_online_balance);
     assert_eq!(ctx.client().get_vault(&ctx.receiver, &ctx.token_a), amount);
     assert_eq!(token_client.balance(&ctx.treasury), protocol_toll);
     assert_eq!(
