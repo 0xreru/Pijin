@@ -5,8 +5,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { db } from '../db/client';
 import { paymentQueue } from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { AppCard } from '../components/ui/AppCard';
+import { useAuth } from '../context/AuthContext';
 
 // Quick helper to format currency since we don't know if formatters is exported
 const formatCurrency = (amount: number, currency: string) => {
@@ -18,8 +19,19 @@ const formatCurrency = (amount: number, currency: string) => {
 
 export function PendingSyncScreen() {
   const navigation = useNavigation();
+  const { activeAccount } = useAuth();
+  const shortId = activeAccount?.shortId || '0000';
+
   const { data: pendingPayments = [] } = useLiveQuery(
-    db.select().from(paymentQueue).where(eq(paymentQueue.synced, false)).orderBy(desc(paymentQueue.createdAt))
+    db.select()
+      .from(paymentQueue)
+      .where(
+        and(
+          eq(paymentQueue.synced, false),
+          eq(paymentQueue.customerShortId, shortId)
+        )
+      )
+      .orderBy(desc(paymentQueue.createdAt))
   );
 
   const renderItem = ({ item }: { item: any }) => (

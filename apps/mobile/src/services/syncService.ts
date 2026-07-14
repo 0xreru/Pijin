@@ -29,7 +29,7 @@ import {
   markSyncError,
 } from '../db/services/paymentQueueDb';
 import type { PaymentQueueRow } from '../db/schema';
-import { addTransaction, upsertServerTransactions, upsertHistoryTransactions } from '../db/services/transactionDb';
+import { addTransaction, upsertServerTransactions, upsertHistoryTransactions, correctLegacyTags } from '../db/services/transactionDb';
 import { loadStoredAccount } from './storage/accountStorage';
 import { getUserSettlements, getWalletHistory } from './api/transactions';
 import { getApiBaseUrl } from '../constants/api';
@@ -153,7 +153,14 @@ class SyncService {
 
     this.isFlushInProgress = true;
     try {
-      const pending = await loadPendingQueue();
+      let account: any = null;
+      try {
+        account = await loadStoredAccount();
+      } catch (err) {
+        console.warn('[SyncService] Could not load stored account.', err);
+      }
+
+      const pending = await loadPendingQueue(account?.shortId);
 
       if (pending.length === 0) {
         console.log('[SyncService] No pending items to sync.');
@@ -164,9 +171,7 @@ class SyncService {
 
       // Fetch user settlements from backend for comparison
       let settledNonces = new Set<string>();
-      let account: any = null;
       try {
-        account = await loadStoredAccount();
         if (account?.shortId) {
           const serverSettlements = await getUserSettlements(account.shortId);
           settledNonces = new Set(serverSettlements.map(s => s.nonce).filter(Boolean));
@@ -225,7 +230,7 @@ class SyncService {
                 title: 'Reversal: Failed Offline Payment',
                 amount: item.amount,
                 type: 'incoming',
-                tag: 'WALLET',
+                tag: 'OFFLINE',
                 description: `Refund for failed offline payment. Reason: ${errorMessage}`,
                 stellarPublicKey: account?.stellarPublicKey,
                 shortId: account?.shortId,
@@ -257,7 +262,7 @@ class SyncService {
             title:       'Synced Offline Payments',
             amount:      totalAmount,
             type:        'settlement',
-            tag:         'WALLET',
+            tag:         'OFFLINE',
             description: `Settled ${successCount} offline payment(s) totalling ₱${totalAmount.toFixed(2)} on the Stellar network.`,
             stellarPublicKey: account?.stellarPublicKey,
             shortId: account?.shortId,
@@ -282,6 +287,10 @@ class SyncService {
   async syncTransactions(shortId: string, publicKey: string): Promise<void> {
     try {
       console.log(`[SyncService] Starting smart sync for account ${shortId}...`);
+      
+      // Correct any legacy mis-tagged offline transactions (e.g. from previous app versions)
+      await correctLegacyTags();
+      
       const serverHistory = await getWalletHistory(shortId, publicKey);
       
       // Keep only latest 50 records

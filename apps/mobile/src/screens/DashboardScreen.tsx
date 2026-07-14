@@ -17,8 +17,9 @@ import { LogoutConfirmationModal } from '../components/ui/LogoutConfirmationModa
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { db } from '../db/client';
 import { transactions as transactionsTable, paymentQueue as paymentQueueTable } from '../db/schema';
-import { eq, desc, or } from 'drizzle-orm';
-import { enqueuePayment } from '../db/services/paymentQueueDb';
+import { eq, desc, or, and } from 'drizzle-orm';
+import { enqueuePayment, clearPaymentQueue } from '../db/services/paymentQueueDb';
+import { clearTransactions, correctLegacyTags } from '../db/services/transactionDb';
 import { syncService } from '../services/syncService';
 import { BottomNavBar, TabType } from '../components/ui/BottomNavBar';
 import { connectionService } from '../services/connectionService';
@@ -96,7 +97,12 @@ export function DashboardScreen({ navigation }: any) {
   );
 
   const { data: pendingPayments = [] } = useLiveQuery(
-    db.select().from(paymentQueueTable).where(eq(paymentQueueTable.synced, false))
+    db.select().from(paymentQueueTable).where(
+      and(
+        eq(paymentQueueTable.synced, false),
+        eq(paymentQueueTable.customerShortId, shortId)
+      )
+    )
   );
   const queueCount = pendingPayments.length;
   const pendingOfflineAmount = useMemo(() => {
@@ -123,6 +129,15 @@ export function DashboardScreen({ navigation }: any) {
   useEffect(() => {
     const initData = async () => {
       try {
+        const [migrated, migratedV3] = await Promise.all([
+          AsyncStorage.getItem('pijn.legacy_tags_migrated'),
+          AsyncStorage.getItem('pijn.legacy_tags_migrated_v3')
+        ]);
+        if (migrated !== 'true' || migratedV3 !== 'true') {
+          await correctLegacyTags();
+          await AsyncStorage.setItem('pijn.legacy_tags_migrated', 'true');
+          await AsyncStorage.setItem('pijn.legacy_tags_migrated_v3', 'true');
+        }
         await AsyncStorage.removeItem('pijn.hide_offline_notice'); // Ensure modal appears for testing
         await ensureMigration();
         const hasReset = await AsyncStorage.getItem('pijn.initial_reset_v2');
@@ -488,13 +503,23 @@ export function DashboardScreen({ navigation }: any) {
   }, [navigation]);
 
   const handleLogoutConfirm = useCallback(async () => {
+    if (queueCount > 0) {
+      setLogoutModalVisible(false);
+      Alert.alert(
+        'Cannot Log Out',
+        'You have pending offline payments. Please connect to the internet to sync your vault before logging out to prevent data loss.'
+      );
+      return;
+    }
     setLogoutModalVisible(false);
+    await clearTransactions();
+    await clearPaymentQueue();
     await logout();
     navigation.reset({
       index: 0,
       routes: [{ name: 'SignIn' }],
     });
-  }, [logout, navigation]);
+  }, [logout, navigation, queueCount]);
 
   const handleLogoutCancel = useCallback(() => setLogoutModalVisible(false), []);
 

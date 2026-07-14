@@ -15,7 +15,7 @@
 
 import { db } from '../client';
 import { transactions, type TransactionRow, type NewTransactionRow } from '../schema';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, and, or } from 'drizzle-orm';
 import type { TransactionType } from '../../types/transaction';
 
 // ---------------------------------------------------------------------------
@@ -173,8 +173,8 @@ export async function upsertServerTransactions(
         const isIncoming = sTx.merchantShortId === shortId;
         const type = isIncoming ? 'incoming' : 'outgoing';
         const title = isIncoming
-          ? `Received from ${sTx.customerShortId}`
-          : `Sent to ${sTx.merchantShortId}`;
+          ? `Received from ${sTx.customerShortId} (Offline)`
+          : `Sent to ${sTx.merchantShortId} (Offline)`;
         
         const now = new Date(sTx.createdAt);
         const dateGroup = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2, '0')}, ${now.getFullYear()}`;
@@ -192,7 +192,7 @@ export async function upsertServerTransactions(
           subtitle,
           amount: isIncoming ? amountNum : -amountNum,
           type,
-          tag: 'WALLET',
+          tag: 'OFFLINE',
           dateGroup,
           timeAgo: 'Synced',
           description: sTx.txHash ? `Stellar Tx Hash: ${sTx.txHash}` : `Status: ${sTx.status}`,
@@ -261,7 +261,7 @@ export async function upsertHistoryTransactions(
           subtitle,
           amount: amountNum,
           type,
-          tag: 'WALLET',
+          tag: (hTx.type === 'SEND' || hTx.type === 'RECEIVE') ? 'OFFLINE' : 'WALLET',
           dateGroup,
           timeAgo: 'Synced',
           description: hTx.txHash ? `Stellar Tx Hash: ${hTx.txHash}` : `Status: ${hTx.status}`,
@@ -290,6 +290,18 @@ export async function upsertHistoryTransactions(
   } catch (error) {
     console.error('[transactionDb] Failed to upsert history transactions:', error);
     throw error;
+  }
+}
+
+/**
+ * Clears the transaction cache to force a fresh re-sync of all historical
+ * transactions with their correct tags (using the updated hTx.type logic).
+ */
+export async function correctLegacyTags(): Promise<void> {
+  try {
+    await clearTransactions();
+  } catch (error) {
+    console.error('[transactionDb] Failed to correct legacy tags by clearing:', error);
   }
 }
 

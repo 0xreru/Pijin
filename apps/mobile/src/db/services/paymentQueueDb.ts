@@ -33,12 +33,17 @@ import type { OfflinePaymentPayload } from '../../types/payment';
  * Returns all unsynced queue items (synced = false).
  * Used by syncService to determine what needs to be flushed to the backend.
  */
-export async function loadPendingQueue(): Promise<PaymentQueueRow[]> {
+export async function loadPendingQueue(shortId?: string): Promise<PaymentQueueRow[]> {
   try {
     return db
       .select()
       .from(paymentQueue)
-      .where(eq(paymentQueue.synced, false));
+      .where(
+        and(
+          eq(paymentQueue.synced, false),
+          shortId ? eq(paymentQueue.customerShortId, shortId) : undefined
+        )
+      );
   } catch (error) {
     console.error('[paymentQueueDb] Failed to load pending queue:', error);
     return [];
@@ -49,9 +54,13 @@ export async function loadPendingQueue(): Promise<PaymentQueueRow[]> {
  * Returns ALL queue items including synced ones.
  * Useful for audit/history displays.
  */
-export async function loadFullQueue(): Promise<PaymentQueueRow[]> {
+export async function loadFullQueue(shortId?: string): Promise<PaymentQueueRow[]> {
   try {
-    return db.select().from(paymentQueue);
+    const query = db.select().from(paymentQueue);
+    if (shortId) {
+      return query.where(eq(paymentQueue.customerShortId, shortId));
+    }
+    return query;
   } catch (error) {
     console.error('[paymentQueueDb] Failed to load full queue:', error);
     return [];
@@ -62,9 +71,9 @@ export async function loadFullQueue(): Promise<PaymentQueueRow[]> {
  * Returns the count of unsynced items.
  * Used for the queue badge counter in the dashboard.
  */
-export async function getPendingCount(): Promise<number> {
+export async function getPendingCount(shortId?: string): Promise<number> {
   try {
-    const rows = await loadPendingQueue();
+    const rows = await loadPendingQueue(shortId);
     return rows.length;
   } catch (error) {
     console.error('[paymentQueueDb] Failed to get pending count:', error);
@@ -225,5 +234,16 @@ export async function clearSyncedItems(): Promise<void> {
       .where(eq(paymentQueue.synced, true));
   } catch (error) {
     console.error('[paymentQueueDb] Failed to clear synced items:', error);
+  }
+}
+
+/**
+ * Removes all payment queue rows. Useful for logout flows.
+ */
+export async function clearPaymentQueue(): Promise<void> {
+  try {
+    await db.delete(paymentQueue);
+  } catch (error) {
+    console.error('[paymentQueueDb] Failed to clear payment queue:', error);
   }
 }
