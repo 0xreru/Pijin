@@ -10,6 +10,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -54,6 +55,8 @@ interface HomeTabProps {
   isPollingBalance?: boolean;
   /** The user's Stellar public key — forwarded to DepositButton for trustline checks. */
   publicKey: string;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
 export const HomeTab = memo(function HomeTab({
@@ -80,6 +83,8 @@ export const HomeTab = memo(function HomeTab({
   isOnlineDisabled = false,
   isPollingBalance = false,
   publicKey,
+  refreshing = false,
+  onRefresh,
 }: HomeTabProps) {
   const navigation = useNavigation<any>();
   const [depositLoading, setDepositLoading] = useState(false);
@@ -172,6 +177,14 @@ export const HomeTab = memo(function HomeTab({
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top, 12) }]}
       style={styles.scrollView}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#001E42"
+          colors={['#001E42']}
+        />
+      }
     >
       <View style={styles.headerWrapper}>
         <DashboardHeader shortId={shortId} isOnline={isOnline} onLogoutPress={onLogoutPress} />

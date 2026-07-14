@@ -50,12 +50,15 @@ export function TransportChoiceScreen({ route, navigation }: any) {
       const customerShortId = payload?.customerShortId || account?.shortId;
       const customerPubKey = payload?.customerPubKey || account?.stellarPublicKey;
 
+      const shortNonce = payload.smsBody ? (payload.smsBody.split(':')[4] || payload.smsBody.split(':')[3] || Math.floor(Math.random() * 1000000).toString()) : Math.floor(Math.random() * 1000000).toString();
+
       await db.transaction(async (trx) => {
         await enqueuePayment(payload, trx);
         
         await addTransaction({
-          title: `Paid to ${recipientName} (Offline)`,
-          amount: -total,
+          id: `TX-OFF-${shortNonce}`,
+          title: `Sent to ${recipientName} (Offline)`,
+          amount: -amount,
           type: 'outgoing',
           tag: 'OFFLINE',
           description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,

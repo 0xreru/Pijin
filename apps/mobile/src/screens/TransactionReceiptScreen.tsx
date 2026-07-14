@@ -21,7 +21,9 @@ export function TransactionReceiptScreen({ route, navigation }: any) {
   const { transaction } = route.params || {};
   
   const isRealTx = !!transaction;
-  const amount = transaction?.amountPhp || '₱25,000.00';
+  const amount = transaction?.amount 
+    ? `₱${Math.abs(transaction.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
+    : '₱25,000.00';
   const title = transaction?.title || 'Deposited from G-Xchange Inc. / Gcash';
   const description = transaction?.description || 'You deposited ₱25,000.00 using G-Xchange Inc. / GCash account ending in 8245 via Pijin.';
   

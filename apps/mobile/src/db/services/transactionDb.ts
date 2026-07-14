@@ -15,7 +15,7 @@
 
 import { db } from '../client';
 import { transactions, type TransactionRow, type NewTransactionRow } from '../schema';
-import { desc, eq, like } from 'drizzle-orm';
+import { desc, eq, like, ne } from 'drizzle-orm';
 import type { TransactionType } from '../../types/transaction';
 
 // ---------------------------------------------------------------------------
@@ -44,9 +44,28 @@ export async function loadTransactions(): Promise<StoredTransaction[]> {
     const rows = await db
       .select()
       .from(transactions)
+      .where(ne(transactions.type, 'settlement'))
       .orderBy(desc(transactions.createdAt));
 
-    return rows as StoredTransaction[];
+    const processedRows = rows.map(tx => {
+      let processedTx = {
+        ...tx,
+        title: tx.title.replace('Paid to', 'Sent to')
+      };
+
+      const feeMatch = tx.description?.match(/with ₱([0-9.]+) processing fee/);
+      if (feeMatch && tx.type === 'outgoing' && tx.tag === 'OFFLINE') {
+        const feeStr = feeMatch[1];
+        const feeNum = parseFloat(feeStr);
+        if (!isNaN(feeNum) && feeNum > 0) {
+          processedTx.amount = tx.amount + feeNum;
+        }
+      }
+
+      return processedTx as StoredTransaction;
+    });
+
+    return processedRows;
   } catch (error) {
     console.error('[transactionDb] Failed to load transactions:', error);
     return [];
@@ -62,7 +81,7 @@ export async function loadTransactions(): Promise<StoredTransaction[]> {
  * timeAgo, subtitle, and createdAt — same behaviour as the AsyncStorage version.
  */
 export async function addTransaction(
-  tx: Omit<StoredTransaction, 'id' | 'createdAt' | 'dateGroup' | 'timeAgo' | 'subtitle'>,
+  tx: Omit<StoredTransaction, 'id' | 'createdAt' | 'dateGroup' | 'timeAgo' | 'subtitle'> & { id?: string },
   trx?: any
 ): Promise<StoredTransaction> {
   try {
@@ -74,7 +93,7 @@ export async function addTransaction(
 
     const newRow: NewTransactionRow = {
       ...tx,
-      id:        `TX-${Math.floor(100000000000 + Math.random() * 900000000000)}`,
+      id:        tx.id || `TX-${Math.floor(100000000000 + Math.random() * 900000000000)}`,
       dateGroup,
       timeAgo:   'Just now',
       subtitle:  `Today, ${timeStr}`,
@@ -289,6 +308,12 @@ export async function upsertHistoryTransactions(
         } else {
           // Insert new row
           await trx.insert(transactions).values(rowData);
+          
+          // Deduplicate local offline transaction if it exists
+          if (hTx.nonce) {
+            const localOffId = `TX-OFF-${hTx.nonce}`;
+            await trx.delete(transactions).where(eq(transactions.id, localOffId));
+          }
         }
       }
     });
@@ -308,6 +333,53 @@ export async function correctLegacyTags(): Promise<void> {
     await db.delete(transactions).where(like(transactions.id, 'TX-SVR-%'));
   } catch (error) {
     console.error('[transactionDb] Failed to refresh legacy server tags:', error);
+  }
+}
+
+/**
+ * Scans the local SQLite database for OFFLINE transactions with unresolved Short IDs
+ * (e.g., "Sent to aB3x9Q (Offline)") and attempts to resolve them to the actual name
+ * using the backend lookup API.
+ */
+export async function resolveOfflineTransactionNames(): Promise<void> {
+  try {
+    const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
+    
+    // Find all OFFLINE transactions
+    const unresolvedTxs = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.tag, 'OFFLINE'));
+
+    for (const tx of unresolvedTxs) {
+      // Regex to extract the short ID from the title
+      const match = tx.title.match(/Sent to ([A-Za-z0-9_.-]+) \(Offline\)/) || 
+                    tx.title.match(/Received from ([A-Za-z0-9_.-]+) \(Offline\)/);
+      if (match && match[1]) {
+        const shortId = match[1];
+        try {
+          const res = await fetch(`${API_URL}/api/users/lookup?shortId=${encodeURIComponent(shortId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.found && data.displayName) {
+              const newTitle = tx.title.includes('Sent to') 
+                ? `Sent to ${data.displayName} (Offline)`
+                : `Received from ${data.displayName} (Offline)`;
+              
+              await db
+                .update(transactions)
+                .set({ title: newTitle })
+                .where(eq(transactions.id, tx.id));
+              console.log(`[transactionDb] Resolved ${shortId} to ${data.displayName}`);
+            }
+          }
+        } catch (lookupErr) {
+          console.warn(`[transactionDb] Failed to lookup ${shortId}:`, lookupErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[transactionDb] Error in resolveOfflineTransactionNames:', err);
   }
 }
 

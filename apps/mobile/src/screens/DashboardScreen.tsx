@@ -17,7 +17,7 @@ import { LogoutConfirmationModal } from '../components/ui/LogoutConfirmationModa
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { db } from '../db/client';
 import { transactions as transactionsTable, paymentQueue as paymentQueueTable } from '../db/schema';
-import { eq, desc, or, and } from 'drizzle-orm';
+import { eq, desc, or, and, ne } from 'drizzle-orm';
 import { enqueuePayment, clearPaymentQueue } from '../db/services/paymentQueueDb';
 import { clearTransactions, correctLegacyTags } from '../db/services/transactionDb';
 import { syncService } from '../services/syncService';
@@ -82,19 +82,45 @@ export function DashboardScreen({ navigation }: any) {
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
   const [offlineNoticeVisible, setOfflineNoticeVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Live Queries for automatic, reactive UI updates
-  const { data: transactions = [] } = useLiveQuery(
+  const { data: rawTransactions = [] } = useLiveQuery(
     db.select()
       .from(transactionsTable)
       .where(
-        or(
-          eq(transactionsTable.stellarPublicKey, publicKey),
-          eq(transactionsTable.shortId, shortId)
+        and(
+          ne(transactionsTable.type, 'settlement'),
+          or(
+            eq(transactionsTable.stellarPublicKey, publicKey),
+            eq(transactionsTable.shortId, shortId)
+          )
         )
       )
       .orderBy(desc(transactionsTable.createdAt))
   );
+
+  const transactions = useMemo(() => {
+    return rawTransactions.map(tx => {
+      let processedTx = {
+        ...tx,
+        title: tx.title.replace('Paid to', 'Sent to')
+      };
+
+      // Handle legacy offline transactions that combined the fee
+      const feeMatch = tx.description?.match(/with ₱([0-9.]+) processing fee/);
+      if (feeMatch && tx.type === 'outgoing' && tx.tag === 'OFFLINE') {
+        const feeStr = feeMatch[1];
+        const feeNum = parseFloat(feeStr);
+        if (!isNaN(feeNum) && feeNum > 0) {
+          // Adjust the original transaction to remove the fee from the displayed amount
+          processedTx.amount = tx.amount + feeNum; // e.g. -10.50 + 0.50 = -10.00
+        }
+      }
+
+      return processedTx;
+    });
+  }, [rawTransactions]);
 
   const { data: pendingPayments = [] } = useLiveQuery(
     db.select().from(paymentQueueTable).where(
@@ -391,7 +417,12 @@ export function DashboardScreen({ navigation }: any) {
              return syncService.syncTransactions(shortId, publicKey);
           }
         })
-        .then(() => refreshBalance())
+        .then(() => {
+          import('../db/services/transactionDb').then(({ resolveOfflineTransactionNames }) => {
+            resolveOfflineTransactionNames();
+          });
+          return refreshBalance();
+        })
         .catch((err) => console.warn('[DashboardScreen] Auto-sync failed:', err));
     }
   }, [hasInternet, isOnline, shortId, publicKey]);
@@ -438,6 +469,27 @@ export function DashboardScreen({ navigation }: any) {
     isManualOverrideRef.current = true;
     connectionService.setOnlineState(targetOnline);
   }, [hasInternet]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (hasInternet && shortId !== '0000') {
+         await syncService.flush();
+         if (isOnline) {
+             await syncService.syncTransactions(shortId, publicKey);
+         }
+         
+         const { resolveOfflineTransactionNames } = await import('../db/services/transactionDb');
+         await resolveOfflineTransactionNames();
+         
+         await refreshBalance();
+      }
+    } catch (err) {
+      console.warn('[DashboardScreen] Refresh failed:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [hasInternet, shortId, isOnline, publicKey, refreshBalance]);
 
   // Trigger sync queue using the new background syncService flush
   const handleSyncQueue = useCallback(async () => {
@@ -602,6 +654,8 @@ export function DashboardScreen({ navigation }: any) {
               onSendPress={handleSendPress}
               onReceivePress={handleReceivePress}
               onViewAllTransactions={handleViewAllTransactions}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
             />
           </View>
 
@@ -613,6 +667,8 @@ export function DashboardScreen({ navigation }: any) {
               readIds={readNotifIds}
               onMarkAsRead={markNotifAsRead}
               onMarkAllAsRead={markAllNotifsAsRead}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
             />
           </View>
 
@@ -623,7 +679,12 @@ export function DashboardScreen({ navigation }: any) {
 
           {/* Tab 4: Transactions */}
           <View style={styles.tabPanel}>
-            <TransactionsTab mockTxs={transactions} insets={insets} />
+            <TransactionsTab 
+              mockTxs={transactions} 
+              insets={insets}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
           </View>
 
           {/* Tab 5: Profile */}

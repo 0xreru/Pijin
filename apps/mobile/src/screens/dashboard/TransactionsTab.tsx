@@ -8,6 +8,7 @@ import {
   SectionList,
   Dimensions,
   Animated,
+  RefreshControl,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -25,9 +26,11 @@ const phpFormatter = new Intl.NumberFormat('en-PH', {
 interface TransactionsTabProps {
   mockTxs: any[];
   insets: { top: number; bottom: number; left: number; right: number };
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
-export const TransactionsTab = memo(function TransactionsTab({ mockTxs, insets }: TransactionsTabProps) {
+export const TransactionsTab = memo(function TransactionsTab({ mockTxs, insets, refreshing = false, onRefresh }: TransactionsTabProps) {
   const navigation = useNavigation<any>();
   const TRANS_SCREEN_WIDTH = SCREEN_WIDTH - 40;
   const [activeFilter, setActiveFilter] = useState<'all' | 'wallet' | 'offline'>('all');
@@ -183,20 +186,38 @@ export const TransactionsTab = memo(function TransactionsTab({ mockTxs, insets }
         removeClippedSubviews
         maxToRenderPerBatch={10}
         windowSize={5}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#001E42"
+            colors={['#001E42']}
+          />
+        }
       />
     );
   };
 
   const renderEmptyState = () => {
     return (
-      <View style={styles.emptyStateContainer}>
+      <ScrollView
+        contentContainerStyle={styles.emptyStateContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#001E42"
+            colors={['#001E42']}
+          />
+        }
+      >
         <Image
           source={require('../../../assets/transactions/piji-transactions.png')}
           style={styles.emptyStateImage}
           resizeMode="contain"
         />
         <Text style={styles.emptyStateText}>No transactions.</Text>
-      </View>
+      </ScrollView>
     );
   };
 

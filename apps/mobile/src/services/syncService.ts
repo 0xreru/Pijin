@@ -254,22 +254,9 @@ class SyncService {
         }
       }
 
-      // If at least one item synced successfully, log a settlement transaction
-      // so the UI (via useLiveQuery) auto-updates without any manual refresh.
+      // If at least one item synced successfully, log a success message (UI handles its own fetching)
       if (successCount > 0) {
-        try {
-          await addTransaction({
-            title:       'Synced Offline Payments',
-            amount:      totalAmount,
-            type:        'settlement',
-            tag:         'OFFLINE',
-            description: `Settled ${successCount} offline payment(s) totalling ₱${totalAmount.toFixed(2)} on the Stellar network.`,
-            stellarPublicKey: account?.stellarPublicKey,
-            shortId: account?.shortId,
-          });
-        } catch (txErr) {
-          console.error('[SyncService] Failed to log settlement transaction:', txErr);
-        }
+        console.log(`[SyncService] Successfully settled ${successCount} items on the Stellar network.`);
       }
 
       console.log(
