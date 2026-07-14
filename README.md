@@ -1,5 +1,7 @@
-# Pijin 🚀
-[logo here]
+# Pijin 
+
+<img width="1254" height="1254" alt="736845427_939180845845289_3746567041286570034_n" src="https://github.com/user-attachments/assets/e361efc9-970a-4ad3-bf69-93c297d955b5" />
+
 ## 🧩 Problem
 
 Our challenge: **How can people continue to access secure...**
@@ -42,6 +44,12 @@ Our challenge: **How can people continue to access secure...**
 - 📸 **Screenshot — Stellar Expert (Testnet)**
   <img width="1636" height="924" alt="testnet" src="https://github.com/user-attachments/assets/09b64eca-6e43-4a6b-b8f3-c58212de8551" />
 
+## 🎥 Demo
+- 📱 **Live Mobile App:** [Link to Vercel/APK]
+- 🔗 **Backend Api:**
+- 🔗 **Treasury Portal:** 
+- 🎬 **Demo Video:** [Google Drive link](Link)
+- 🖼️ **Pitch Deck:** [Canva link](Link)
 
 ## 👨‍💻 Team
 | Name | Role | GitHub |
