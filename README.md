@@ -20,12 +20,24 @@ Many people in rural areas, remote communities, and provincial towns have limite
 
 Our problem is: **How can people continue to access secure, real-time digital peer-to-peer (P2P) payments in zero-data areas without requiring users to buy expensive hardware or assume the risk of delayed settlement?**
 
+
+## 💡 Solution
+
+Pijin is a Web2.5 data-free unified payment system that bridges cutting-edge blockchain cryptography with ubiquitous cellular infrastructure (GSM/SMS). The system enables seamless peer-to-peer (P2P) transfers regardless of geographic distance or internet availability.
+
+Users fund their wallets online via regulated Stellar Anchors (SEP-24) and secure those funds in an on-chain escrow vault.  To ensure a frictionless user experience, the system relies on an offline-first architecture using a high-performance local database (Drizzle ORM) on the phone. This guarantees immediate UI updates locally while the heavy lifting of blockchain communication is offloaded to the cellular network.
+
+When transitioning to zero-data environments, Pijin utilizes dynamic transport routing based on the user's cellular load. To initiate a transfer, the sender captures the receiver's ID (either by scanning their static QR code in person or typing it manually) and the app securely signs the transaction offline. If the sender has cellular load, the app compresses this payload and transmits it silently via direct SMS. If the sender has zero load, the app generates a dynamic Payload QR code, allowing an authorized bystander to scan and relay the SMS on their behalf. This SMS is received by our Zero-API Gateway and forwarded to a cloud relayer, which submits the data to a Soroban smart contract. The contract mathematically verifies the offline signature, prevents double-spending, and settles the transaction in real-time.
+
+
 ## 🌟 Vision
 
 Pijin aims to make digital transactions more inclusive by providing universal Web3 liquidity powered by cellular networks. We want e-transactions to be available not only to people in cities with stable internet, but also to people in rural and underserved areas relying on basic cell towers. A future where digital payments are within reach for everyone, regardless of internet reliability.
 
+
 ## 🎯 Purpose
 
+The fundamental purpose of Pijin is to decouple decentralized finance from broadband internet dependency. We aim to empower unbanked, offline, and remote communities to participate in real-time digital economies without being forced to upgrade their hardware or rely on continuous cellular data. By transforming legacy telecommunication bands (like standard GSM/SMS and low-power RF) into trustless cryptographic transport layers, Pijin ensures that true financial inclusion—where users retain absolute sovereignty over their funds—can reach the most infrastructure-limited regions on the globe.
 
 
 ## 👥 Target Users
@@ -48,6 +60,13 @@ The app uses familiar, **non-technical** labels:
 - Receive Money
 
 ## ✨ Pijin Features
+- Non-Custodial Offline Cryptography: Pijin generates local private keys on the device. Transactions are mathematically signed and sealed completely offline, guaranteeing that central servers act only as "dumb pipes" and cannot intercept or alter user funds.
+- Dynamic Zero-Data Routing: Intelligent transport switching that instantly defaults to compressed SMS transmission (or low-power LoRaWAN modules) the moment the device loses internet connectivity.
+- Bystander "Dumb-Pipe" Relay (Payload QR): A novel fallback mechanism allowing users with zero cellular load to generate a signed "Payload QR." Any bystander with a text promo can scan and broadcast the transaction on their behalf without compromising the sender's security.
+- Deterministic Mathematical Compression: A proprietary local compression engine that maps massive Web3 variables into Base62 encodings and unpadded Base64 strings, shrinking 294-character ledger intents into 152-character payloads that fit perfectly inside a single SMS frame.
+- On-Chain State Resolution: Eliminates the need for backend state synchronization. The Soroban smart contract independently resolves 6-character ShortIDs into 56-character public keys via an on-chain admin registry, solving the "cold start" problem for offline mobile nodes.
+- Seamless Fiat On-Ramp (SEP-24): Direct integration with regulated Stellar Anchors allowing users to easily convert physical cash into highly liquid, fiat-backed stablecoins (e.g., PHPC) via interactive, KYC-compliant webviews.
+
 
 ## 🏛️ Pijin Architecture
 
