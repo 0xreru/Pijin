@@ -215,7 +215,7 @@ For detailed request/response schemas, testing, and OpenAPI specifications, <br>
 - `POST /api/sep24/transactions/withdraw/interactive` — Initiates a fiat withdrawal and returns the interactive webview URL.
 - `GET /api/sep24/transaction` — Polls the real-time status of an ongoing fiat transaction.
 
-## 🔄 Evolution from Idea Submission
+## 🔄 Changes made after idea submission
 
 | What We Planned | What We Built (And Why) |
 |---|---|
