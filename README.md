@@ -235,22 +235,48 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 <img width="1624" height="918" alt="Screenshot 2026-07-14 195353" src="https://github.com/user-attachments/assets/76e2345f-1e9d-4382-8d40-65154dbcacb0" />
 
 ## 🎥 Demo
+
+<img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
+
+
 - 📱 **Live Mobile App:** [Link to Vercel/APK]
 - 🔗 **Backend Api:** [Pijin API](https://pijin-api.vercel.app)
 - 🔗 **Treasury Portal:** 
 - 🎬 **Demo Video:** [Google Drive link](Link)
 - 🖼️ **Pitch Deck:** [Canva link](Link)
 
-<img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
+
+## 🔄 Evolution from Idea Submission
+
+| What We Planned | What We Built (And Why) |
+|---|---|
+| **Phone-centric recipient discovery.** Early mobile flows selected recipients through phone numbers and even derived temporary identifiers from truncated digits. | **Cryptographic, transport-independent identity.** Every 56-character Stellar public key is assigned a unique, case-sensitive, 6-character Base62 ShortID. The ShortID is a collision-checked alias—not a lossy truncation—and is registered in an authoritative Soroban registry. Phone numbers remain optional metadata for onboarding and SMS receipts; they are never trusted for payment authorization or settlement routing. |
+| **Compact recipient references for SMS payments.** The submission proposed ShortIDs as a payload-compression technique. | **End-to-end ShortID resolution.** The mobile application signs the exact receiver ShortID, the relayer passes it through unchanged, and `spend_offline` resolves it on-chain through `DataKey::Recipient(BytesN<6>)`. Registration is case-sensitive and idempotent, conflicting mappings are rejected, and address rotation requires an explicit registrar-authorized operation. This turns ShortIDs into a governed on-chain addressing layer rather than a backend convenience. |
+| **Offline signing with a cloud relayer forwarding the transaction.** | **A contract-enforced Ed25519 trust boundary.** The device signs canonical XDR binding the amount, protocol toll, 32-byte nonce, receiver ShortID, gateway, and token. The backend may verify the signature as a gas-saving preflight, but settlement never trusts that result: Soroban independently executes `ed25519_verify` against the user’s enrolled device key. Altering any signed field invalidates the voucher on-chain. Key enrollment is protected from accidental deposit-time rotation, with a separate owner-authorized key-rotation function. |
+| **A compressed SMS instruction delivered through a gateway.** | **A deterministic six-field settlement envelope.** The production payload contains a token ID, sender ShortID, receiver ShortID, Base62 amount, unpadded Base64 nonce, and unpadded Base64 Ed25519 signature. The sender’s physical SIM is not an identity primitive, allowing the same signed voucher to be carried by the sender, receiver, or an untrusted bystander without granting that carrier control over the funds. |
+| **A basic cloud function submitting Soroban transactions.** | **A hardened asynchronous relayer pipeline.** Textbee provides Android-based SMS ingress; the Vercel webhook applies HMAC validation, timing-safe comparison, format checks, and Redis-backed rate limiting before handing settlement to *Upstash QStash.* Sender-plus-nonce deduplication, database uniqueness constraints, and the contract’s nonce registry provide layered replay protection without weakening the on-chain source of truth. |
+| **A single-asset escrow that paid the receiver directly.** | **A multi-asset Vault.** Custody is now isolated by `Vault(UserAddress, TokenAddress)`, allowing multiple Stellar assets to coexist without cross-asset balance leakage. The constructor stores only governance roles rather than pinning one token globally. Offline payments move value atomically from the sender’s vault into the receiver’s vault, while the protocol toll is transferred to Treasury. This vault-to-vault design also eliminated the observed offline double-credit path. |
+| **Full-balance withdrawal and broader time-lock assumptions.** | **Flexible, storage-aware liquidity management.** Users can make partial withdrawals, while a full withdrawal removes the empty vault entry to reclaim storage rent and reduce ledger bloat. The obsolete 24-hour on-chain withdrawal lock was removed, leaving authorization, real-time vault solvency, and nonce finality to enforce safety. Checked arithmetic protects every balance addition, deduction, and toll calculation. |
+| **An off-chain cash reward for bystander relays.** | **An evidence-driven bounty iteration.** An optional `bounty_relayer` and atomic three-way split—receiver, Treasury, and relay helper—were prototyped and tested during development. The final active contract deliberately removed the bounty address and fee from the signed envelope to preserve the single-SMS payload budget. The production path therefore performs receiver-vault credit plus Treasury toll, while relay compensation remains outside the cryptographic settlement payload. |
+| **General Soroban storage helpers with automatic TTL extension.** | **Hot-path resource optimization.** Read-only getters were changed from the `has()`-then-`get()` double-read pattern to a single `get().unwrap_or(0)`. Cheap input validation runs before authorization and ledger access; registry retries avoid redundant writes; gateway membership uses compact boolean entries; and TTL extension is concentrated on state-changing paths. Mutating helpers retain existence checks only where extending a missing entry would be unsafe. |
+| **A high-level regulated cash-in/cash-out WebView.** | **SEP-24 as the fiat integration boundary.** Rather than coupling the settlement engine to proprietary exchange or e-wallet APIs, Pijin implements SEP-24 reference-anchor flows for interactive deposits and withdrawals, transaction-state tracking, and mobile WebView handoff. Anchor-specific KYC, custody, banking, and licensing concerns remain behind a standard interface, allowing Pijin’s wallet and Soroban layers to remain provider-agnostic. |
+| **A cloud relayer and an offline local cache.** | **A deliberately split persistence architecture.** The Next.js backend runs on Vercel and uses Neon PostgreSQL through Prisma and the PostgreSQL driver adapter for accounts, tokens, settlements, anchor transactions, and online-transfer records. On-device state uses Drizzle ORM over Expo SQLite for low-latency transaction history and payment queues. RxJS reconnect orchestration, atomic SQLite writes, unique nonces, retry tracking, and server reconciliation make the mobile client resilient across crashes and intermittent connectivity. |
+| **A prototype build pipeline.** | **Reproducible, target-specific CI/CD.** GitHub Actions runs all Rust unit tests and compiles the optimized Soroban artifact with the exact `wasm32v1-none` target. Separate Node 20 pipelines build the generated contract SDK, validate and generate the Prisma client, run strict TypeScript checks, smoke-test the Next.js build, and export Android and iOS bundles. This prevents contract, SDK, backend, and mobile interfaces from drifting independently. |
+
+<div align="center">
+
+## Build on Stellar Philippines Hackathon 2026 Champion  - Abot Pera
+
+  <img width="2048" height="1536" alt="746067307_1497483411701648_7965632142598952982_n" src="https://github.com/user-attachments/assets/79121b6c-bd76-4012-8741-d5bd01e0eb78" />
+</div>
 
 <div align="center">
   
 ## 👨‍💻 Team
 
 </div>
-<div align="center">
 
-Build on Stellar Philippines Hackathon 2026 Champion  - Abot Pera
+<div align="center">
   
 | Name | Role | GitHub |
 |---|---|---|
