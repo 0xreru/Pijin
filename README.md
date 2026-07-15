@@ -220,10 +220,6 @@ For detailed request/response schemas, testing, and OpenAPI specifications, <br>
 | What We Planned | What We Built (And Why) |
 |---|---|
 | Identify recipients through familiar user details. | **An on-chain ShortID registry** that maps compact, 6-character Base62 IDs to Stellar addresses without using phone numbers for settlement. |
-| Let a relayer submit offline-signed payments. | **Contract-level Ed25519 verification**, gateway authorization, and persistent nonces so relayers cannot alter or replay a payment. |
-| Hold offline funds in a basic escrow vault. | **A multi-token vault** keyed by user and token, with atomic vault-to-vault payments and protocol-toll routing to Treasury. |
-| Return a user's entire remaining offline balance. | **Partial and full withdrawals**, including removal of empty vault entries to reduce storage rent and ledger bloat. |
-| Use a single administrative role for contract operations. | **Separated Admin, Registrar, and Gateway controls**, plus an authorized WASM upgrade path and explicit offline-key rotation. |
 
 ## Pijin Treasury Portal
 
