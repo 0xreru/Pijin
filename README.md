@@ -67,6 +67,7 @@ The app uses familiar, **non-technical** labels:
 - Receive Money
 
 ## ✨ Pijin Features
+
 - **Non-Custodial Offline Cryptography:** Pijin generates local private keys on the device. Transactions are mathematically signed and sealed completely offline, guaranteeing that central servers act only as "dumb pipes" and cannot intercept or alter user funds.
 - **Dynamic Zero-Data Routing:** Intelligent transport switching that instantly defaults to compressed SMS transmission the moment the device loses internet connectivity.
 - **Bystander "Dumb-Pipe" Relay (Payload QR):** A novel fallback mechanism allowing users with zero cellular load to generate a signed "Payload QR." Any bystander with a text promo can scan and broadcast the transaction on their behalf without compromising the sender's security.
@@ -184,7 +185,7 @@ sequenceDiagram
   - **Cryptography:** Node.js Crypto / `@stellar/stellar-sdk` (Ed25519 Signature Verification & XDR encoding)
   - **Wallet Integration:** Stellar Demo Wallet (for SEP-24 Auth & Testing)
 
-### 📚 API Documentation
+## 📚 API Documentation
 
 The Pijin backend is powered by Next.js API Routes and serves as the bridge between the mobile app, the Soroban smart contracts, and the Stellar ecosystem. 
 <br>
