@@ -18,6 +18,8 @@ import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { connectionService } from '../services/connectionService';
 import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
+import { getUserFirstName, getUserLastName, saveUserFirstName, saveUserLastName } from '../services/storage/onboardingStorage';
+import { lookupUserByShortId } from '../services/api/accounts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -28,6 +30,48 @@ export function GenerateQRScreen({ route, navigation }: any) {
   const qrData = route.params?.qrData || '';
 
   const [isOnline, setIsOnline] = useState(connectionService.currentState.isOnlineMode);
+  const [fullName, setFullName] = useState('OmniFi User');
+  const [initials, setInitials] = useState('OU');
+
+  useEffect(() => {
+    async function loadName() {
+      // First try to load from local storage
+      const first = await getUserFirstName();
+      const last = await getUserLastName();
+      if (first && last) {
+        setFullName(`${first} ${last}`);
+        setInitials(`${first[0]}${last[0]}`.toUpperCase());
+        return;
+      } else if (first) {
+        setFullName(first);
+        setInitials(first[0].toUpperCase());
+        return;
+      }
+      
+      // If local storage is empty, fallback to API lookup
+      if (activeAccount?.shortId) {
+        try {
+          const res = await lookupUserByShortId(activeAccount.shortId);
+          if (res.found && res.displayName) {
+            setFullName(res.displayName);
+            const words = res.displayName.split(' ');
+            if (words.length >= 2) {
+              setInitials(`${words[0][0]}${words[1][0]}`.toUpperCase());
+              saveUserFirstName(words[0]).catch(() => {});
+              saveUserLastName(words.slice(1).join(' ')).catch(() => {});
+            } else {
+              setInitials(res.displayName[0].toUpperCase());
+              saveUserFirstName(res.displayName).catch(() => {});
+              saveUserLastName('').catch(() => {});
+            }
+          }
+        } catch (e) {
+          // Ignore, fallback to default 'OmniFi User'
+        }
+      }
+    }
+    loadName();
+  }, [activeAccount?.shortId]);
 
   useEffect(() => {
     const subscription = connectionService.state$.subscribe((state) => {
@@ -45,7 +89,6 @@ export function GenerateQRScreen({ route, navigation }: any) {
     ? (activeAccount?.shortId || 'M-1B44')
     : qrData;
 
-  const displayName = 'Erickson Guhilde';
   const displayId = activeAccount?.shortId || 'M-1B44';
 
   // Parse relay voucher details if applicable
@@ -126,10 +169,10 @@ export function GenerateQRScreen({ route, navigation }: any) {
                 {/* Header profile area inside card */}
                 <View style={styles.cardHeader}>
                   <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>EG</Text>
+                    <Text style={styles.avatarText}>{initials}</Text>
                   </View>
                   <View style={styles.headerTextContainer}>
-                    <Text style={styles.userName}>{displayName}</Text>
+                    <Text style={styles.userName}>{fullName}</Text>
                     <View style={styles.statusBadge}>
                       <View style={styles.greenDot} />
                       <Text style={styles.statusText}>Active Receiver ID</Text>
