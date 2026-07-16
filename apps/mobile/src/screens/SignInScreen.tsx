@@ -160,8 +160,8 @@ export function SignInScreen() {
         // Offline fallback: load cached account from local storage
         const stored = await loadStoredAccount();
         if (stored && mainWalletPublicKey && stored.stellarPublicKey === mainWalletPublicKey) {
-          // Proceed offline with empty/old token
-          await login(stored.stellarPublicKey, stored.shortId, '');
+          // Proceed offline without modifying the token state
+          await login(stored.stellarPublicKey, stored.shortId);
         } else {
           // No cached account or mismatched key
           Alert.alert(

@@ -15,10 +15,9 @@ interface ProfileTabProps {
   shortId: string;
   publicKey: string;
   insets: { top: number; bottom: number; left: number; right: number };
-  onLogoutPress: () => void;
 }
 
-export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets, onLogoutPress }: ProfileTabProps) {
+export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets }: ProfileTabProps) {
   const navigation = useNavigation<any>();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [fullName, setFullName] = useState('');
@@ -112,13 +111,6 @@ export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets,
           <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.menuItem, styles.menuItemLogout]} onPress={onLogoutPress}>
-          <View style={styles.menuItemLeft}>
-            <Ionicons name="log-out-outline" size={20} color="#DC2626" />
-            <Text style={[styles.menuItemText, styles.logoutText]}>Log Out</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#DC2626" />
-        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -214,11 +206,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#1F2937',
-  },
-  menuItemLogout: {
-    borderBottomWidth: 0,
-  },
-  logoutText: {
-    color: '#DC2626',
   },
 });

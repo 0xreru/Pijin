@@ -10,7 +10,7 @@ type AuthContextType = {
   jwt: string | null;
   userMode: UserMode;
   isAppReady: boolean;
-  login: (publicKey: string, shortId: string, jwt: string) => Promise<void>;
+  login: (publicKey: string, shortId: string, jwt?: string) => Promise<void>;
   logout: () => Promise<void>;
   setUserMode: (mode: UserMode) => void;
 };
@@ -31,15 +31,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const account = await loadStoredAccount();
         const token = await getStoredJwt();
         if (!isMounted) return;
-        if (account && token) {
+        if (account) {
           setActiveAccount(account);
           setConnectedWalletPublicKey(account.stellarPublicKey);
-          setJwt(token);
+          if (token) {
+            setJwt(token);
+          }
           // Set userMode based on stored account or default to customer
           setUserMode('customer');
-        } else if (account || token) {
-          // Clean up partial states
-          await clearStoredAccount();
+        } else if (token) {
+          // Clean up orphaned token if account is missing
           await setStoredJwt(null);
         }
       } catch (error) {
@@ -56,17 +57,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const login = async (publicKey: string, shortId: string, token: string) => {
+  const login = async (publicKey: string, shortId: string, token?: string) => {
     const account: StoredAccount = {
       shortId,
       role: 'USER',
       stellarPublicKey: publicKey,
     };
     await saveStoredAccount(account);
-    await setStoredJwt(token);
+    if (token !== undefined) {
+      await setStoredJwt(token);
+      setJwt(token);
+    }
     setActiveAccount(account);
     setConnectedWalletPublicKey(publicKey);
-    setJwt(token);
     setUserMode('customer');
   };
 
