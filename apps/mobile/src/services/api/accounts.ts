@@ -75,3 +75,19 @@ export async function checkUserExists(phone: string): Promise<CheckUserResponse>
   const cleanLocal = phone.replace(/\D/g, "");
   return apiRequest<CheckUserResponse>(`/api/users/check?phone=63${cleanLocal}`);
 }
+
+type LookupUserResponse = {
+  found: boolean;
+  shortId?: string;
+  stellarPublicKey?: string;
+  offlineDeviceKey?: string | null;
+  displayName?: string;
+};
+
+/**
+ * Looks up a user by their shortId.
+ * @param shortId - The exact, case-sensitive 6-character Base62 short ID to resolve.
+ */
+export async function lookupUserByShortId(shortId: string): Promise<LookupUserResponse> {
+  return apiRequest<LookupUserResponse>(`/api/users/lookup?shortId=${encodeURIComponent(shortId)}`);
+}

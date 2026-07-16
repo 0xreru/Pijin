@@ -133,11 +133,8 @@ export function SignInScreen() {
 
         if (checkRes.exists && checkRes.stellarPublicKey && checkRes.shortId) {
           if (!mainWalletKeypair || mainWalletPublicKey !== checkRes.stellarPublicKey) {
-            Alert.alert(
-              'Main Wallet Missing',
-              'This device does not have the saved main wallet for this account. Please restore or re-onboard the account on this device.',
-            );
             setIsValidating(false);
+            navigation.navigate('RestoreWallet', { phoneNumber });
             return;
           }
           const token = await getSep10Token(mainWalletKeypair);

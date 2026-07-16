@@ -42,6 +42,10 @@ import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegist
 import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import { StatusBar } from 'expo-status-bar';
+import { generateWalletMnemonic, deriveKeysFromMnemonic } from '../services/wallet/mnemonic';
+import * as SecureStore from 'expo-secure-store';
+import { ensureMigration } from '../services/storage/migration';
+import * as Clipboard from 'expo-clipboard';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -63,7 +67,7 @@ const ONBOARDING_LIGHT_GRAY = '#EDEDED';
 type UserFlowType = 'new' | 'returning' | null;
 
 type RootStackParamList = {
-  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 } | undefined;
+  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 } | undefined;
   SignIn: undefined;
   Dashboard: undefined;
 };
@@ -76,7 +80,7 @@ export function OnboardingScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   
   const { login } = useAuth();
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
   const [maxAllowedStep, setMaxAllowedStep] = useState<number>(1);
   const [userFlowType, setUserFlowType] = useState<UserFlowType>(null);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
@@ -101,6 +105,20 @@ export function OnboardingScreen() {
 
   // PIN
   const [pin, setPin] = useState('');
+
+  // Mnemonic
+  const [mnemonic, setMnemonic] = useState('');
+  const [verifyWords, setVerifyWords] = useState<string[]>(['', '', '']);
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Animated value tracking the active step (1 to 5) for dots animation
   const activeStepAnimated = useRef(new Animated.Value(1)).current;
@@ -140,11 +158,11 @@ export function OnboardingScreen() {
     return () => backHandler.remove();
   }, [step, userFlowType]);
 
-  // Slides 1, 3, 6 are dark; 2, 4, 5 are light
-  const isDark = step === 1 || step === 3 || step === 6;
+  // Slides 1, 3, 6, 8 are dark; 2, 4, 5, 7 are light
+  const isDark = step === 1 || step === 3 || step === 6 || step === 8;
 
 
-  const navigateToStep = (targetStep: 1 | 2 | 3 | 4 | 5 | 6) => {
+  const navigateToStep = (targetStep: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) => {
     if (targetStep > maxAllowedStep) {
       setMaxAllowedStep(targetStep);
     }
@@ -283,11 +301,34 @@ export function OnboardingScreen() {
       Alert.alert('Invalid PIN', 'Please enter a 4-digit PIN.');
       return;
     }
+    const newMnemonic = generateWalletMnemonic();
+    setMnemonic(newMnemonic);
+    navigateToStep(6);
+  };
+
+  const handleBackupContinue = () => {
+    navigateToStep(7);
+  };
+
+  const handleCopyPhrase = async () => {
+    await Clipboard.setStringAsync(mnemonic);
+    Alert.alert('Copied', 'Seed phrase copied to clipboard!');
+  };
+
+  const handleVerifyConfirm = async () => {
+    const words = mnemonic.split(' ');
+    if (
+      verifyWords[0].trim().toLowerCase() !== words[2] ||
+      verifyWords[1].trim().toLowerCase() !== words[6] ||
+      verifyWords[2].trim().toLowerCase() !== words[10]
+    ) {
+      Alert.alert('Verification Failed', 'One or more words are incorrect. Please check your backup.');
+      return;
+    }
     try {
-      // Write to both stores so the PIN survives app data clears.
       await saveUserPin(pin);
       await saveUserPinSecure(pin);
-      navigateToStep(6);
+      navigateToStep(8);
     } catch (e) {
       console.error(e);
       Alert.alert('Error', 'Failed to secure PIN. Please try again.');
@@ -329,22 +370,23 @@ export function OnboardingScreen() {
 
   const handleEnterPijin = async () => {
     setIsRegistering(true);
-    try {
-      // ── The OFFLINE device signing key (persisted in secure enclave) ────────
-      // This is the key that signs the Soroban XDR payload for offline payments.
-      // It is registered as `offlineDeviceKey` in the backend DB.
-      const deviceKeypair = await getOrGenerateDeviceKeypair();
-      const offlineDeviceKey = deviceKeypair.publicKey();
+    
+    // Yield to the UI thread so the button loading state renders immediately
+    // before the heavy cryptographic key derivation blocks the main thread.
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-      // ── The ONLINE Stellar wallet key (a separate, fresh keypair) ──────────
-      // This is the user's main on-chain address for Stellar asset balances,
-      // SEP-10 auth, trustlines, etc. Registered as `stellarPublicKey`.
-      // Using a different key from the device key prevents replay attacks
-      // where a captured offline key could be used for on-chain operations.
-      const mainWalletKeypair = StellarKeypair.random();
+    try {
+      const { mainWalletKeypair, deviceKeypair } = deriveKeysFromMnemonic(mnemonic);
+      
+      const offlineDeviceKey = deviceKeypair.publicKey();
       const stellarPublicKey = mainWalletKeypair.publicKey();
+      
       const mainWalletSecret = mainWalletKeypair.secret();
+      const deviceWalletSecret = deviceKeypair.secret();
+
       await saveMainWalletSecret(mainWalletSecret);
+      await ensureMigration();
+      await SecureStore.setItemAsync('pijn.device.secret', deviceWalletSecret);
 
       // TEMPORARY DEVELOPMENT RECOVERY PATCH. Never runs in release builds.
       if (__DEV__) {
@@ -408,7 +450,7 @@ export function OnboardingScreen() {
 
   const renderBackArrow = () => {
     // Hide back button on success slide
-    if (step === 1 || step === 6) return <View style={styles.backButtonPlaceholder} />;
+    if (step === 1 || step === 8) return <View style={styles.backButtonPlaceholder} />;
     return (
       <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
         <Ionicons
@@ -423,7 +465,7 @@ export function OnboardingScreen() {
   const renderDots = () => {
     // No dots on welcome screen or phone entry (flow type not yet determined)
     if (step <= 2) return null;
-    const dotSteps = userFlowType === 'returning' ? [2, 3] : [2, 3, 4, 5, 6];
+    const dotSteps = userFlowType === 'returning' ? [2, 3] : [2, 3, 4, 5, 6, 7, 8];
     const dotColor = isDark ? '#FFFFFF' : '#031634';
     return (
       <View style={styles.dotsContainer}>
@@ -755,16 +797,151 @@ export function OnboardingScreen() {
 
             <View style={styles.footer}>
               <AppButton
-                title="Confirm 4-digit pin"
+                title="Continue"
                 onPress={handlePinConfirm}
                 variant="primary"
-                icon={<Ionicons name="checkmark-circle-outline" size={24} color="#FFFFFF" />}
+                icon={<Ionicons name="arrow-forward" size={24} color="#FFFFFF" />}
               />
             </View>
             </ScrollView>
           </View>
 
-          {/* Slide 5: Success Screen */}
+          {/* Slide 6: Backup Wallet */}
+          <View style={styles.slide}>
+            <ScrollView 
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false} 
+              contentContainerStyle={styles.innerScrollContent}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              <View style={styles.formContentContainer}>
+                <View style={styles.textContainerLeft}>
+                  <Text style={styles.stepTitleDark}>Backup Wallet</Text>
+                  <Text style={styles.stepSubtitleDark}>
+                    Write down these 12 words in order. This is the ONLY way to recover your account if you lose your phone.
+                  </Text>
+                </View>
+
+                <View style={styles.mnemonicGrid}>
+                  {mnemonic.split(' ').map((word, index) => (
+                    <View key={index} style={styles.mnemonicWordContainer}>
+                      <Text style={styles.mnemonicWordIndex}>{index + 1}.</Text>
+                      <Text style={styles.mnemonicWord}>{word}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <TouchableOpacity style={styles.copyButton} onPress={handleCopyPhrase} activeOpacity={0.7}>
+                  <Ionicons name="copy-outline" size={20} color="#9CA3AF" />
+                  <Text style={styles.copyButtonText}>Copy to clipboard</Text>
+                </TouchableOpacity>
+
+                <View style={styles.tipContainer}>
+                  <Ionicons name="warning-outline" size={16} color="#B45309" />
+                  <Text style={styles.tipText}>
+                    Do not share this phrase with anyone or take a screenshot. Keep it safe!
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.footer}>
+                <AppButton
+                  title="I've written it down"
+                  onPress={handleBackupContinue}
+                  variant="secondary"
+                  icon={<Ionicons name="checkmark-done" size={24} color="#08090A" />}
+                />
+              </View>
+            </ScrollView>
+          </View>
+
+          {/* Slide 7: Verify Wallet */}
+          <View style={styles.slide}>
+            <ScrollView 
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false} 
+              contentContainerStyle={styles.innerScrollContent}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              <View style={styles.formContentContainer}>
+                <View style={styles.textContainerLeft}>
+                  <Text style={styles.stepTitleLight}>Verify Backup</Text>
+                  <Text style={styles.stepSubtitleLight}>
+                    Let's make sure you wrote it down correctly. Enter words 3, 7, and 11.
+                  </Text>
+                </View>
+
+                <View style={styles.infoInputGroup}>
+                  <View style={styles.emailInputWrapper}>
+                    <TextInput
+                      style={styles.infoInput}
+                      placeholder="Word #3"
+                      placeholderTextColor="#9CA3AF"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={verifyWords[0]}
+                      onChangeText={(t) => {
+                        const newWords = [...verifyWords];
+                        newWords[0] = t;
+                        setVerifyWords(newWords);
+                      }}
+                    />
+                  </View>
+                  <View style={styles.emailInputWrapper}>
+                    <TextInput
+                      style={styles.infoInput}
+                      placeholder="Word #7"
+                      placeholderTextColor="#9CA3AF"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={verifyWords[1]}
+                      onChangeText={(t) => {
+                        const newWords = [...verifyWords];
+                        newWords[1] = t;
+                        setVerifyWords(newWords);
+                      }}
+                    />
+                  </View>
+                  <View style={styles.emailInputWrapper}>
+                    <TextInput
+                      style={styles.infoInput}
+                      placeholder="Word #11"
+                      placeholderTextColor="#9CA3AF"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={verifyWords[2]}
+                      onChangeText={(t) => {
+                        const newWords = [...verifyWords];
+                        newWords[2] = t;
+                        setVerifyWords(newWords);
+                      }}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.verifyIllustrationContainer}>
+                  <Image
+                    source={require('../../assets/seed phrase/piji-verify.png')}
+                    style={styles.verifyIllustrationImage}
+                    contentFit="contain"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.footer}>
+                <AppButton
+                  title="Verify & Secure Vault"
+                  onPress={handleVerifyConfirm}
+                  variant="primary"
+                  icon={<Ionicons name="shield-checkmark" size={24} color="#FFFFFF" />}
+                />
+              </View>
+            </ScrollView>
+          </View>
+
+          {/* Slide 8: Success Screen */}
           <View style={styles.slide}>
             <View style={styles.textContainerLeft}>
               <Text style={styles.stepTitleDark}>Vault Secured</Text>
@@ -782,19 +959,13 @@ export function OnboardingScreen() {
             </View>
 
             <View style={styles.footer}>
-              {isRegistering ? (
-                <View style={styles.loadingButton}>
-                  <ActivityIndicator color="#031634" size="small" />
-                  <Text style={[styles.loadingButtonText, { color: '#031634' }]}>Registering account...</Text>
-                </View>
-              ) : (
-                <AppButton
-                  title="Enter Pijin"
-                  onPress={handleEnterPijin}
-                  variant="secondary"
-                  icon={<Ionicons name="log-in-outline" size={24} color="#08090A" />}
-                />
-              )}
+              <AppButton
+                title={isRegistering ? "Registering account..." : "Enter Pijin"}
+                onPress={handleEnterPijin}
+                variant="secondary"
+                icon={<Ionicons name="log-in-outline" size={24} color="#08090A" />}
+                loading={isRegistering}
+              />
             </View>
           </View>
         </ScrollView>
@@ -918,6 +1089,16 @@ const styles = StyleSheet.create({
   },
   illustrationImage: {
     width: '110%', // Reverted to original 85%
+    height: '100%',
+  },
+  verifyIllustrationContainer: {
+    height: SCREEN_HEIGHT * 0.25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  verifyIllustrationImage: {
+    width: '80%',
     height: '100%',
   },
   otpIllustrationContainer: {
@@ -1107,4 +1288,59 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  mnemonicGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 24,
+    justifyContent: 'space-between',
+  },
+  mnemonicWordContainer: {
+    width: '30%',
+    backgroundColor: '#1E293B',
+    padding: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mnemonicWordIndex: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginRight: 6,
+    width: 16,
+  },
+  mnemonicWord: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  tipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 24,
+    gap: 8,
+  },
+  tipText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#B45309',
+    fontWeight: '500',
+  },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 12,
+    gap: 8,
+  },
+  copyButtonText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });
+
