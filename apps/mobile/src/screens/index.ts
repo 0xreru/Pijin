@@ -13,3 +13,4 @@ export { AccountSettingsScreen } from './AccountSettingsScreen';
 export { VaultSettingsScreen } from './VaultSettingsScreen';
 export { ChangePinScreen } from './ChangePinScreen';
 export { PendingSyncScreen } from './PendingSyncScreen';
+export { RestoreWalletScreen } from './RestoreWalletScreen';

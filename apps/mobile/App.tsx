@@ -10,7 +10,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen, LoadOnlineFundsScreen, ScanQRScreen, TransportChoiceScreen, SendMoneyScreen, SendMoneyConfirmScreen, GenerateQRScreen, AccountSettingsScreen, VaultSettingsScreen, ChangePinScreen, PendingSyncScreen } from './src/screens';
+import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen, LoadOnlineFundsScreen, ScanQRScreen, TransportChoiceScreen, SendMoneyScreen, SendMoneyConfirmScreen, GenerateQRScreen, AccountSettingsScreen, VaultSettingsScreen, ChangePinScreen, PendingSyncScreen, RestoreWalletScreen } from './src/screens';
 import { Sep24WebviewScreen } from './src/screens/Sep24WebviewScreen';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 import { ensureMigration } from './src/services/storage/migration';
@@ -39,6 +39,7 @@ type RootStackParamList = {
     sep10Token?: string;
   };
   PendingSync: undefined;
+  RestoreWallet: { phoneNumber: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -69,6 +70,7 @@ function RootNavigator({ initialRoute }: { initialRoute: keyof RootStackParamLis
           <Stack.Screen name="VaultSettings" component={VaultSettingsScreen} />
           <Stack.Screen name="ChangePin" component={ChangePinScreen} />
           <Stack.Screen name="PendingSync" component={PendingSyncScreen} />
+          <Stack.Screen name="RestoreWallet" component={RestoreWalletScreen} />
           <Stack.Screen
             name="Sep24Webview"
             component={Sep24WebviewScreen}
