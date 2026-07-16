@@ -246,7 +246,7 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 <img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
 
 
-- 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/0f8eb602-ecd9-4f65-89c2-f451cdf11eae)
+- 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/b4c71132-d42f-4e6e-b436-e28e8393a911)
 - 🔗 **Backend Api:** [Pijin API](https://pijin-api.vercel.app)
 - 🔗 **Treasury Portal:** [Pijin Treasury Portal](https://pijin-treasury-portal.vercel.app)
 - 🎬 **Demo Video:** [Google Drive link](Link)
@@ -271,7 +271,7 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 |---|---|---|
 |Mark Kengie Aldabon| Frontend Developer / DevOps | [@Mark](https://github.com/tambayNgOrtigasAvenue ) |
 | Carl Arbolado | Backend Developer / Frontend Developer / Team Lead | [@Carl](https://github.com/Kaido147) |
-| Erickson Guhilde | Backend Developer / Quality Assurance | [@Erickson](https://github.com/riXoon) |
+| Erickson Guhilde | Frontend Developer / Backend Developer / Quality Assurance | [@Erickson](https://github.com/riXoon) |
 | Cedric Paul Mendoza | System Architect / System Analyst | [@Cedric](https://github.com/daeroSys) |
 | Janrell Quiaroro | Backend Developer / Quality Assurance / Web3 Architect | [@Janrell](https://github.com/0xreru) |
 </div>
