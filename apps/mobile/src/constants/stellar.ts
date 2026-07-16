@@ -1,12 +1,5 @@
-function env(name: string): string | undefined {
-  const raw = process.env[name];
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  return trimmed.replace(/^['"]|['"]$/g, '');
-}
-
 export const STELLAR_NETWORK_PASSPHRASE =
-  env('EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE') ??
+  (process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE || '').trim().replace(/^['"]|['"]$/g, '') ||
   'Public Global Stellar Network ; September 2015';
 
 export const HORIZON_URL = STELLAR_NETWORK_PASSPHRASE.includes('Public Global')
@@ -14,13 +7,14 @@ export const HORIZON_URL = STELLAR_NETWORK_PASSPHRASE.includes('Public Global')
   : 'https://horizon-testnet.stellar.org';
 
 export const SOROBAN_RPC_URL =
-  env('EXPO_PUBLIC_SOROBAN_RPC_URL') ?? 'https://rpc.lightsail.network';
+  (process.env.EXPO_PUBLIC_SOROBAN_RPC_URL || '').trim().replace(/^['"]|['"]$/g, '') ||
+  'https://rpc.lightsail.network';
 
-export const CONTRACT_ID = env('EXPO_PUBLIC_CONTRACT_ID') ?? '';
+export const CONTRACT_ID = (process.env.EXPO_PUBLIC_CONTRACT_ID || '').trim().replace(/^['"]|['"]$/g, '');
 
-export const TOKEN_ID = env('EXPO_PUBLIC_TOKEN_ID') ?? '';
+export const TOKEN_ID = (process.env.EXPO_PUBLIC_TOKEN_ID || '').trim().replace(/^['"]|['"]$/g, '');
 
-export const TOKEN_DB_ID = env('EXPO_PUBLIC_TOKEN_DB_ID') ?? '1';
+export const TOKEN_DB_ID = (process.env.EXPO_PUBLIC_TOKEN_DB_ID || '').trim().replace(/^['"]|['"]$/g, '') || '1';
 
 export const STROOPS_PER_XLM = 10_000_000;
 

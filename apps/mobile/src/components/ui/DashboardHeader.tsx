@@ -5,10 +5,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 interface DashboardHeaderProps {
   shortId: string;
   isOnline: boolean;
-  onLogoutPress: () => void;
 }
 
-export function DashboardHeader({ shortId, isOnline, onLogoutPress }: DashboardHeaderProps) {
+export function DashboardHeader({ shortId, isOnline }: DashboardHeaderProps) {
   return (
     <View style={styles.container}>
       <View style={styles.leftSection}>
@@ -25,14 +24,6 @@ export function DashboardHeader({ shortId, isOnline, onLogoutPress }: DashboardH
           </View>
         </View>
       </View>
-      
-      <TouchableOpacity
-        style={styles.logoutButton}
-        onPress={onLogoutPress}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="log-out-outline" size={20} color="#001E42" />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -91,20 +82,5 @@ const styles = StyleSheet.create({
   statusBold: {
     fontWeight: '700',
     color: '#001E42',
-  },
-  logoutButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E6E9EE',
-    shadowColor: '#001E42',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 1,
   },
 });

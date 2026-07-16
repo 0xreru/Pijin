@@ -507,17 +507,24 @@ export function OnboardingScreen() {
 
           {/* Slide 2: Enter Phone Number */}
           <View style={styles.slide}>
-            {/* Shrink illustration height when focused for smooth keyboard avoidance */}
-            <View style={styles.illustrationContainer}>
-              <Image
-                source={require('../../assets/onboarding/onboarding-2.png')}
-                style={styles.illustrationImage}
-                contentFit="contain"
-              />
-            </View>
+            <ScrollView 
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false} 
+              contentContainerStyle={styles.innerScrollContent}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              {/* Shrink illustration height when focused for smooth keyboard avoidance */}
+              <View style={styles.illustrationContainer}>
+                <Image
+                  source={require('../../assets/onboarding/onboarding-2.png')}
+                  style={styles.illustrationImage}
+                  contentFit="contain"
+                />
+              </View>
 
-            {/* Core form elements grouped tightly to remove dead space */}
-            <View style={styles.formContentContainer}>
+              {/* Core form elements grouped tightly to remove dead space */}
+              <View style={styles.formContentContainer}>
               <View style={styles.textContainerLeft}>
                 <Text style={styles.stepTitleLight}>Enter your phone number</Text>
                 <Text style={styles.stepSubtitleLight}>
@@ -563,10 +570,18 @@ export function OnboardingScreen() {
                 />
               )}
             </View>
+            </ScrollView>
           </View>
 
           {/* Slide 3: Verify OTP */}
           <View style={styles.slide}>
+            <ScrollView 
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false} 
+              contentContainerStyle={styles.innerScrollContent}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
             {/* Core form elements grouped tightly to remove dead space */}
             <View style={styles.formContentContainer}>
               <View style={styles.textContainerLeft}>
@@ -623,10 +638,18 @@ export function OnboardingScreen() {
                 />
               )}
             </View>
+            </ScrollView>
           </View>
 
           {/* Slide 4: Name & Info (new users only) */}
           <View style={styles.slide}>
+            <ScrollView 
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false} 
+              contentContainerStyle={styles.innerScrollContent}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
             <View style={styles.illustrationContainer}>
               <Image
                 source={require('../../assets/onboarding/onboarding-2.png')}
@@ -691,21 +714,29 @@ export function OnboardingScreen() {
                 icon={<Ionicons name="arrow-forward" size={24} color="#FFFFFF" />}
               />
             </View>
+            </ScrollView>
           </View>
 
           {/* Slide 5: Secure PIN */}
           <View style={styles.slide}>
-            {/* Shrink illustration height when focused for smooth keyboard avoidance */}
-            <View style={styles.illustrationContainer}>
-              <Image
-                source={require('../../assets/onboarding/onboarding-4.png')}
-                style={styles.illustrationImage}
-                contentFit="contain"
-              />
-            </View>
+            <ScrollView 
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false} 
+              contentContainerStyle={styles.innerScrollContent}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              {/* Shrink illustration height when focused for smooth keyboard avoidance */}
+              <View style={styles.illustrationContainer}>
+                <Image
+                  source={require('../../assets/onboarding/onboarding-4.png')}
+                  style={styles.illustrationImage}
+                  contentFit="contain"
+                />
+              </View>
 
-            {/* Core form elements grouped tightly to remove dead space */}
-            <View style={styles.formContentContainer}>
+              {/* Core form elements grouped tightly to remove dead space */}
+              <View style={styles.formContentContainer}>
               <View style={styles.textContainerLeft}>
                 <Text style={styles.stepTitleLight}>Secure Your Account</Text>
                 <Text style={styles.stepSubtitleLight}>
@@ -730,6 +761,7 @@ export function OnboardingScreen() {
                 icon={<Ionicons name="checkmark-circle-outline" size={24} color="#FFFFFF" />}
               />
             </View>
+            </ScrollView>
           </View>
 
           {/* Slide 5: Success Screen */}
@@ -802,6 +834,11 @@ const styles = StyleSheet.create({
   scrollViewContent: {
     flexGrow: 1,
   },
+  innerScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'space-between',
+    paddingBottom: 24,
+  },
   slide: {
     width: SCREEN_WIDTH,
     flex: 1,
@@ -865,13 +902,13 @@ const styles = StyleSheet.create({
     width: '100%',
     flex: 1,
     justifyContent: 'flex-start',
-    paddingTop: 44,
+    paddingTop: 24,
   },
   formContentContainerCollapsed: {
     paddingTop: 12,
   },
   illustrationContainer: {
-    height: SCREEN_HEIGHT * 0.35, // Reverted to original 0.35
+    height: SCREEN_HEIGHT * 0.35,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 8,
@@ -884,7 +921,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   otpIllustrationContainer: {
-    flex: 1,
+    height: SCREEN_HEIGHT * 0.35,
     justifyContent: 'center',
     alignItems: 'center',
     marginVertical: 12,

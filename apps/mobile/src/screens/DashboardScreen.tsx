@@ -13,7 +13,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ensureMigration } from '../services/storage/migration';
 import { useAuth } from '../context/AuthContext';
 import { useVaultBalance } from '../hooks/useVaultBalance';
-import { LogoutConfirmationModal } from '../components/ui/LogoutConfirmationModal';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { db } from '../db/client';
 import { transactions as transactionsTable, paymentQueue as paymentQueueTable } from '../db/schema';
@@ -42,7 +41,7 @@ const TABS: TabType[] = ['home', 'notifications', 'scan', 'transactions', 'profi
 
 export function DashboardScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  const { activeAccount, login, logout, jwt } = useAuth();
+  const { activeAccount, login, jwt } = useAuth();
   const shortId = activeAccount?.shortId || '0000';
   const publicKey = activeAccount?.stellarPublicKey || '';
 
@@ -78,7 +77,6 @@ export function DashboardScreen({ navigation }: any) {
   const mountedRef = useRef(true);
   const [serverOfflineBalance, setServerOfflineBalance] = useState<number>(0.00);
   const [syncing, setSyncing] = useState(false);
-  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
   const [offlineNoticeVisible, setOfflineNoticeVisible] = useState(false);
@@ -531,7 +529,6 @@ export function DashboardScreen({ navigation }: any) {
   }, [isOnline, shortId]);
 
   // ── Stable callback refs for tab props ────────────────────────────────────
-  const handleLogoutPress = useCallback(() => setLogoutModalVisible(true), []);
 
   const handleLoadOfflineFundsPress = useCallback(() => {
     navigation.navigate('LoadOfflineFunds', { balance: cachedBalance });
@@ -558,27 +555,6 @@ export function DashboardScreen({ navigation }: any) {
       setActiveTab(tab);
     }
   }, [navigation]);
-
-  const handleLogoutConfirm = useCallback(async () => {
-    if (queueCount > 0) {
-      setLogoutModalVisible(false);
-      Alert.alert(
-        'Cannot Log Out',
-        'You have pending offline payments. Please connect to the internet to sync your vault before logging out to prevent data loss.'
-      );
-      return;
-    }
-    setLogoutModalVisible(false);
-    await clearTransactions();
-    await clearPaymentQueue();
-    await logout();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'SignIn' }],
-    });
-  }, [logout, navigation, queueCount]);
-
-  const handleLogoutCancel = useCallback(() => setLogoutModalVisible(false), []);
 
   // ── Memoized derived transaction lists ────────────────────────────────────
   const onlineTxs = useMemo(() => transactions.filter(t => t.tag === 'WALLET'), [transactions]);
@@ -645,7 +621,6 @@ export function DashboardScreen({ navigation }: any) {
               offlineTxs={offlineTxs}
               insets={insets}
               isPollingBalance={isPollingBalance}
-              onLogoutPress={handleLogoutPress}
               onManualToggle={handleManualToggle}
               onSyncQueue={handleSyncQueue}
               onAddMockQueueItem={handleAddMockQueueItem}
@@ -693,7 +668,6 @@ export function DashboardScreen({ navigation }: any) {
               shortId={shortId}
               publicKey={publicKey}
               insets={insets}
-              onLogoutPress={handleLogoutPress}
             />
           </View>
         </Animated.View>
@@ -718,13 +692,6 @@ export function DashboardScreen({ navigation }: any) {
         activeTab={activeTab}
         onChangeTab={handleChangeTab}
         unreadCount={unreadCount}
-      />
-
-      {/* Logout Modal */}
-      <LogoutConfirmationModal
-        visible={logoutModalVisible}
-        onConfirm={handleLogoutConfirm}
-        onCancel={handleLogoutCancel}
       />
 
       {/* Offline Notice Modal */}

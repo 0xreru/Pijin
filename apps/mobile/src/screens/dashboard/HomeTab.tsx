@@ -41,7 +41,6 @@ interface HomeTabProps {
   onlineTxs: any[];
   offlineTxs: any[];
   insets: { top: number; bottom: number; left: number; right: number };
-  onLogoutPress: () => void;
   onManualToggle: (online: boolean) => void;
   onSyncQueue: () => void;
   onAddMockQueueItem: () => void;
@@ -71,7 +70,6 @@ export const HomeTab = memo(function HomeTab({
   onlineTxs,
   offlineTxs,
   insets,
-  onLogoutPress,
   onManualToggle,
   onSyncQueue,
   onAddMockQueueItem,
@@ -187,7 +185,7 @@ export const HomeTab = memo(function HomeTab({
       }
     >
       <View style={styles.headerWrapper}>
-        <DashboardHeader shortId={shortId} isOnline={isOnline} onLogoutPress={onLogoutPress} />
+        <DashboardHeader shortId={shortId} isOnline={isOnline} />
       </View>
       <View style={{ paddingHorizontal: 20, zIndex: 5 }}>
         {/* Toggle Row (Left Aligned) */}
