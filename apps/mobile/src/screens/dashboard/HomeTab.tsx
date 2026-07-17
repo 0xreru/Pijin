@@ -17,7 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { DashboardHeader } from '../../components/ui/DashboardHeader';
 import { BalanceCard } from '../../components/wallet/BalanceCard';
 import { TransactionList } from '../../components/transaction/TransactionList';
-import { QueueIndicator } from '../../components/ui/QueueIndicator';
+
 import { DepositButton } from '../../components/ui/DepositButton';
 import type { AssetCode } from '../../services/stellar/trustlineService';
 import {
@@ -34,16 +34,12 @@ interface HomeTabProps {
   isOnline: boolean;
   cachedBalance: number;
   offlineBalance: number;
-  queueCount: number;
-  syncing: boolean;
   slideAnim: Animated.Value;
   isTransitioning: boolean;
   onlineTxs: any[];
   offlineTxs: any[];
   insets: { top: number; bottom: number; left: number; right: number };
   onManualToggle: (online: boolean) => void;
-  onSyncQueue: () => void;
-  onAddMockQueueItem: () => void;
   onLoadOfflineFundsPress: () => void;
   onLoadOnlineFundsPress: () => void;
   onSendPress: (paymentMode: 'online' | 'offline') => void;
@@ -63,16 +59,12 @@ export const HomeTab = memo(function HomeTab({
   isOnline,
   cachedBalance,
   offlineBalance,
-  queueCount,
-  syncing,
   slideAnim,
   isTransitioning,
   onlineTxs,
   offlineTxs,
   insets,
   onManualToggle,
-  onSyncQueue,
-  onAddMockQueueItem,
   onLoadOfflineFundsPress,
   onLoadOnlineFundsPress,
   onSendPress,
@@ -330,15 +322,6 @@ export const HomeTab = memo(function HomeTab({
                 shortId={shortId}
               />
             </View>
-
-            {/* Queue Indicator Banner (when queue exists in Offline) */}
-            {queueCount > 0 && (
-              <QueueIndicator
-                queueCount={queueCount}
-                onPress={() => navigation.navigate('PendingSync')}
-                syncing={syncing}
-              />
-            )}
 
             {/* Action Row */}
             <View style={styles.actionsContainerOffline}>

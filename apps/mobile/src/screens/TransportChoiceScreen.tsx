@@ -20,6 +20,7 @@ import { SMS_GATEWAY_NUMBER } from '../constants/api';
 import { db } from '../db/client';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { addTransaction } from '../db/services/transactionDb';
+import { OfflineSuccessModal } from '../components/ui/OfflineSuccessModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -28,6 +29,7 @@ export function TransportChoiceScreen({ route, navigation }: any) {
   const qrData = route.params?.qrData || '';
   const hasCommittedRef = React.useRef(false);
   const [isWaitingForSmsReturn, setIsWaitingForSmsReturn] = React.useState(false);
+  const [showSuccessModal, setShowSuccessModal] = React.useState(false);
 
   const commitOfflineTransaction = async (): Promise<boolean> => {
     if (hasCommittedRef.current) return true;
@@ -99,7 +101,7 @@ export function TransportChoiceScreen({ route, navigation }: any) {
               onPress: async () => {
                 const success = await commitOfflineTransaction();
                 if (success) {
-                  navigation.navigate('Dashboard');
+                  setShowSuccessModal(true);
                 } else {
                   Alert.alert('Error', 'Failed to save the offline transaction locally. Please try again.');
                 }
@@ -134,15 +136,18 @@ export function TransportChoiceScreen({ route, navigation }: any) {
           Alert.alert('Error', 'Could not open native messaging app.');
           console.error(err);
         });
+    } else if (choice === 'relay') {
+      // Defer commit until GenerateQR "Done relaying" is pressed
+      navigation.navigate('GenerateQR', { 
+        ...route.params, // Pass all payload details
+        mode: 'relay', 
+        qrData 
+      });
     } else {
-      // For QR-based choices (scan_me, relay), we commit immediately as the voucher is generated and shown
+      // For scan_me, we commit immediately as the voucher is generated and shown
       const success = await commitOfflineTransaction();
       if (success) {
-        if (choice === 'scan_me') {
-          navigation.navigate('GenerateQR', { mode: 'receiver', qrData });
-        } else if (choice === 'relay') {
-          navigation.navigate('GenerateQR', { mode: 'relay', qrData });
-        }
+        navigation.navigate('GenerateQR', { mode: 'receiver', qrData });
       } else {
         Alert.alert('Error', 'Failed to save the offline transaction locally. Please try again.');
       }
@@ -232,6 +237,14 @@ export function TransportChoiceScreen({ route, navigation }: any) {
           <Text style={styles.getHelpLink}>Get help</Text>
         </TouchableOpacity>
       </View>
+
+      <OfflineSuccessModal
+        visible={showSuccessModal}
+        onClose={() => {
+          setShowSuccessModal(false);
+          navigation.navigate('Dashboard');
+        }}
+      />
     </View>
   );
 }
