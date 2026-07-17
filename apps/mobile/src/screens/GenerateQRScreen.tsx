@@ -50,7 +50,7 @@ export function GenerateQRScreen({ route, navigation }: any) {
   const relayAmount = route.params?.amount?.toFixed(2) || '0.00';
   const relayRoute = route.params?.recipientName ? `→ ${route.params.recipientName}` : 'Network SMS';
 
-  const [fullName, setFullName] = useState('OmniFi User');
+  const [fullName, setFullName] = useState('Pijin User');
   const [initials, setInitials] = useState('OU');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [errorVisible, setErrorVisible] = useState(false);
@@ -124,17 +124,17 @@ export function GenerateQRScreen({ route, navigation }: any) {
         }
 
         if (first || last) {
-          const displayFirst = first || 'OmniFi';
+          const displayFirst = first || 'Pijin';
           const displayLast = last || 'User';
           setFullName(`${displayFirst} ${displayLast}`.trim());
           setInitials(`${displayFirst.charAt(0)}${displayLast.charAt(0)}`.toUpperCase());
         } else {
-          setFullName('OmniFi User');
+          setFullName('Pijin User');
           setInitials('OU');
         }
       } catch (err) {
         console.error('[GenerateQRScreen] fetchUserData error:', err);
-        setFullName('OmniFi User');
+        setFullName('Pijin User');
         setInitials('OU');
       }
     };
