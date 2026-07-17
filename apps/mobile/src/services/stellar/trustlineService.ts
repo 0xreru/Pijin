@@ -1,10 +1,11 @@
 /**
  * trustlineService.ts
  *
- * JIT (Just-in-Time) Trustline Service for Pijin.
+ * Stellar trustline service for Pijin account onboarding.
  *
  * Responsibility: Given an asset code + issuer, determine whether the user
- * already trusts that asset and, if not, create the trustline on-chain.
+ * already trusts that asset and, if not, create the trustline on-chain before
+ * registration completes.
  */
 
 import { Buffer } from 'buffer';
@@ -108,10 +109,10 @@ export async function ensureTrustline(
     .setTimeout(TX_TIMEOUT_SECONDS)
     .build();
 
-  // 4. Sign with the user's keypair.
+  // Sign with the user's keypair.
   transaction.sign(keypair);
 
-  // 5. Convert to Base64 (With Polyfill Recovery for React Native)
+  // Convert to Base64 (with polyfill recovery for React Native).
   const rawXdr = transaction.toXDR() as unknown;
   let txBase64 = '';
 
@@ -130,7 +131,7 @@ export async function ensureTrustline(
     txBase64 = Buffer.from(rawXdr).toString('base64');
   }
 
-  // 6. Submit to Testnet Horizon manually using fetch
+  // Submit to Testnet Horizon manually using fetch.
   const response = await fetch(`${HORIZON_TESTNET_URL}/transactions`, {
     method: 'POST',
     headers: {

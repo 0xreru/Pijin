@@ -52,7 +52,7 @@ interface HomeTabProps {
   isOnlineDisabled?: boolean;
   /** True while the Dashboard is polling for a post-deposit balance update. */
   isPollingBalance?: boolean;
-  /** The user's Stellar public key — forwarded to DepositButton for trustline checks. */
+  /** The user's Stellar public key used to enable wallet actions. */
   publicKey: string;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -90,7 +90,7 @@ export const HomeTab = memo(function HomeTab({
   const [stellarPublicKey, setStellarPublicKey] = useState<string | null>(null);
 
   // Resolve the full Stellar public key (G...) from SecureStore on mount.
-  // This is the source of truth for trustline checks — the prop `publicKey`
+  // This is the source of truth for wallet actions — the prop `publicKey`
   // from the parent may be empty if the account was stored without it.
   useEffect(() => {
     let cancelled = false;
@@ -113,11 +113,13 @@ export const HomeTab = memo(function HomeTab({
   }, [publicKey]);
 
   /**
-   * Called by DepositButton once the JIT trustline is confirmed.
    * Runs SEP-10 auth + SEP-24 deposit initiation, then navigates
    * directly to the SEP-24 webview — no parent callback needed.
    */
-  const handleDepositSuccess = async (assetCode: AssetCode) => {
+  const handleDepositPress = async (assetCode: AssetCode) => {
+    if (depositLoading) return;
+    setDepositLoading(true);
+
     try {
       // 1. Get the main wallet key for SEP-10 auth and deposit initiation.
       const mainWalletSecret = await getMainWalletSecret();
@@ -133,6 +135,8 @@ export const HomeTab = memo(function HomeTab({
       navigation.navigate('Sep24Webview', { url, assetCode, transactionId });
     } catch (e) {
       Alert.alert('Deposit Error', String(e));
+    } finally {
+      setDepositLoading(false);
     }
   };
 
@@ -267,8 +271,7 @@ export const HomeTab = memo(function HomeTab({
 
               <DepositButton
                 assetCode="PHPC"
-                publicKey={stellarPublicKey}
-                onSuccess={handleDepositSuccess}
+                onPress={handleDepositPress}
                 disabled={depositLoading || !isOnline || !stellarPublicKey}
                 label="Top-Up"
               />
