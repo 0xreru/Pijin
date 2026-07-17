@@ -9,6 +9,7 @@ import {
   Dimensions,
   Alert,
   Platform,
+  DeviceEventEmitter,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,8 +19,13 @@ import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { connectionService } from '../services/connectionService';
 import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
-import { getUserFirstName, getUserLastName, saveUserFirstName, saveUserLastName } from '../services/storage/onboardingStorage';
 import { lookupUserByShortId } from '../services/api/accounts';
+import { db } from '../db/client';
+import { enqueuePayment } from '../db/services/paymentQueueDb';
+import { addTransaction } from '../db/services/transactionDb';
+import { SMS_GATEWAY_NUMBER } from '../constants/api';
+import { OfflineSuccessModal } from '../components/ui/OfflineSuccessModal';
+import { ErrorModal } from '../components/ui/ErrorModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -28,50 +34,7 @@ export function GenerateQRScreen({ route, navigation }: any) {
   const { activeAccount } = useAuth();
   const mode = route.params?.mode || 'receiver';
   const qrData = route.params?.qrData || '';
-
   const [isOnline, setIsOnline] = useState(connectionService.currentState.isOnlineMode);
-  const [fullName, setFullName] = useState('OmniFi User');
-  const [initials, setInitials] = useState('OU');
-
-  useEffect(() => {
-    async function loadName() {
-      // First try to load from local storage
-      const first = await getUserFirstName();
-      const last = await getUserLastName();
-      if (first && last) {
-        setFullName(`${first} ${last}`);
-        setInitials(`${first[0]}${last[0]}`.toUpperCase());
-        return;
-      } else if (first) {
-        setFullName(first);
-        setInitials(first[0].toUpperCase());
-        return;
-      }
-      
-      // If local storage is empty, fallback to API lookup
-      if (activeAccount?.shortId) {
-        try {
-          const res = await lookupUserByShortId(activeAccount.shortId);
-          if (res.found && res.displayName) {
-            setFullName(res.displayName);
-            const words = res.displayName.split(' ');
-            if (words.length >= 2) {
-              setInitials(`${words[0][0]}${words[1][0]}`.toUpperCase());
-              saveUserFirstName(words[0]).catch(() => {});
-              saveUserLastName(words.slice(1).join(' ')).catch(() => {});
-            } else {
-              setInitials(res.displayName[0].toUpperCase());
-              saveUserFirstName(res.displayName).catch(() => {});
-              saveUserLastName('').catch(() => {});
-            }
-          }
-        } catch (e) {
-          // Ignore, fallback to default 'OmniFi User'
-        }
-      }
-    }
-    loadName();
-  }, [activeAccount?.shortId]);
 
   useEffect(() => {
     const subscription = connectionService.state$.subscribe((state) => {
@@ -80,190 +43,271 @@ export function GenerateQRScreen({ route, navigation }: any) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const qrRef = useRef<any>(null);
-  const cardRef = useRef<View>(null);
+  // Mode: 'relay' state
+  const isRelay = mode === 'relay';
+  const rawPayload = route.params?.payload; // The offline payload
+  const relayAmount = route.params?.amount?.toFixed(2) || '0.00';
+  const relayRoute = route.params?.recipientName ? `→ ${route.params.recipientName}` : 'Network SMS';
 
-  // For receiver mode: QR code is just the user's shortId
-  // For relay mode: QR code is the signed payload passed in qrData
-  const qrValue = mode === 'receiver' 
-    ? (activeAccount?.shortId || 'M-1B44')
-    : qrData;
+  const [fullName, setFullName] = useState('OmniFi User');
+  const [initials, setInitials] = useState('OU');
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [errorVisible, setErrorVisible] = useState(false);
+  const [errorContent, setErrorContent] = useState({ title: '', message: '' });
+  const hasCommittedRef = useRef(false);
 
-  const displayId = activeAccount?.shortId || 'M-1B44';
+  const qrRef = useRef<View>(null);
 
-  // Parse relay voucher details if applicable
-  let relayAmount = '';
-  let relayCustomer = '';
-  let relayMerchant = '';
-  if (mode === 'relay' && qrData) {
-    const parts = qrData.split(':');
-    if (parts.length === 6) {
-      relayCustomer = parts[1];
-      relayMerchant = parts[2];
-      try {
-        const { decodeBase62 } = require('../utils/crypto');
-        const amountStroops = decodeBase62(parts[3]);
-        relayAmount = (Number(amountStroops) / 10000000).toString();
-      } catch (e) {
-        relayAmount = parts[3];
-      }
-    } else if (parts.length === 5) {
-      relayCustomer = parts[0];
-      relayMerchant = parts[1];
-      relayAmount = parts[2];
-    }
-  }
+  const handleDoneRelaying = async () => {
+    if (hasCommittedRef.current) return;
+    
+    const payload = route.params?.payload;
+    const amount = route.params?.amount ?? 0;
+    const total = route.params?.total ?? 0;
+    const recipientName = route.params?.recipientName ?? '';
+    const recipientShortId = route.params?.recipientShortId ?? '';
+    const fee = route.params?.fee ?? 0;
 
-  const handleSaveQr = async () => {
-    if (!cardRef.current) {
-      Alert.alert('Error', 'QR Code card is not ready yet.');
+    if (!payload) {
+      navigation.navigate('Dashboard');
       return;
     }
 
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Pijin needs photos permission to save the QR Code card to your library.');
-        return;
-      }
+      const { loadStoredAccount } = require('../services/storage/accountStorage');
+      const account = await loadStoredAccount();
+      const customerShortId = payload?.customerShortId || account?.shortId;
+      const customerPubKey = payload?.customerPubKey || account?.stellarPublicKey;
 
-      const uri = await captureRef(cardRef, {
-        format: 'png',
-        quality: 1.0,
+      const shortNonce = payload.smsBody ? (payload.smsBody.split(':')[4] || payload.smsBody.split(':')[3] || Math.floor(Math.random() * 1000000).toString()) : Math.floor(Math.random() * 1000000).toString();
+
+      await db.transaction(async (trx) => {
+        await enqueuePayment(payload, trx);
+        
+        await addTransaction({
+          id: `TX-OFF-${shortNonce}`,
+          title: `Sent to ${recipientName} (Offline)`,
+          amount: -amount,
+          type: 'outgoing',
+          tag: 'OFFLINE',
+          description: `Offline local escrow payment of ₱${amount.toFixed(2)} to ${recipientName} (Short ID: ${recipientShortId}) with ₱${fee.toFixed(2)} processing fee.`,
+          stellarPublicKey: customerPubKey,
+          shortId: customerShortId,
+        }, trx);
       });
 
-      await MediaLibrary.saveToLibraryAsync(uri);
-      Alert.alert('Saved!', 'The QR Code card has been successfully saved to your photo gallery.');
+      hasCommittedRef.current = true;
+      DeviceEventEmitter.emit('ON_SEND_MONEY_OFFLINE', total);
+      setShowSuccessModal(true);
     } catch (err) {
-      console.error('Failed to save QR Code to gallery:', err);
-      Alert.alert('Error', 'Failed to save the QR Code card to your gallery.');
+      console.error('[GenerateQRScreen] Failed to commit offline payment:', err);
+      Alert.alert('Error', 'Failed to save the offline transaction locally. Please try again.');
     }
   };
 
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        let first = await getUserFirstName();
+        let last = await getUserLastName();
+
+        if ((!first || !last) && isOnline && activeAccount?.shortId) {
+          const lookup = await lookupUserByShortId(activeAccount.shortId);
+          if (lookup) {
+            first = lookup.firstName;
+            last = lookup.lastName;
+            await saveUserFirstName(first);
+            await saveUserLastName(last);
+          }
+        }
+
+        if (first && last) {
+          setFullName(`${first} ${last}`);
+          setInitials(`${first.charAt(0)}${last.charAt(0)}`.toUpperCase());
+        } else {
+          setFullName('OmniFi User');
+          setInitials('OU');
+        }
+      } catch (err) {
+        setFullName('OmniFi User');
+        setInitials('OU');
+      }
+    };
+    fetchUserData();
+  }, [isOnline, activeAccount]);
+
+  const saveQRCode = async () => {
+    try {
+      if (qrRef.current) {
+        const uri = await captureRef(qrRef, {
+          format: 'png',
+          quality: 1,
+        });
+
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === 'granted') {
+          await MediaLibrary.saveToLibraryAsync(uri);
+          setErrorContent({ title: 'Success', message: 'QR Code saved to gallery!' });
+          setErrorVisible(true);
+        } else {
+          setErrorContent({ title: 'Permission Denied', message: 'We need permission to save the image to your gallery.' });
+          setErrorVisible(true);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setErrorContent({ title: 'Error', message: 'Failed to save QR Code.' });
+      setErrorVisible(true);
+    }
+  };
+
+  const qrValue = mode === 'receiver' 
+    ? (activeAccount?.shortId || 'M-1B44')
+    : `SMSTO:${SMS_GATEWAY_NUMBER}:${qrData}`;
+
   return (
-    <View style={[styles.container, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
-      <StatusBar barStyle="dark-content" />
+    <View style={[styles.container, { paddingTop: Math.max(insets.top, 20) }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#EFF1F5" />
       
-      <ConnectionWatcher navigation={navigation} currentMode={(isOnline && mode === 'receiver') ? 'online' : 'offline'} />
-      
-      {/* Header */}
+      <ConnectionWatcher navigation={navigation} currentMode={isOnline ? 'online' : 'offline'} />
+
       <View style={styles.headerRow}>
         <TouchableOpacity 
           style={styles.backButton} 
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.goBack()} 
           activeOpacity={0.7}
         >
           <Ionicons name="arrow-undo-outline" size={28} color="#04295A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My QR Code</Text>
+        <Text style={styles.headerTitle}>
+          {isRelay ? 'Relay Transaction' : 'Receive Funds'}
+        </Text>
       </View>
 
-      {/* Main Content Area */}
-      <View style={styles.content}>
+      <View style={{ flex: 1, paddingHorizontal: 24, paddingVertical: 10 }}>
         
-        {/* White Card */}
-        <View style={styles.qrCard}>
-          <View ref={cardRef} collapsable={false} style={styles.captureArea}>
-            {mode === 'receiver' ? (
+        <View style={styles.qrCard} ref={qrRef}>
+          <View style={styles.cardHeader}>
+            {!isRelay ? (
               <>
-                {/* Header profile area inside card */}
-                <View style={styles.cardHeader}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{initials}</Text>
-                  </View>
-                  <View style={styles.headerTextContainer}>
-                    <Text style={styles.userName}>{fullName}</Text>
-                    <View style={styles.statusBadge}>
-                      <View style={styles.greenDot} />
-                      <Text style={styles.statusText}>Active Receiver ID</Text>
-                    </View>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{initials}</Text>
+                </View>
+                <View style={styles.headerTextContainer}>
+                  <Text style={styles.userName}>{fullName}</Text>
+                  <View style={styles.statusBadge}>
+                    <View style={styles.greenDot} />
+                    <Text style={styles.statusText}>VERIFIED</Text>
                   </View>
                 </View>
-                <Text style={styles.walletLabel}>WALLET ID</Text>
-                <Text style={styles.userId}>{displayId}</Text>
               </>
             ) : (
-              <>
-                {/* Header relay area inside card */}
-                <View style={styles.cardHeader}>
-                  <View style={[styles.avatar, { backgroundColor: '#FEE2E2' }]}>
-                    <Ionicons name="swap-horizontal" size={20} color="#EF4444" />
-                  </View>
-                  <View style={styles.headerTextContainer}>
-                    <Text style={styles.userName}>Offline Relay Voucher</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: '#FEF3C7' }]}>
-                      <View style={[styles.greenDot, { backgroundColor: '#F59E0B' }]} />
-                      <Text style={[styles.statusText, { color: '#B45309' }]}>Awaiting Sync</Text>
-                    </View>
-                  </View>
-                </View>
-                {relayAmount ? (
-                  <View style={styles.relayDetailsContainer}>
-                    <Text style={styles.relayAmountLabel}>Transfer Amount</Text>
-                    <Text style={styles.relayAmount}>₱{parseFloat(relayAmount).toFixed(2)}</Text>
-                    <Text style={styles.relayRoute}>
-                      {relayCustomer} → {relayMerchant}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.userId}>Signed Transaction</Text>
-                )}
-              </>
+              <View style={styles.relayDetailsContainer}>
+                <Text style={styles.relayAmountLabel}>Transfer Amount</Text>
+                <Text style={styles.relayAmount}>₱ {relayAmount}</Text>
+                <Text style={styles.relayRoute}>{relayRoute}</Text>
+              </View>
             )}
-            
-            {/* QR Code Container */}
+          </View>
+
+          {!isRelay && activeAccount?.shortId && (
+            <View style={{ alignItems: 'center', marginBottom: 20 }}>
+              <Text style={styles.walletLabel}>Pijin Address</Text>
+              <Text style={styles.userId}>{activeAccount.shortId}</Text>
+            </View>
+          )}
+
+          <View style={{ alignItems: 'center' }}>
             <View style={styles.qrCodeWrapper}>
               <QRCode
-                value={qrValue || 'N/A'}
-                size={180}
+                value={qrValue}
+                size={SCREEN_WIDTH * 0.55}
+                backgroundColor="transparent"
                 color="#04295A"
-                backgroundColor="#FFFFFF"
-                getRef={(ref) => { qrRef.current = ref; }}
               />
             </View>
           </View>
-          
-          <View style={styles.divider} />
 
-          {/* Save Button inside card */}
-          <TouchableOpacity 
-            style={styles.saveButton}
-            onPress={handleSaveQr}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="download-outline" size={18} color="#FFFFFF" style={styles.saveIcon} />
-            <Text style={styles.saveButtonText}>Save QR Code</Text>
-          </TouchableOpacity>
+          <View style={styles.divider} />
+          
+          {mode === 'relay' ? (
+            <View style={{ width: '100%', gap: 12 }}>
+              <TouchableOpacity 
+                style={[styles.doneRelayingButton, { width: '100%', marginRight: 0, flex: 0 }]}
+                onPress={handleDoneRelaying}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" style={styles.saveIcon} />
+                <Text style={styles.doneRelayingButtonText}>Done Relaying</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.saveButtonSecondary, { width: '100%', flex: 0 }]}
+                onPress={saveQRCode}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="download-outline" size={18} color="#04295A" style={styles.saveIcon} />
+                <Text style={styles.saveButtonTextSecondary}>Save QR Code</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ width: '100%', gap: 12 }}>
+              <TouchableOpacity 
+                style={styles.saveButton}
+                onPress={saveQRCode}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="download-outline" size={18} color="#FFFFFF" style={styles.saveIcon} />
+                <Text style={styles.saveButtonText}>Save QR Code</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
-        {/* Sub-label under card */}
         <Text style={styles.subLabel}>
-          {mode === 'receiver' 
-            ? 'Show this QR code to the sender to receive funds.' 
-            : 'Show this QR code to a helper/partner to relay your offline payment.'}
+          {isRelay 
+            ? 'A relay QR ensures your payload is correctly packaged for SMS dispatch by any smartphone.'
+            : 'Show this QR code to the sender to securely receive funds to your wallet.'}
         </Text>
 
-        {/* Mascot Image */}
-        <View style={styles.mascotContainer}>
-          <Image
-            source={require('../../assets/qr generation/pijin-qr.png')}
-            style={styles.mascotImage}
-            contentFit="contain"
-          />
-        </View>
+        {mode === 'receiver' ? (
+          <View style={styles.mascotContainer}>
+            <Image
+              source={require('../../assets/qr generation/pijin-qr.png')}
+              style={styles.mascotImage}
+              contentFit="contain"
+            />
+          </View>
+        ) : null}
 
-        {/* Pijin Branding */}
         <View style={styles.footerBranding}>
           <Text style={styles.pijinLogo}>p i j i n</Text>
           <TouchableOpacity 
-            onPress={() => Alert.alert('Get help', 'Support channels and FAQs are coming soon!')} 
+            onPress={() => {
+              setErrorContent({ title: 'Get help', message: 'Support channels and FAQs are coming soon!' });
+              setErrorVisible(true);
+            }}
             activeOpacity={0.7}
           >
             <Text style={styles.getHelpLink}>Get help</Text>
           </TouchableOpacity>
         </View>
 
+        <ErrorModal
+          visible={errorVisible}
+          title={errorContent.title}
+          message={errorContent.message}
+          onDismiss={() => setErrorVisible(false)}
+        />
       </View>
+
+      <OfflineSuccessModal
+        visible={showSuccessModal}
+        onClose={() => {
+          setShowSuccessModal(false);
+          navigation.navigate('Dashboard');
+        }}
+      />
     </View>
   );
 }
@@ -281,61 +325,43 @@ const styles = StyleSheet.create({
   },
   backButton: {
     marginRight: 16,
+    padding: 4,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '800',
-    color: '#000000',
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    justifyContent: 'space-between',
+    color: '#04295A',
   },
   qrCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    width: '100%',
-    alignItems: 'center',
+    borderRadius: 32,
+    padding: 24,
+    marginTop: 20,
     shadowColor: '#04295A',
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 4,
-    marginTop: 10,
-    paddingBottom: 24,
-  },
-  captureArea: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    paddingTop: 24,
-    paddingHorizontal: 24,
-    width: '100%',
-    alignItems: 'center',
+    shadowRadius: 24,
+    elevation: 8,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
     marginBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFF1F5',
-    paddingBottom: 16,
   },
   avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#E5EDF6',
-    alignItems: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#04295A',
     justifyContent: 'center',
-    marginRight: 14,
+    alignItems: 'center',
+    marginRight: 16,
   },
   avatarText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
-    color: '#04295A',
+    color: '#FFFFFF',
+    letterSpacing: 1,
   },
   headerTextContainer: {
     flex: 1,
@@ -383,8 +409,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   relayDetailsContainer: {
+    flex: 1,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   relayAmountLabel: {
     fontSize: 10,
@@ -437,6 +464,47 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 2,
+  },
+  relayActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  doneRelayingButton: {
+    backgroundColor: '#04295A',
+    borderRadius: 25,
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 2,
+    marginRight: 8,
+    shadowColor: '#04295A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  doneRelayingButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  saveButtonSecondary: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 25,
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  saveButtonTextSecondary: {
+    color: '#04295A',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   saveIcon: {
     marginRight: 8,

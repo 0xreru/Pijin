@@ -22,6 +22,10 @@ import { ensureMigration } from '../services/storage/migration';
 import { useAuth } from '../context/AuthContext';
 import { useVaultBalance } from '../hooks/useVaultBalance';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { db } from '../db/client';
+import { paymentQueue as paymentQueueTable } from '../db/schema';
+import { eq, and } from 'drizzle-orm';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
@@ -133,7 +137,21 @@ export function SendMoneyScreen({ route, navigation }: any) {
 
   // Fetch live balance (only if online)
   const { balancePhp } = useVaultBalance(activeAccount?.shortId, activeAccount?.stellarPublicKey);
-  const currentBalance = (isOnline && balancePhp !== null) ? balancePhp : walletBalance;
+  // Fetch pending offline payments to calculate effective offline balance
+  const { data: pendingPayments = [] } = useLiveQuery(
+    db.select().from(paymentQueueTable).where(
+      and(
+        eq(paymentQueueTable.synced, false),
+        eq(paymentQueueTable.customerShortId, activeAccount?.shortId || '')
+      )
+    )
+  );
+
+  const pendingOfflineAmount = pendingPayments.reduce((sum, p) => sum + p.amount + 0.50, 0);
+
+  const currentBalance = isOnline 
+    ? (balancePhp !== null ? balancePhp : walletBalance) 
+    : Math.max(0, walletBalance - pendingOfflineAmount);
 
   // Format currency
   const formatCurrency = (val: number) => {

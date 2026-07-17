@@ -58,7 +58,8 @@ export async function loadTransactions(): Promise<StoredTransaction[]> {
         const feeStr = feeMatch[1];
         const feeNum = parseFloat(feeStr);
         if (!isNaN(feeNum) && feeNum > 0) {
-          processedTx.amount = tx.amount + feeNum;
+          // tx.amount is negative for outgoing, so we subtract the fee to increase the total deduction
+          processedTx.amount = tx.amount - feeNum;
         }
       }
 

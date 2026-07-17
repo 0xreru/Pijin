@@ -134,10 +134,13 @@ class SyncService {
    */
   private extractShortNonce(smsBody: string): string | null {
     const parts = smsBody.split(':');
+    let nonce = null;
     if (parts.length === 6) {
-      return parts[4];
+      nonce = parts[4];
+    } else if (parts.length >= 4) {
+      nonce = parts[3];
     }
-    return parts.length >= 4 ? parts[3] : null;
+    return nonce ? nonce.replace(/=+$/, '') : null;
   }
 
   /**
@@ -174,7 +177,11 @@ class SyncService {
       try {
         if (account?.shortId) {
           const serverSettlements = await getUserSettlements(account.shortId);
-          settledNonces = new Set(serverSettlements.map(s => s.nonce).filter(Boolean));
+          settledNonces = new Set(
+            serverSettlements
+              .map(s => s.nonce ? s.nonce.replace(/=+$/, '') : null)
+              .filter(Boolean) as string[]
+          );
           console.log(`[SyncService] Reconciling with ${settledNonces.size} server settlements.`);
         }
       } catch (err) {
@@ -197,47 +204,21 @@ class SyncService {
             continue;
           }
 
-          // Check for 24-hour timeout
-          const createdAtDate = new Date(item.createdAt).getTime();
-          const hoursElapsed = (Date.now() - createdAtDate) / (1000 * 60 * 60);
-
           let isFailed = false;
           let errorMessage = '';
 
-          if (hoursElapsed > 24) {
+          const result = await postToBackend(item);
+          if (result.status === 'FAILED') {
             isFailed = true;
-            errorMessage = 'Offline transaction expired (24h timeout)';
-          }
-
-          let result;
-          if (!isFailed) {
-            result = await postToBackend(item);
-            if (result.status === 'FAILED') {
-              isFailed = true;
-              errorMessage = `Settlement failed: ${result.error}`;
-            }
+            errorMessage = `Settlement failed: ${result.error}`;
           }
 
           if (isFailed) {
-            console.log(`[SyncService] Item ${item.id} permanently failed: ${errorMessage}. Reversing...`);
+            console.log(`[SyncService] Item ${item.id} permanently failed: ${errorMessage}. Dropping from queue...`);
             
-            // Mark as synced with FAILED status to stop retrying
+            // Mark as synced with FAILED status to stop retrying and drop from pending queue
             await markSynced(item.id, null, 'FAILED');
-            
-            // Refund the local balance
-            try {
-              await addTransaction({
-                title: 'Reversal: Failed Offline Payment',
-                amount: item.amount,
-                type: 'incoming',
-                tag: 'OFFLINE',
-                description: `Refund for failed offline payment. Reason: ${errorMessage}`,
-                stellarPublicKey: account?.stellarPublicKey,
-                shortId: account?.shortId,
-              });
-            } catch (txErr) {
-              console.error('[SyncService] Failed to log reversal transaction:', txErr);
-            }
+            // Local balance will automatically correct because the pending amount decreases.
             continue;
           }
 

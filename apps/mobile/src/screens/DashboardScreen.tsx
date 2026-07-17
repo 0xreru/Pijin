@@ -111,8 +111,8 @@ export function DashboardScreen({ navigation }: any) {
         const feeStr = feeMatch[1];
         const feeNum = parseFloat(feeStr);
         if (!isNaN(feeNum) && feeNum > 0) {
-          // Adjust the original transaction to remove the fee from the displayed amount
-          processedTx.amount = tx.amount + feeNum; // e.g. -10.50 + 0.50 = -10.00
+          // Adjust the original transaction to include the fee in the displayed amount
+          processedTx.amount = tx.amount - feeNum; // e.g. -10.00 - 0.50 = -10.50
         }
       }
 
@@ -130,7 +130,8 @@ export function DashboardScreen({ navigation }: any) {
   );
   const queueCount = pendingPayments.length;
   const pendingOfflineAmount = useMemo(() => {
-    return pendingPayments.reduce((sum, p) => sum + p.amount, 0);
+    // Add 0.50 fixed processing fee to each pending payment to reflect total deduction
+    return pendingPayments.reduce((sum, p) => sum + p.amount + 0.50, 0);
   }, [pendingPayments]);
   const offlineBalance = Math.max(0, serverOfflineBalance - pendingOfflineAmount);
 
@@ -613,8 +614,6 @@ export function DashboardScreen({ navigation }: any) {
               isOnlineDisabled={!hasInternet}
               cachedBalance={cachedBalance}
               offlineBalance={offlineBalance}
-              queueCount={queueCount}
-              syncing={syncing}
               slideAnim={slideAnim}
               isTransitioning={isTransitioning}
               onlineTxs={onlineTxs}
@@ -622,8 +621,6 @@ export function DashboardScreen({ navigation }: any) {
               insets={insets}
               isPollingBalance={isPollingBalance}
               onManualToggle={handleManualToggle}
-              onSyncQueue={handleSyncQueue}
-              onAddMockQueueItem={handleAddMockQueueItem}
               onLoadOfflineFundsPress={handleLoadOfflineFundsPress}
               onLoadOnlineFundsPress={handleLoadOnlineFundsPress}
               onSendPress={handleSendPress}
