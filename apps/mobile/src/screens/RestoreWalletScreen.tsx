@@ -24,6 +24,7 @@ import { getSep10Token } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import {
   saveMainWalletSecret,
+  setOnboardingComplete,
 } from '../services/storage/onboardingStorage';
 import { saveDeviceKey } from '../services/wallet/offlineKeySync'; // We'll need a way to save the device key locally. Wait, deviceKeyStore has this.
 
@@ -101,6 +102,8 @@ export function RestoreWalletScreen() {
       await synchronizeOfflineDeviceKey(mainWalletKeypair, token);
       
       await login(checkRes.stellarPublicKey, checkRes.shortId, token);
+
+      await setOnboardingComplete(true);
 
       navigation.reset({
         index: 0,

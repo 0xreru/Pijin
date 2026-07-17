@@ -21,6 +21,7 @@ import {
   getUserPhone,
   saveUserPin,
   saveUserPinSecure,
+  setOnboardingComplete,
 } from '../services/storage/onboardingStorage';
 import { checkUserExists } from '../services/api/accounts';
 import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
@@ -170,6 +171,7 @@ export function SignInScreen() {
         }
       }
 
+      await setOnboardingComplete(true);
       navigation.reset({
         index: 0,
         routes: [{ name: 'Dashboard' }],
