@@ -40,6 +40,7 @@ import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
 import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
 import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegistrySync';
 import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
+import { ensureTrustline } from '../services/stellar/trustlineService';
 import { useAuth } from '../context/AuthContext';
 import { StatusBar } from 'expo-status-bar';
 import { generateWalletMnemonic, deriveKeysFromMnemonic } from '../services/wallet/mnemonic';
@@ -395,6 +396,11 @@ export function OnboardingScreen() {
         );
       }
       await fundMainWallet(stellarPublicKey);
+
+      // Establish PHPC during account onboarding so the wallet can receive
+      // PHPC immediately, even before the user's first anchor deposit.
+      // ensureTrustline is idempotent, which keeps trustline setup retries safe.
+      await ensureTrustline(stellarPublicKey, mainWalletKeypair, 'PHPC');
 
       // Register the account on the backend with two DISTINCT keys.
       // The Stellar wallet key is the on-chain balance address; the device key
