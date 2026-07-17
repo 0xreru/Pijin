@@ -121,6 +121,8 @@ export async function GET(req: NextRequest) {
       stellarPublicKey: account.stellarPublicKey,
       offlineDeviceKey: account.offlineDeviceKey ?? null,
       displayName,
+      firstName,
+      lastName,
     });
   } catch (error) {
     console.error('[Lookup API]', error);

@@ -82,6 +82,8 @@ type LookupUserResponse = {
   stellarPublicKey?: string;
   offlineDeviceKey?: string | null;
   displayName?: string;
+  firstName?: string;
+  lastName?: string;
 };
 
 /**

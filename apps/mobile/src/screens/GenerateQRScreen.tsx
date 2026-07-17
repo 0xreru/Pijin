@@ -26,6 +26,7 @@ import { addTransaction } from '../db/services/transactionDb';
 import { SMS_GATEWAY_NUMBER } from '../constants/api';
 import { OfflineSuccessModal } from '../components/ui/OfflineSuccessModal';
 import { ErrorModal } from '../components/ui/ErrorModal';
+import { getUserFirstName, getUserLastName, saveUserFirstName, saveUserLastName } from '../services/storage/onboardingStorage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -114,21 +115,25 @@ export function GenerateQRScreen({ route, navigation }: any) {
         if ((!first || !last) && isOnline && activeAccount?.shortId) {
           const lookup = await lookupUserByShortId(activeAccount.shortId);
           if (lookup) {
-            first = lookup.firstName;
-            last = lookup.lastName;
-            await saveUserFirstName(first);
-            await saveUserLastName(last);
+            first = lookup.firstName || lookup.displayName?.split(' ')[0] || null;
+            last = lookup.lastName || lookup.displayName?.split(' ').slice(1).join(' ') || null;
+            
+            if (first) await saveUserFirstName(first);
+            if (last) await saveUserLastName(last);
           }
         }
 
-        if (first && last) {
-          setFullName(`${first} ${last}`);
-          setInitials(`${first.charAt(0)}${last.charAt(0)}`.toUpperCase());
+        if (first || last) {
+          const displayFirst = first || 'OmniFi';
+          const displayLast = last || 'User';
+          setFullName(`${displayFirst} ${displayLast}`.trim());
+          setInitials(`${displayFirst.charAt(0)}${displayLast.charAt(0)}`.toUpperCase());
         } else {
           setFullName('OmniFi User');
           setInitials('OU');
         }
       } catch (err) {
+        console.error('[GenerateQRScreen] fetchUserData error:', err);
         setFullName('OmniFi User');
         setInitials('OU');
       }
