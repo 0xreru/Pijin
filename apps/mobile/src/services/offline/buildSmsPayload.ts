@@ -93,6 +93,12 @@ export async function buildOfflineSmsVoucher(
   // ── 2. Load the enrolled key. Never create a replacement while offline. ────
   const deviceKeypair = await getEnrolledDeviceKeypair();
   const senderSecretKey = deviceKeypair.secret();
+  // LOG A2 — prove which device key will perform the signing
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-1: Device Key Loaded ────────────────────\n` +
+    `  senderSecretKey : ${senderSecretKey}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
 
   // ── 3. Resolve token — caller-supplied takes priority over cached config ──
   const offlineConfig = await loadOfflineProtocolConfig();
@@ -109,6 +115,17 @@ export async function buildOfflineSmsVoucher(
   if (amountStroops <= 0n) {
     throw new RangeError('Amount must be greater than zero.');
   }
+  // LOG A — first compression: prove identity + amount before crypto pipeline
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-1: Identity + Amount ────────────────────\n` +
+    `  amountPhp       : ${amountPhp}\n` +
+    `  amountStroops   : ${amountStroops.toString()}\n` +
+    `  senderShortId   : ${account.shortId}\n` +
+    `  receiverShortId : ${receiverShortId}\n` +
+    `  tokenSymbol     : ${tokenSymbol}\n` +
+    `  tokenIdStr      : ${tokenIdStr}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
 
   // ── 5. Generate the full cryptographic payload ─────────────────────────────
   const smsBody = await generateOfflineSmsPayload({
