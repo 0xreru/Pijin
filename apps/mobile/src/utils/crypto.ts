@@ -194,6 +194,13 @@ export async function generateOfflineSmsPayload(
   } else {
     throw new Error('Secure random number generation is unavailable on this device');
   }
+  // LOG C — second compression: prove nonce was generated
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-2: Nonce Generated ────────────────────\n` +
+    `  nonceHexPreview : ${Buffer.from(nonce32.slice(0, 8)).toString('hex')}\n` +
+    `  byteLength      : ${nonce32.byteLength}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
   
   const isPHPC = tokenSymbol === 'PHPC';
   const tollStroops = isPHPC ? 5000000n : 0n; // 0.50 PHPC protocol toll
@@ -206,6 +213,15 @@ export async function generateOfflineSmsPayload(
     gatewayPubKey,
     tokenContractId,
   );
+  // LOG D — second compression: prove XDR tuple was built with correct params
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-2: XDR Tuple Built ────────────────────\n` +
+    `  xdrByteLength   : ${xdrBuffer.length}\n` +
+    `  tollStroops     : ${tollStroops.toString()}\n` +
+    `  gatewayPubKey   : ${gatewayPubKey}\n` +
+    `  tokenContractId : ${tokenContractId}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
 
   // ── Step 3: Sign the XDR bytes with the sender's Ed25519 device key ────────
   // Yield one tick to the event loop to prevent UI jank on the JS thread.
@@ -213,20 +229,46 @@ export async function generateOfflineSmsPayload(
 
   const senderKeypair = Keypair.fromSecret(senderSecretKey);
   const signatureBytes = senderKeypair.sign(xdrBuffer);
+  // LOG E — second compression: prove device key signed the XDR blob
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-2: Ed25519 Signed ────────────────────\n` +
+    `  signatureByteLength : ${signatureBytes.length}\n` +
+    `  devicePublicKey     : ${senderKeypair.publicKey()}\n` +
+    `  xdrByteLength       : ${xdrBuffer.length}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
 
-  // ── Step 4: Encode amount as Base62 ────────────────────────────────────────
+  // ── Step 4: Encode amount as Base62 ──────────────────────────────────────────
   const amountBase62 = encodeBase62(amountStroops);
+  // LOG B — first compression: prove amount was Base62 encoded
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-1: Amount Base62 Encoded ──────────────\n` +
+    `  amountStroops   : ${amountStroops.toString()}\n` +
+    `  amountBase62    : ${amountBase62}\n` +
+    `  senderShortId   : ${senderShortId}\n` +
+    `  receiverShortId : ${receiverShortId}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
 
-  // ── Step 5: Base64-encode nonce and signature, strip padding ───────────────
+  // ── Step 5: Base64-encode nonce and signature, strip padding ─────────────────────
   const nonceB64 = stripBase64Padding(
     Buffer.from(nonce32).toString('base64'),
   );
   const signatureB64 = stripBase64Padding(
     Buffer.from(signatureBytes).toString('base64'),
   );
+  // LOG F — second compression: prove nonce and signature were Base64 encoded
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-2: Base64 Encoded ────────────────────\n` +
+    `  nonceB64          : ${nonceB64}\n` +
+    `  nonceB64Length    : ${nonceB64.length}\n` +
+    `  signatureB64      : ${signatureB64}\n` +
+    `  signatureB64Length: ${signatureB64.length}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
 
-  // ── Step 6: Assemble the 6-part SMS payload ────────────────────────────────
-  return [
+  // ── Step 6: Assemble the 6-part SMS payload ──────────────────────────────────────────
+  const smsPayload = [
     tokenIdStr,
     senderShortId,
     receiverShortId,
@@ -234,4 +276,15 @@ export async function generateOfflineSmsPayload(
     nonceB64,
     signatureB64,
   ].join(':');
+  // LOG G — final: prove payload assembled correctly
+  console.log(
+    `\n[OfflineVoucher] ── COMPRESS-2: Payload Assembled ──────────────────\n` +
+    `  totalLength : ${smsPayload.length}\n` +
+    `  partCount   : ${smsPayload.split(':').length}\n` +
+    `  tokenIdStr  : ${tokenIdStr}\n` +
+    `  smsBody     : ${smsPayload}\n` +
+    `──────────────────────────────────────────────────────────────────────`
+  );
+
+  return smsPayload;
 }
