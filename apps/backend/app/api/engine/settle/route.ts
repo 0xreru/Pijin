@@ -66,6 +66,9 @@
  *                 reason:
  *                   type: string
  *                   description: Failure reason (only present when status is FAILED).
+ *                 traceId:
+ *                   type: string
+ *                   description: Correlates this worker run with the originating SMS webhook logs.
  *       '500':
  *         description: Infrastructure failure (DB or Stellar RPC unavailable). QStash will retry.
  *         content:
@@ -87,6 +90,13 @@ import {
     parseOfflineVoucher,
     verifyOfflineVoucherSignature,
 } from '@/lib/offline-voucher';
+import {
+    createOfflineTransactionTraceId,
+    logOfflineTransactionDebug,
+    logOfflineVoucherDecompression,
+    sanitizeOfflineDebugHeaders,
+    sanitizeOfflineDebugUrl,
+} from '@/lib/offline-transaction-debug';
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -115,18 +125,45 @@ export const dynamic = 'force-dynamic';
 async function handler(req: Request): Promise<Response> {
     // Extract tracking ID from broker headers
     const qstashMessageId = req.headers.get('upstash-message-id') ?? 'unknown';
+    const fallbackTraceId = qstashMessageId !== 'unknown'
+        ? `qstash-${qstashMessageId}`
+        : createOfflineTransactionTraceId();
 
     // Parse body
-    let body: { smsPayload?: string; senderPhone?: string };
+    let rawBody = '';
+    let body: { smsPayload?: string; senderPhone?: string; traceId?: string };
     try {
-        body = await req.json();
+        rawBody = await req.text();
+        const parsedBody: unknown = JSON.parse(rawBody);
+        if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+            throw new TypeError('Settlement body must be a JSON object');
+        }
+        body = parsedBody as { smsPayload?: string; senderPhone?: string; traceId?: string };
     } catch {
-        console.error('[Settle] Could not parse JSON body');
-        return NextResponse.json({ error: 'Bad payload' }, { status: 200 });
+        console.error(`[Settle] Could not parse JSON body | traceId=${fallbackTraceId}`);
+        logOfflineTransactionDebug(fallbackTraceId, 'settle:rejected', {
+            reason: 'Could not parse JSON body',
+            rawBody,
+        });
+        return NextResponse.json({ error: 'Bad payload', traceId: fallbackTraceId }, { status: 200 });
     }
 
+    const traceId = typeof body.traceId === 'string' && body.traceId.trim()
+        ? body.traceId.trim()
+        : fallbackTraceId;
     const smsPayload = body?.smsPayload ?? '';
     const senderPhone = body?.senderPhone ?? '';
+
+    logOfflineTransactionDebug(traceId, 'settle:received', {
+        url: sanitizeOfflineDebugUrl(req.url),
+        method: req.method,
+        headers: sanitizeOfflineDebugHeaders(req.headers),
+        qstashMessageId,
+        rawBody,
+        rawBodyLength: rawBody.length,
+        smsPayload,
+        senderPhone,
+    });
 
     let voucher;
     try {
@@ -134,8 +171,14 @@ async function handler(req: Request): Promise<Response> {
     } catch (error) {
         const reason = error instanceof Error ? error.message : 'Malformed SMS payload';
         console.error(`[Settle] ${reason}: "${smsPayload}"`);
-        return NextResponse.json({ error: reason }, { status: 200 });
+        logOfflineTransactionDebug(traceId, 'decompress:rejected', {
+            smsPayload,
+            reason,
+        });
+        return NextResponse.json({ error: reason, traceId }, { status: 200 });
     }
+
+    logOfflineVoucherDecompression(traceId, smsPayload, voucher);
 
     const {
         tokenId,
@@ -148,7 +191,7 @@ async function handler(req: Request): Promise<Response> {
     } = voucher;
 
     console.log(
-        `[Settle] Processing | msgId=${qstashMessageId} | tokenId=${tokenId} | sender=${senderShortId} | receiver=${receiverShortId} | amountStroops=${amountStroops} | nonce=${nonce}`
+        `[Settle] Processing | traceId=${traceId} | msgId=${qstashMessageId} | tokenId=${tokenId} | sender=${senderShortId} | receiver=${receiverShortId} | amountStroops=${amountStroops} | nonce=${nonce}`
     );
 
     // Create or resume a PENDING settlement record (idempotency guard).
@@ -171,6 +214,22 @@ async function handler(req: Request): Promise<Response> {
         });
         settlementId = record.id;
         console.log(`[Settle] DB record created | settlementId=${settlementId}`);
+        logOfflineTransactionDebug(traceId, 'db:pending-created', {
+            settlement: {
+                id: record.id,
+                qstashMessageId: record.qstashMessageId,
+                nonce: record.nonce,
+                senderShortId: record.senderShortId,
+                receiverShortId: record.receiverShortId,
+                tokenId: record.tokenId,
+                amountStroops: record.amountStroops,
+                relayerAddress: record.relayerAddress,
+                txHash: record.txHash,
+                status: record.status,
+                failReason: record.failReason,
+                createdAt: record.createdAt,
+            },
+        });
     } catch (err: unknown) {
         // Unique-constraint violation -> duplicate delivery from QStash.
         const isDuplicate =
@@ -200,8 +259,15 @@ async function handler(req: Request): Promise<Response> {
             }
 
             if (existing.status === 'SETTLED') {
+                logOfflineTransactionDebug(traceId, 'db:duplicate-skipped', {
+                    settlementId: existing.id,
+                    previousStatus: existing.status,
+                    txHash: existing.txHash,
+                    nonce,
+                    qstashMessageId,
+                });
                 console.warn(`[Settle] Duplicate settled delivery skipped | settlementId=${existing.id} | nonce=${nonce} | msgId=${qstashMessageId}`);
-                return NextResponse.json({ status: 'DUPLICATE_SKIPPED', txHash: existing.txHash }, { status: 200 });
+                return NextResponse.json({ status: 'DUPLICATE_SKIPPED', txHash: existing.txHash, traceId }, { status: 200 });
             }
 
             const resumed = await prisma.settlement.update({
@@ -213,6 +279,13 @@ async function handler(req: Request): Promise<Response> {
             });
 
             settlementId = resumed.id;
+            logOfflineTransactionDebug(traceId, 'db:pending-resumed', {
+                settlementId,
+                previousStatus: existing.status,
+                currentStatus: resumed.status,
+                nonce,
+                qstashMessageId,
+            });
             console.warn(`[Settle] Resuming existing settlement | settlementId=${settlementId} | previousStatus=${existing.status} | nonce=${nonce} | msgId=${qstashMessageId}`);
         } catch (lookupErr: unknown) {
             console.error('[Settle] DB duplicate lookup failed (infra error):', lookupErr);
@@ -238,6 +311,29 @@ async function handler(req: Request): Promise<Response> {
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
 
+    logOfflineTransactionDebug(traceId, 'db:hydrated', {
+        settlementId,
+        senderAccount: senderAccount && {
+            shortId: senderShortId,
+            stellarPublicKey: senderAccount.stellarPublicKey,
+            offlineDeviceKey: senderAccount.offlineDeviceKey,
+            phoneNumberPresent: Boolean(senderAccount.phoneNumber),
+        },
+        receiverAccount: receiverAccount && {
+            shortId: receiverShortId,
+            stellarPublicKey: receiverAccount.stellarPublicKey,
+            offlineDeviceKey: receiverAccount.offlineDeviceKey,
+            phoneNumberPresent: Boolean(receiverAccount.phoneNumber),
+        },
+        token: token && {
+            id: tokenId,
+            symbol: token.symbol,
+            contractId: token.contractId,
+            decimals: token.decimals,
+            isActive: token.isActive,
+        },
+    });
+
     // If all three are null, DB failed mid-flight -> bubble up for QStash retry.
     if (senderAccount === null && receiverAccount === null && token === null) {
         return NextResponse.json({ error: 'DB unavailable' }, { status: 500 });
@@ -251,7 +347,8 @@ async function handler(req: Request): Promise<Response> {
             where: { id: settlementId },
             data: { status: 'FAILED', failReason },
         });
-        return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+        logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
+        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
 
     if (!token.isActive) {
@@ -261,7 +358,8 @@ async function handler(req: Request): Promise<Response> {
             where: { id: settlementId },
             data: { status: 'FAILED', failReason },
         });
-        return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+        logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
+        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
 
     // Validate Accounts
@@ -273,7 +371,8 @@ async function handler(req: Request): Promise<Response> {
             where: { id: settlementId },
             data: { status: 'FAILED', failReason },
         });
-        return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+        logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
+        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
 
     const { stellarPublicKey: senderPublicKey } = senderAccount;
@@ -305,6 +404,31 @@ async function handler(req: Request): Promise<Response> {
             gatewayPublicKey,
             tokenContractId,
         });
+
+        logOfflineTransactionDebug(traceId, 'verify:xdr-reconstructed', {
+            settlementId,
+            tupleOrder: [
+                'amountStroops',
+                'tollStroops',
+                'nonce',
+                'receiverShortId',
+                'gatewayPublicKey',
+                'tokenContractId',
+            ],
+            tuple: {
+                amountStroops,
+                tollStroops,
+                nonceB64: nonce,
+                nonceHex: nonce32.toString('hex'),
+                nonceByteLength: nonce32.length,
+                receiverShortId,
+                gatewayPublicKey,
+                tokenContractId,
+            },
+            signatureXdrByteLength: xdrBytes.length,
+            signatureXdrBase64: xdrBytes.toString('base64'),
+            signatureXdrHex: xdrBytes.toString('hex'),
+        });
         
         // The main wallet and offline device are intentionally separate keys.
         // Falling back to the wallet key hides incomplete device enrollment.
@@ -315,9 +439,21 @@ async function handler(req: Request): Promise<Response> {
                 where: { id: settlementId },
                 data: { status: 'FAILED', failReason },
             });
-            return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+            logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
+            return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
-        if (!verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer)) {
+        const signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
+        logOfflineTransactionDebug(traceId, 'verify:ed25519', {
+            settlementId,
+            offlineDevicePublicKey: verificationKey,
+            signatureB64: voucher.signatureB64,
+            signatureHex: signatureBuffer.toString('hex'),
+            signatureByteLength: signatureBuffer.length,
+            signedXdrByteLength: xdrBytes.length,
+            valid: signatureValid,
+        });
+
+        if (!signatureValid) {
             const failReason = 'Local Firewall Rejected: Invalid Ed25519 signature. Dropped to save gas.';
             console.warn(`[Settle] ${failReason}`);
             
@@ -325,6 +461,7 @@ async function handler(req: Request): Promise<Response> {
                 where: { id: settlementId },
                 data: { status: 'FAILED', failReason },
             });
+            logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
 
             if (senderPhone) {
                 // Ensure SMS goes out but don't crash if Textbee is slow
@@ -334,33 +471,107 @@ async function handler(req: Request): Promise<Response> {
                 ).catch(console.error);
             }
 
-            return NextResponse.json({ status: 'FAILED', reason: failReason }, { status: 200 });
+            return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
         // ─────────────────────────────────────────────────────────────────────────
 
-        const assembledTx = await pijinContract.spend_offline(
-            {
-                gateway:        gatewayPublicKey,
-                sender:         senderPublicKey,
-                token:          tokenContractId,          // Soroban SAC / contract address
-                receiver_short_id: Buffer.from(receiverShortId, 'ascii'),
-                amount:         amountStroops,            // i128 - SDK accepts bigint natively
-                protocol_toll:  tollStroops,                       // .50 PHPC toll
-                nonce:          nonce32,
-                signature:      signatureBuffer,
+        const receiverShortIdBytes = Buffer.from(receiverShortId, 'ascii');
+        const contractArguments = {
+            gateway: gatewayPublicKey,
+            sender: senderPublicKey,
+            token: tokenContractId,
+            receiver_short_id: receiverShortIdBytes,
+            amount: amountStroops,
+            protocol_toll: tollStroops,
+            nonce: nonce32,
+            signature: signatureBuffer,
+        };
+
+        logOfflineTransactionDebug(traceId, 'soroban:contract-payload', {
+            settlementId,
+            rpcUrl: contractConfig.rpcUrl,
+            networkPassphrase: contractConfig.networkPassphrase,
+            contractId: contractConfig.contractId,
+            method: 'spend_offline',
+            invokerPublicKey: gatewayPublicKey,
+            arguments: {
+                gateway: contractArguments.gateway,
+                sender: contractArguments.sender,
+                token: contractArguments.token,
+                receiver_short_id_ascii: receiverShortId,
+                receiver_short_id_hex: receiverShortIdBytes.toString('hex'),
+                receiver_short_id_byteLength: receiverShortIdBytes.length,
+                amount: contractArguments.amount,
+                protocol_toll: contractArguments.protocol_toll,
+                nonceB64: nonce32.toString('base64'),
+                nonceHex: nonce32.toString('hex'),
+                nonceByteLength: nonce32.length,
+                signatureB64: signatureBuffer.toString('base64'),
+                signatureHex: signatureBuffer.toString('hex'),
+                signatureByteLength: signatureBuffer.length,
             },
+        });
+
+        const assembledTx = await pijinContract.spend_offline(
+            contractArguments,
             { publicKey: gatewayPublicKey },
         );
 
+        let assembledTransactionJson: unknown;
+        try {
+            assembledTransactionJson = JSON.parse(assembledTx.toJSON());
+        } catch (serializationError) {
+            assembledTransactionJson = {
+                serializationError: serializationError instanceof Error
+                    ? serializationError.message
+                    : String(serializationError),
+            };
+        }
+        const assembledTransactionXdr = assembledTx.toXDR();
+        logOfflineTransactionDebug(traceId, 'soroban:assembled', {
+            settlementId,
+            assembledTransactionXdr,
+            assembledTransactionXdrCharLength: assembledTransactionXdr.length,
+            assembledTransactionJson,
+        });
+
         const { sendTransactionResponse } = await assembledTx.signAndSend({
-            signTransaction: signWithRelayer,
+            signTransaction: async (unsignedTxXdr, signOptions) => {
+                logOfflineTransactionDebug(traceId, 'soroban:signing-input', {
+                    settlementId,
+                    unsignedTxXdr,
+                    unsignedTxXdrCharLength: unsignedTxXdr.length,
+                    networkPassphrase: signOptions?.networkPassphrase ?? contractConfig.networkPassphrase,
+                });
+                const signed = await signWithRelayer(unsignedTxXdr, signOptions);
+                logOfflineTransactionDebug(traceId, 'soroban:signed', {
+                    settlementId,
+                    signerAddress: signed.signerAddress,
+                    signedTxXdr: signed.signedTxXdr,
+                    signedTxXdrCharLength: signed.signedTxXdr.length,
+                });
+                return signed;
+            },
         });
 
         const txHash: string | undefined = sendTransactionResponse?.hash;
 
+        logOfflineTransactionDebug(traceId, 'soroban:submitted', {
+            settlementId,
+            txHash,
+            sendTransactionResponse,
+        });
+
         await prisma.settlement.update({
             where: { id: settlementId },
             data: { status: 'SETTLED', txHash: txHash ?? null },
+        });
+
+        logOfflineTransactionDebug(traceId, 'db:settled', {
+            settlementId,
+            previousStatus: 'PENDING',
+            status: 'SETTLED',
+            txHash: txHash ?? null,
         });
 
         console.log(`[Settle] SETTLED | settlementId=${settlementId} | txHash=${txHash ?? 'n/a'}`);
@@ -401,7 +612,7 @@ async function handler(req: Request): Promise<Response> {
 
         // Serialize amountStroops as string to avoid BigInt JSON serialization error.
         return NextResponse.json(
-            { status: 'SETTLED', txHash, amountStroops: amountStroops.toString() },
+            { status: 'SETTLED', txHash, amountStroops: amountStroops.toString(), traceId },
             { status: 200 },
         );
 
@@ -421,8 +632,16 @@ async function handler(req: Request): Promise<Response> {
             console.error('[Settle] Failed to update settlement to FAILED:', dbErr);
         });
 
+        logOfflineTransactionDebug(traceId, 'db:failed', {
+            settlementId,
+            status: 'FAILED',
+            failureClass: isInfraError ? 'INFRASTRUCTURE' : 'BUSINESS',
+            failReason,
+            error: err,
+        });
+
         if (isInfraError) {
-            return NextResponse.json({ error: 'RPC unavailable' }, { status: 500 });
+            return NextResponse.json({ error: 'RPC unavailable', traceId }, { status: 500 });
         }
 
         // Notify sender of permanent business-logic failure (e.g. insufficient balance).
@@ -434,7 +653,7 @@ async function handler(req: Request): Promise<Response> {
         }
 
         return NextResponse.json(
-            { status: 'FAILED', reason: failReason },
+            { status: 'FAILED', reason: failReason, traceId },
             { status: 200 },
         );
     }

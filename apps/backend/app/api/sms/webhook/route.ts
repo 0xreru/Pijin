@@ -74,6 +74,9 @@
  *                 status:
  *                   type: string
  *                   enum: [Buffered, Ignored, Rate Limited]
+ *                 traceId:
+ *                   type: string
+ *                   description: Correlates webhook and settlement-worker debug logs.
  *       '400':
  *         description: Invalid JSON body, missing sender/message fields, or malformed payload.
  *         content:
@@ -101,6 +104,14 @@ import { Redis } from '@upstash/redis';
 import { Client } from '@upstash/qstash';
 import { sendSmsNotification } from '@/lib/sms';
 import { parseOfflineVoucher } from '@/lib/offline-voucher';
+import {
+    createOfflineTransactionTraceId,
+    isOfflineTransactionDebugEnabled,
+    logOfflineTransactionDebug,
+    logOfflineVoucherDecompression,
+    sanitizeOfflineDebugHeaders,
+    sanitizeOfflineDebugUrl,
+} from '@/lib/offline-transaction-debug';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Runtime
@@ -158,21 +169,23 @@ function verifyHmacSignature(rawBody: string, incomingSignature: string): boolea
         } catch { }
 
         return false;
-    } catch (err) {
+    } catch {
         return false;
     }
 }
 
-function firstObject(value: unknown): Record<string, any> | null {
+type UnknownObject = Record<string, unknown>;
+
+function firstObject(value: unknown): UnknownObject | null {
     if (Array.isArray(value)) {
         const first = value.find((item) => item && typeof item === 'object');
-        return first && typeof first === 'object' ? first as Record<string, any> : null;
+        return first && typeof first === 'object' ? first as UnknownObject : null;
     }
 
-    return value && typeof value === 'object' ? value as Record<string, any> : null;
+    return value && typeof value === 'object' ? value as UnknownObject : null;
 }
 
-function extractSmsPayload(body: Record<string, any>): SmsWebhookPayload | null {
+function extractSmsPayload(body: UnknownObject): SmsWebhookPayload | null {
     // Textbee has used both direct message objects and wrapped event objects.
     const candidate =
         firstObject(body.data) ??
@@ -216,20 +229,18 @@ export async function GET() {
             nextPublicAppUrl: Boolean(process.env.NEXT_PUBLIC_APP_URL),
             textbeeGateway: Boolean(process.env.TEXTBEE_GATEWAY_URL),
             textbeeApiKey: Boolean(process.env.TEXTBEE_API_KEY),
+            offlineTransactionDebug: isOfflineTransactionDebugEnabled(),
         },
     });
 }
 
 export async function POST(req: Request) {
-    // ── 🚨 EXTREME INGRESS LOGGING — fires before auth, parse, or any logic ──────
-    console.log('\n\n');
-    console.log('############################################################');
-    console.log('### SMS WEBHOOK POST FUNCTION ENTERED - BEFORE BODY READ ###');
-    console.log('############################################################');
-    console.log('[SMS WEBHOOK TOP]', {
-        url: req.url,
+    const traceId = createOfflineTransactionTraceId();
+
+    logOfflineTransactionDebug(traceId, 'receive:http', {
+        url: sanitizeOfflineDebugUrl(req.url),
         method: req.method,
-        receivedAt: new Date().toISOString(),
+        headers: sanitizeOfflineDebugHeaders(req.headers),
     });
 
     let rawBody = '';
@@ -240,26 +251,20 @@ export async function POST(req: Request) {
         console.error('### SMS WEBHOOK BODY READ FAILED - REQUEST DID HIT VERCEL ###');
         console.error('############################################################');
         console.error('[SMS WEBHOOK BODY READ ERROR]', {
-            url: req.url,
+            traceId,
+            url: sanitizeOfflineDebugUrl(req.url),
             method: req.method,
             errorName: err instanceof Error ? err.name : 'UnknownError',
             errorMessage: err instanceof Error ? err.message : String(err),
             errorStack: err instanceof Error ? err.stack : undefined,
         });
-        return NextResponse.json({ error: 'Failed to read request body' }, { status: 400 });
+        return NextResponse.json({ error: 'Failed to read request body', traceId }, { status: 400 });
     }
 
-    console.log('############################################################');
-    console.log('### SMS WEBHOOK RAW INGRESS CAPTURED - BEFORE AUTH/PARSE ###');
-    console.log('############################################################');
-    console.log('[SMS WEBHOOK RAW REQUEST]', {
-        url: req.url,
-        method: req.method,
+    logOfflineTransactionDebug(traceId, 'receive:raw-body', {
         rawBody,
         rawBodyLength: rawBody.length,
-        headers: Object.fromEntries(req.headers.entries()),
     });
-    console.log('############################################################');
 
     // ── Tier 1: Dual-Layer Ingress Shield ─────────────────────────────────────
     const incomingSignature = req.headers.get('x-signature') || req.headers.get('x-textbee-signature') || '';
@@ -270,28 +275,39 @@ export async function POST(req: Request) {
     const expectedSecret = process.env.TEXTBEE_WEBHOOK_SECRET;
 
     let isAuthorized = false;
+    let authorizationMethod = 'none';
 
     // Shield Layer A: Check HMAC Math
     if (incomingSignature && verifyHmacSignature(rawBody, incomingSignature)) {
         isAuthorized = true;
+        authorizationMethod = 'hmac-sha256';
     } 
     // Shield Layer B: Fallback to HTTPS URL Secret
     else if (incomingSecretUrl && incomingSecretUrl === expectedSecret) {
         console.log('[SMS Webhook] Authorized via URL Secret.');
         isAuthorized = true;
+        authorizationMethod = 'url-secret';
     }
 
+    logOfflineTransactionDebug(traceId, 'receive:auth', {
+        authorized: isAuthorized,
+        authorizationMethod,
+        hmacHeaderPresent: Boolean(incomingSignature),
+        urlSecretPresent: Boolean(incomingSecretUrl),
+    });
+
     if (!isAuthorized) {
-        console.warn(`[SMS Webhook] Blocked: Invalid HMAC and missing URL secret.`);
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        console.warn(`[SMS Webhook] Blocked: Invalid HMAC and missing URL secret. traceId=${traceId}`);
+        return NextResponse.json({ error: 'Unauthorized', traceId }, { status: 401 });
     }
 
     // ── Parse Body ────────────────────────────────────────────────────────────
-    let body: Record<string, any>;
+    let body: UnknownObject;
     try {
         body = JSON.parse(rawBody);
     } catch {
-        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+        logOfflineTransactionDebug(traceId, 'receive:rejected', { reason: 'Invalid JSON body' });
+        return NextResponse.json({ error: 'Invalid JSON body', traceId }, { status: 400 });
     }
 
     // ── Event Filtering ───────────────────────────────────────────────────────
@@ -322,6 +338,13 @@ export async function POST(req: Request) {
 
     const { senderPhone, message } = sms;
 
+    logOfflineTransactionDebug(traceId, 'receive:extracted-sms', {
+        eventType: sms.eventType,
+        senderPhone,
+        smsBody: message,
+        smsBodyCharLength: message.length,
+    });
+
     // ── Tier 2: Rate Limiting (keyed on sender phone) ─────────────────────────
     const { success: withinLimit } = await ratelimit.limit(senderPhone);
     if (!withinLimit) {
@@ -335,8 +358,14 @@ export async function POST(req: Request) {
         voucher = parseOfflineVoucher(message);
     } catch (error) {
         const reason = error instanceof Error ? error.message : 'Malformed payload';
-        return NextResponse.json({ error: reason }, { status: 400 });
+        logOfflineTransactionDebug(traceId, 'decompress:rejected', {
+            smsBody: message,
+            reason,
+        });
+        return NextResponse.json({ error: reason, traceId }, { status: 400 });
     }
+
+    logOfflineVoucherDecompression(traceId, message, voucher);
 
     const { senderShortId, nonceB64: nonce } = voucher;
 
@@ -353,8 +382,13 @@ export async function POST(req: Request) {
     try {
         const qstashResult = await qstash.publishJSON({
             url: settleUrl,
-            body: { smsPayload: message, senderPhone },
+            body: { smsPayload: message, senderPhone, traceId },
             deduplicationId,
+        });
+        logOfflineTransactionDebug(traceId, 'queue:published', {
+            deduplicationId,
+            target: settleUrl,
+            qstashResult,
         });
         console.log('[SMS Webhook] QStash accepted settlement job:', JSON.stringify(qstashResult));
     } catch (err) {
@@ -373,5 +407,5 @@ export async function POST(req: Request) {
         `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | target=${settleUrl}`
     );
 
-    return NextResponse.json({ success: true, status: 'Buffered' });
+    return NextResponse.json({ success: true, status: 'Buffered', traceId });
 }
