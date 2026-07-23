@@ -30,7 +30,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            packages/pijin_core/package-lock.json
 
       - name: Install Monorepo Dependencies
         run: |
