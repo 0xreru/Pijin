@@ -54,7 +54,7 @@ export function GenerateQRScreen({ route, navigation }: any) {
   const [initials, setInitials] = useState('OU');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [errorVisible, setErrorVisible] = useState(false);
-  const [errorContent, setErrorContent] = useState({ title: '', message: '' });
+  const [errorContent, setErrorContent] = useState<{title: string; message: string; variant?: 'error'|'success'}>({ title: '', message: '' });
   const hasCommittedRef = useRef(false);
 
   const qrRef = useRef<View>(null);
@@ -152,7 +152,7 @@ export function GenerateQRScreen({ route, navigation }: any) {
         const { status } = await MediaLibrary.requestPermissionsAsync();
         if (status === 'granted') {
           await MediaLibrary.saveToLibraryAsync(uri);
-          setErrorContent({ title: 'Success', message: 'QR Code saved to gallery!' });
+          setErrorContent({ title: 'Success', message: 'QR Code saved to gallery!', variant: 'success' });
           setErrorVisible(true);
         } else {
           setErrorContent({ title: 'Permission Denied', message: 'We need permission to save the image to your gallery.' });
@@ -275,16 +275,6 @@ export function GenerateQRScreen({ route, navigation }: any) {
             : 'Show this QR code to the sender to securely receive funds to your wallet.'}
         </Text>
 
-        {mode === 'receiver' ? (
-          <View style={styles.mascotContainer}>
-            <Image
-              source={require('../../assets/qr generation/pijin-qr.png')}
-              style={styles.mascotImage}
-              contentFit="contain"
-            />
-          </View>
-        ) : null}
-
         <View style={styles.footerBranding}>
           <Text style={styles.pijinLogo}>p i j i n</Text>
           <TouchableOpacity 
@@ -302,6 +292,7 @@ export function GenerateQRScreen({ route, navigation }: any) {
           visible={errorVisible}
           title={errorContent.title}
           message={errorContent.message}
+          variant={errorContent.variant}
           onDismiss={() => setErrorVisible(false)}
         />
       </View>
@@ -529,19 +520,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 16,
   },
-  mascotContainer: {
-    flex: 1,
-    width: '100%',
-    maxHeight: 130,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: 20,
-    marginTop: 10,
-  },
-  mascotImage: {
-    width: 120,
-    height: 120,
-  },
+
   footerBranding: {
     alignItems: 'center',
     width: '100%',

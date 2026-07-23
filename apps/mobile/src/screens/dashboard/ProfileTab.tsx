@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import * as Clipboard from 'expo-clipboard';
 import { getUserPhone, getUserFirstName, getUserLastName } from '../../services/storage/onboardingStorage';
 
 interface ProfileTabProps {
@@ -78,7 +79,12 @@ export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets 
           </Text>
           <TouchableOpacity 
             style={styles.copyBtn} 
-            onPress={() => Alert.alert('Copied', 'Public Key copied to clipboard!')}
+            onPress={async () => {
+              if (publicKey) {
+                await Clipboard.setStringAsync(publicKey);
+                Alert.alert('Copied', 'Public Key copied to clipboard!');
+              }
+            }}
           >
             <Ionicons name="copy-outline" size={16} color="#4B5563" />
           </TouchableOpacity>

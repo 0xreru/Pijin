@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { useAuth } from '../context/AuthContext';
+import { ErrorModal } from '../components/ui/ErrorModal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 52;
@@ -279,6 +280,8 @@ export function LoadOnlineFundsScreen({ route, navigation }: any) {
   const [formattedAmount, setFormattedAmount] = useState('0.00');
   const [isLoading, setIsLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [errorVisible, setErrorVisible] = useState(false);
+  const [errorContent, setErrorContent] = useState<{title: string; message: string; variant?: 'error'|'success'|'no-money'}>({ title: '', message: '' });
   const isProcessingRef = useRef(false);
   const [txId] = useState(() => {
     // Generate a random 16-digit transaction ID
@@ -393,7 +396,12 @@ export function LoadOnlineFundsScreen({ route, navigation }: any) {
                   console.error('[withdraw] failed raw=', err);
                   console.error('[withdraw] failed extracted=', extractedError);
                   setIsLoading(false);
-                  Alert.alert('Withdraw Failed', extractedError);
+                  setErrorContent({
+                    title: 'Transfer Failed',
+                    message: 'Your transfer could not be completed. Please ensure you have enough balance and try again.',
+                    variant: 'no-money'
+                  });
+                  setErrorVisible(true);
                   Animated.timing(swipeAnim, {
                     toValue: 0,
                     duration: 350,
@@ -683,6 +691,14 @@ export function LoadOnlineFundsScreen({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      <ErrorModal
+        visible={errorVisible}
+        title={errorContent.title}
+        message={errorContent.message}
+        variant={errorContent.variant}
+        onDismiss={() => setErrorVisible(false)}
+      />
     </View>
   );
 }

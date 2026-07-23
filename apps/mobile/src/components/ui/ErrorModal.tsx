@@ -1,6 +1,7 @@
 import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Modal } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, Dimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 
 interface ErrorModalProps {
   visible: boolean;
@@ -8,6 +9,7 @@ interface ErrorModalProps {
   message: string;
   onDismiss: () => void;
   primaryButtonText?: string;
+  variant?: 'error' | 'success' | 'no-money';
 }
 
 export function ErrorModal({
@@ -15,8 +17,19 @@ export function ErrorModal({
   title,
   message,
   onDismiss,
-  primaryButtonText = 'Dismiss & Try Again',
+  primaryButtonText,
+  variant = 'error',
 }: ErrorModalProps) {
+  const isSuccess = variant === 'success';
+  const buttonText = primaryButtonText || (isSuccess ? 'Dismiss' : 'Dismiss & Try Again');
+  
+  let imageSource = require('../../../assets/modals/piji-error.png');
+  if (variant === 'success') {
+    imageSource = require('../../../assets/modals/piji-success.png');
+  } else if (variant === 'no-money') {
+    imageSource = require('../../../assets/modals/piiji-no-money.png');
+  }
+
   return (
     <Modal
       visible={visible}
@@ -31,9 +44,11 @@ export function ErrorModal({
           </TouchableOpacity>
           
           <View style={styles.errorIconContainer}>
-            <View style={styles.errorIconBackground}>
-              <Ionicons name="close" size={40} color="#EF4444" />
-            </View>
+            <Image
+              source={imageSource}
+              style={styles.mascotImage}
+              contentFit="contain"
+            />
           </View>
 
           <Text style={styles.errorTitle}>{title}</Text>
@@ -44,13 +59,16 @@ export function ErrorModal({
             style={styles.errorDismissButton} 
             activeOpacity={0.9}
           >
-            <Text style={styles.errorDismissButtonText}>{primaryButtonText}</Text>
+            <Text style={styles.errorDismissButtonText}>{buttonText}</Text>
           </TouchableOpacity>
         </View>
       </View>
     </Modal>
   );
 }
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IMAGE_SIZE = SCREEN_WIDTH * 0.55;
 
 const styles = StyleSheet.create({
   modalOverlay: {
@@ -85,15 +103,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
-  errorIconBackground: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#FEF2F2',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 4,
-    borderColor: '#FEE2E2',
+  mascotImage: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE,
   },
   errorTitle: {
     fontSize: 22,

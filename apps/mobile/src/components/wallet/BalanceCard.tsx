@@ -95,8 +95,8 @@ export function BalanceCard({ balance, isOnline, isUpdating = false }: BalanceCa
 
       {/* Card Page Indicators */}
       <View style={styles.pageIndicatorRow}>
-        <View style={[styles.pageDot, styles.pageDotActive]} />
-        <View style={[styles.pageDot, styles.pageDotInactive]} />
+        <View style={[styles.pageDot, isOnline ? styles.pageDotActive : styles.pageDotInactive]} />
+        <View style={[styles.pageDot, !isOnline ? styles.pageDotActive : styles.pageDotInactive]} />
       </View>
     </View>
   );
