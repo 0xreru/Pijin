@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-
+import './globals.css';
 export const metadata: Metadata = {
   title: 'Pijin API',
   description: 'Backend API for the Pijin P2P offline payment system built on Stellar.',

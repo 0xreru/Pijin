@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Clash Display", "Plus Jakarta Sans", sans-serif;
+  
+  --animate-pulse-slow: pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-blob: blob 10s infinite;
+
+  @keyframes blob {
+    0% { transform: translate(0px, 0px) scale(1); }
+    33% { transform: translate(40px, -60px) scale(1.15); }
+    66% { transform: translate(-30px, 30px) scale(0.9); }
+    100% { transform: translate(0px, 0px) scale(1); }
+  }
+}
+
+@layer base {
+  body {
+    @apply antialiased selection:bg-teal-500 selection:text-slate-900;
+  }
+
+  p, span, a, li, button, input, textarea {
+    letter-spacing: 0.05em;
+  }
+
+  h1, h2 {
+    letter-spacing: -0.02em;
+  }
+
+  h3, h4, h5, h6 {
+    letter-spacing: 0.05em;
+  }
+}

@@ -5,7 +5,8 @@
   ],
   "devDependencies": {
     "husky": "^9.1.7",
-    "lint-staged": "^16.4.0"
+    "lint-staged": "^16.4.0",
+    "tailwindcss": "^4.0.0"
   },
   "scripts": {
     "prepare": "node -e \"if (process.env.CI !== 'true') { require('child_process').execSync('husky', {stdio: 'inherit'}) }\"",
@@ -14,11 +15,11 @@
     "typecheck": "npm run typecheck --workspace=backend --workspace=pijin_core"
   },
   "lint-staged": {
-      "apps/backend/**/*.{ts,tsx}": [],
-      "packages/pijin_core/**/*.ts": [],
-      "apps/backend/**/*.{js,jsx}": [],
-      "apps/mobile/**/*.{js,jsx,ts,tsx}": [],
-      "contracts/**/*.rs": "cargo fmt --manifest-path contracts/Cargo.toml --"
+    "apps/backend/**/*.{ts,tsx}": [],
+    "packages/pijin_core/**/*.ts": [],
+    "apps/backend/**/*.{js,jsx}": [],
+    "apps/mobile/**/*.{js,jsx,ts,tsx}": [],
+    "contracts/**/*.rs": "cargo fmt --manifest-path contracts/Cargo.toml --"
   },
   "overrides": {
     "react-native": "0.76.9",
