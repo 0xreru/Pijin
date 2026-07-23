@@ -20,10 +20,10 @@
 import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   DeviceEventEmitter,
   Easing,
+  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -45,6 +45,7 @@ import {
 } from '../services/stellar/anchorService';
 import { getMainWalletSecret } from '../services/storage/onboardingStorage';
 import { typography } from '../constants/typography';
+import { ErrorModal } from '../components/ui/ErrorModal';
 
 // ─── Theme tokens (mirrors app-wide theme.ts + BalanceCard colors) ────────────
 
@@ -93,7 +94,7 @@ const INJECTED_JS = `
       
       /* Typography styling */
       h1, h2, h3, h4, h5, h6 {
-        color: #02132B !important;
+        color: #031634 !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
         font-weight: 800 !important;
         letter-spacing: -0.3px !important;
@@ -104,21 +105,21 @@ const INJECTED_JS = `
       h2 { font-size: 20px !important; line-height: 26px !important; }
       h3 { font-size: 18px !important; line-height: 24px !important; }
       
-      p, span, label, li, td, th {
+      p, span, li, td, th {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-        color: #3F4144 !important;
+        color: #707984 !important;
         font-size: 14px !important;
         line-height: 20px !important;
       }
       
       label {
-        color: #02132B !important;
+        color: #031634 !important;
         font-weight: 700 !important;
         display: block !important;
-        margin-bottom: 6px !important;
+        margin-bottom: 8px !important;
         text-transform: uppercase !important;
         letter-spacing: 0.5px !important;
-        font-size: 11px !important;
+        font-size: 12px !important;
       }
 
       /* Container and forms */
@@ -136,13 +137,13 @@ const INJECTED_JS = `
       select,
       textarea {
         background-color: #FFFFFF !important;
-        border: 1.5px solid #DADADA !important;
-        border-radius: 10px !important;
-        padding: 12px 14px !important;
-        color: #08090A !important;
-        font-size: 15px !important;
+        border: 1.5px solid #E6E9EE !important;
+        border-radius: 8px !important;
+        padding: 14px 16px !important;
+        color: #031634 !important;
+        font-size: 16px !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-        margin-bottom: 16px !important;
+        margin-bottom: 20px !important;
         outline: none !important;
         width: 100% !important;
         box-sizing: border-box !important;
@@ -150,14 +151,13 @@ const INJECTED_JS = `
       }
       
       input:focus, select:focus, textarea:focus {
-        border-color: #02132B !important;
-        box-shadow: 0 0 0 3px rgba(2, 19, 43, 0.08) !important;
+        border-color: #031634 !important;
       }
 
       /* Placeholders */
       ::placeholder {
-        color: #707984 !important;
-        opacity: 0.8 !important;
+        color: #9CA3AF !important;
+        opacity: 1 !important;
       }
 
       /* Buttons & CTA Actions */
@@ -171,14 +171,14 @@ const INJECTED_JS = `
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
-        background: linear-gradient(135deg, #02132B, #04224C) !important;
+        background-color: #031634 !important;
         color: #FFFFFF !important;
         border: none !important;
-        border-radius: 10px !important;
-        padding: 14px 20px !important;
+        border-radius: 8px !important;
+        padding: 16px 20px !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
         font-weight: 700 !important;
-        font-size: 15px !important;
+        font-size: 16px !important;
         letter-spacing: 0.2px !important;
         text-decoration: none !important;
         cursor: pointer !important;
@@ -186,7 +186,7 @@ const INJECTED_JS = `
         box-sizing: border-box !important;
         margin-top: 10px !important;
         margin-bottom: 10px !important;
-        box-shadow: 0 4px 10px rgba(2, 19, 43, 0.15) !important;
+        box-shadow: 0 4px 10px rgba(3, 22, 52, 0.15) !important;
         transition: transform 0.15s ease, opacity 0.15s ease !important;
       }
       
@@ -201,9 +201,9 @@ const INJECTED_JS = `
 
       /* Helper alert messages/boxes inside the web page */
       .alert, .error, .success, .info {
-        border-radius: 10px !important;
-        padding: 12px 16px !important;
-        margin-bottom: 16px !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+        margin-bottom: 20px !important;
         font-size: 14px !important;
       }
       
@@ -268,28 +268,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function confirmNativeWithdrawal(input: {
-  amount: string;
-  assetCode: string;
-  destination: string;
-  memo?: string;
-}): Promise<boolean> {
-  const shortDestination = `${input.destination.slice(0, 8)}…${input.destination.slice(-8)}`;
-  const memoLine = input.memo ? `\nMemo: ${input.memo}` : '';
-
-  return new Promise((resolve) => {
-    Alert.alert(
-      `Confirm ${input.assetCode} cash out`,
-      `Send ${input.amount} ${input.assetCode} from your online wallet to the anchor Treasury?\n\nTreasury: ${shortDestination}${memoLine}`,
-      [
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-        { text: 'Transfer', onPress: () => resolve(true) },
-      ],
-      { cancelable: false },
-    );
-  });
-}
-
 export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProps) {
   const {
     url,
@@ -309,11 +287,31 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
   const [withdrawalHandoffReceived, setWithdrawalHandoffReceived] = useState(false);
   const withdrawalInFlightRef = useRef(false);
 
+  // Modal states
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false);
+  const [confirmData, setConfirmData] = useState<{
+    amount: string;
+    assetCode: string;
+    destination: string;
+    memo?: string;
+    resolve: (value: boolean) => void;
+  } | null>(null);
+
   const progressAnim = useRef(new Animated.Value(0)).current;
   const progressOpacity = useRef(new Animated.Value(1)).current;
-  const successFadeAnim = useRef(new Animated.Value(0)).current;
-  const successScaleAnim = useRef(new Animated.Value(0.85)).current;
   const headerSubtitleAnim = useRef(new Animated.Value(1)).current;
+
+  const confirmNativeWithdrawal = (input: {
+    amount: string;
+    assetCode: string;
+    destination: string;
+    memo?: string;
+  }): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setConfirmData({ ...input, resolve });
+      setConfirmModalVisible(true);
+    });
+  };
 
   // Animate progress bar width
   const animateProgress = (toValue: number) => {
@@ -459,21 +457,6 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
         useNativeDriver: true,
       }).start();
     });
-    // Animate success overlay
-    Animated.parallel([
-      Animated.timing(successFadeAnim, {
-        toValue: 1,
-        duration: 380,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.spring(successScaleAnim, {
-        toValue: 1,
-        speed: 14,
-        bounciness: 8,
-        useNativeDriver: true,
-      }),
-    ]).start();
   };
 
   const handleClose = () => {
@@ -579,67 +562,90 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
           </View>
         )}
 
-        {/* Success overlay */}
-        {isSuccess && (
-          <Animated.View
-            style={[
-              styles.successOverlay,
-              { opacity: successFadeAnim, transform: [{ scale: successScaleAnim }] },
-            ]}
-          >
-            {/* Success icon with navy bg */}
-            <LinearGradient
-              colors={[T.navyDark, T.navyMid]}
-              style={styles.successIconCircle}
-            >
-              <Ionicons name="checkmark" size={38} color={T.success} />
-            </LinearGradient>
+        {/* Success Modal */}
+        <ErrorModal
+          visible={isSuccess}
+          variant="success"
+          title={isWithdrawal ? 'Withdrawal Transfer Sent!' : 'Deposit Initiated!'}
+          message={
+            isWithdrawal
+              ? `Your ${assetCode} was sent to the anchor Treasury. Your fiat payout will be processed after confirmation.\n\nTap "Done" to return to your wallet.`
+              : `Your ${assetCode} deposit is being processed.\n\nTap "Done" to return to your wallet.`
+          }
+          onDismiss={handleClose}
+          primaryButtonText="Done"
+        />
 
-            <Text style={styles.successTitle}>
-              {isWithdrawal ? 'Withdrawal Transfer Sent!' : 'Deposit Initiated!'}
-            </Text>
-            <Text style={styles.successSubtitle}>
-              {isWithdrawal
-                ? `Your ${assetCode} was sent to the anchor Treasury. Your fiat payout will be processed after confirmation.`
-                : `Your ${assetCode} deposit is being processed.`}
-              {'\n'}Tap "Done" to return to your wallet.
-            </Text>
+        {/* Error Modal */}
+        <ErrorModal
+          visible={hasError}
+          variant="error"
+          title={isWithdrawal ? 'Withdrawal Failed' : 'Connection Error'}
+          message={
+            errorMessage ||
+            (isWithdrawal
+              ? 'The online wallet transfer could not be completed.'
+              : 'Could not load the deposit form. Please check your connection and try again.')
+          }
+          onDismiss={handleClose}
+          primaryButtonText="Go Back"
+        />
 
-            {/* Done CTA */}
-            <TouchableOpacity style={styles.doneBtn} onPress={handleClose} activeOpacity={0.82}>
-              <LinearGradient
-                colors={[T.navyDark, T.navyMid]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.doneBtnGradient}
-              >
-                <Text style={styles.doneBtnText}>Done</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </Animated.View>
-        )}
+        {/* Confirmation Modal */}
+        <Modal
+          visible={confirmModalVisible}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Confirm Cash Out</Text>
+              <Text style={styles.modalMessage}>
+                Send <Text style={{ fontWeight: '800', color: T.ink }}>{confirmData?.amount} {confirmData?.assetCode}</Text> from your online wallet to the anchor Treasury?
+              </Text>
+              
+              <View style={styles.modalDetailBox}>
+                <Text style={styles.modalDetailLabel}>Treasury Address</Text>
+                <Text style={styles.modalDetailText}>
+                  {confirmData?.destination ? `${confirmData.destination.slice(0, 8)}…${confirmData.destination.slice(-8)}` : ''}
+                </Text>
+                
+                {confirmData?.memo && (
+                  <>
+                    <View style={styles.modalDivider} />
+                    <Text style={styles.modalDetailLabel}>Memo</Text>
+                    <Text style={styles.modalDetailText}>{confirmData.memo}</Text>
+                  </>
+                )}
+              </View>
 
-        {/* Error state */}
-        {hasError && (
-          <View style={styles.errorOverlay}>
-            <View style={styles.errorIconWrapper}>
-              <Ionicons name="wifi-outline" size={36} color={T.danger} />
+              <View style={styles.modalButtonRow}>
+                <TouchableOpacity
+                  style={styles.modalCancelBtn}
+                  onPress={() => {
+                    setConfirmModalVisible(false);
+                    confirmData?.resolve(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={styles.modalConfirmBtn}
+                  onPress={() => {
+                    setConfirmModalVisible(false);
+                    confirmData?.resolve(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modalConfirmText}>Transfer</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <Text style={styles.errorTitle}>
-              {isWithdrawal ? 'Withdrawal Failed' : 'Connection Error'}
-            </Text>
-            <Text style={styles.errorSubtitle}>
-              {errorMessage || (
-                isWithdrawal
-                  ? 'The online wallet transfer could not be completed.'
-                  : 'Could not load the deposit form. Please check your connection and try again.'
-              )}
-            </Text>
-            <TouchableOpacity style={styles.goBackBtn} onPress={handleClose} activeOpacity={0.82}>
-              <Text style={styles.goBackBtnText}>Go Back</Text>
-            </TouchableOpacity>
           </View>
-        )}
+        </Modal>
 
         {!withdrawalHandoffReceived && <WebView
           source={{ uri: url }}
@@ -859,114 +865,88 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
 
-  // ── Success overlay ───────────────────────────────────────────────────────
-  successOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: T.surface,
-    alignItems: 'center',
+  // ── Modal Styles ─────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(2, 19, 43, 0.6)',
     justifyContent: 'center',
-    padding: 40,
-    gap: 14,
-    zIndex: 20,
-  },
-  successIconCircle: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-    shadowColor: T.shadowNavy,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    elevation: 6,
+    padding: 24,
   },
-  successTitle: {
-    color: T.ink,
-    fontSize: typography.title.fontSize,
-    lineHeight: typography.title.lineHeight,
-    fontWeight: typography.title.fontWeight,
-    letterSpacing: -0.4,
-  },
-  successSubtitle: {
-    color: T.muted,
-    fontSize: typography.body.fontSize,
-    lineHeight: typography.body.lineHeight,
-    textAlign: 'center',
-  },
-
-  // ── Done CTA button ───────────────────────────────────────────────────────
-  doneBtn: {
-    marginTop: 8,
+  modalCard: {
     width: '100%',
-    borderRadius: 10,
-    overflow: 'hidden',
-    shadowColor: T.shadowNavy,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  doneBtnGradient: {
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  doneBtnText: {
-    color: T.white,
-    fontSize: typography.button.fontSize - 4,
-    lineHeight: typography.button.lineHeight,
-    fontWeight: typography.button.fontWeight,
-    letterSpacing: 0.2,
-  },
-
-  // ── Error overlay ─────────────────────────────────────────────────────────
-  errorOverlay: {
-    ...StyleSheet.absoluteFillObject,
     backgroundColor: T.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    gap: 12,
-    zIndex: 20,
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: T.shadowNavy,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
   },
-  errorIconWrapper: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(240, 68, 56, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(240, 68, 56, 0.20)',
-    marginBottom: 6,
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: T.navyDark,
+    marginBottom: 12,
   },
-  errorTitle: {
-    color: T.ink,
-    fontSize: typography.title.fontSize,
-    lineHeight: typography.title.lineHeight,
-    fontWeight: typography.title.fontWeight,
-    letterSpacing: -0.3,
-  },
-  errorSubtitle: {
+  modalMessage: {
+    fontSize: 15,
     color: T.muted,
-    fontSize: typography.body.fontSize,
-    lineHeight: typography.body.lineHeight,
-    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 20,
   },
-  goBackBtn: {
-    marginTop: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
+  modalDetailBox: {
     backgroundColor: T.surfaceSoft,
-    borderRadius: 10,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: T.borderSoft,
   },
-  goBackBtnText: {
-    color: T.inkSoft,
-    fontSize: typography.caption.fontSize,
+  modalDetailLabel: {
+    fontSize: 12,
     fontWeight: '700',
+    color: T.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  modalDetailText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: T.navyDark,
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: T.borderSoft,
+    marginVertical: 12,
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: T.surfaceSoft,
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: T.inkSoft,
+  },
+  modalConfirmBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    backgroundColor: T.navyMid,
+  },
+  modalConfirmText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: T.white,
   },
 });

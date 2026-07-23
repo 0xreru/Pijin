@@ -9,7 +9,7 @@ interface ErrorModalProps {
   message: string;
   onDismiss: () => void;
   primaryButtonText?: string;
-  variant?: 'error' | 'success';
+  variant?: 'error' | 'success' | 'no-money';
 }
 
 export function ErrorModal({
@@ -22,6 +22,14 @@ export function ErrorModal({
 }: ErrorModalProps) {
   const isSuccess = variant === 'success';
   const buttonText = primaryButtonText || (isSuccess ? 'Dismiss' : 'Dismiss & Try Again');
+  
+  let imageSource = require('../../../assets/modals/piji-error.png');
+  if (variant === 'success') {
+    imageSource = require('../../../assets/modals/piji-success.png');
+  } else if (variant === 'no-money') {
+    imageSource = require('../../../assets/modals/piiji-no-money.png');
+  }
+
   return (
     <Modal
       visible={visible}
@@ -37,7 +45,7 @@ export function ErrorModal({
           
           <View style={styles.errorIconContainer}>
             <Image
-              source={isSuccess ? require('../../../assets/modals/piji-success.png') : require('../../../assets/modals/piji-error.png')}
+              source={imageSource}
               style={styles.mascotImage}
               contentFit="contain"
             />
