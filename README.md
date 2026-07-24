@@ -191,7 +191,7 @@ The Pijin backend is powered by Next.js API Routes and serves as the bridge betw
 <br>
 
 For detailed request/response schemas, testing, and OpenAPI specifications, <br> visit our interactive Swagger documentation:
-👉 **[View Interactive API Docs](https://pijin-api.vercel.app/api-docs)**
+👉 **[View Interactive API Docs](https://pijin.live/api-docs)**
 
 ### Core Services
 
