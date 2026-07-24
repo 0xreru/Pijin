@@ -247,7 +247,7 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 
 
 - 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/4bd23b10-ba65-492a-b6e0-2a83b7260b12)
-- 🔗 **Backend Api:** [Pijin API](https://pijin-api.vercel.app)
+- 🔗 **Pijin Backend:** [Pijin API](https://pijin.live)
 - 🔗 **Treasury Portal:** [Pijin Treasury Portal](https://pijin-treasury-portal.vercel.app)
 - 🎬 **Demo Video:** [Google Drive link](https://drive.google.com/drive/folders/1t6U8wcVb51mi0uzTqRw5SjulPRAxKj4w?fbclid=IwY2xjawTFPk5leHRuA2FlbQIxMABicmlkETF3Wm82aU56ZHFma0pGQmFQc3J0YwZhcHBfaWQQMjIyMDM5MTc4ODIwMDg5MgABHq_xaoYl2-Dgd9RmSoQc3SldJ-Z-oKXJb6OHMCCuLCpf2uL49ET3IVDRL2rO_aem_uB4143FHr410vqQskDKX7A)
 - 🖼️ **Pitch Deck:** [Canva link](https://www.canva.com/design/DAHPdpDXm5k/b5wIV2DLf6mnzxYA4wJKvg/edit)
