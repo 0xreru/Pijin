@@ -11,6 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import { getUserPhone, getUserFirstName, getUserLastName } from '../../services/storage/onboardingStorage';
+import { formatE164ForDisplay } from '../../utils/phoneFormatter';
 
 interface ProfileTabProps {
   shortId: string;
@@ -43,11 +44,6 @@ export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets 
     fetchPhone();
   }, []);
 
-  const formatPhoneNumber = (phone: string) => {
-    const clean = phone.replace(/[^0-9]/g, '');
-    if (clean.length !== 10) return phone ? `+63${clean}` : '';
-    return `+63 ${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(6)}`;
-  };
 
   return (
     <ScrollView
@@ -66,10 +62,10 @@ export const ProfileTab = memo(function ProfileTab({ shortId, publicKey, insets 
           <Ionicons name="person-circle" size={60} color="#001E42" />
         </View>
         <Text style={styles.profileName}>
-          {fullName ? fullName : (phoneNumber ? formatPhoneNumber(phoneNumber) : 'My Account')}
+          {fullName ? fullName : (phoneNumber ? formatE164ForDisplay(phoneNumber) : 'My Account')}
         </Text>
         {fullName ? (
-          <Text style={styles.profileShortId}>{formatPhoneNumber(phoneNumber)}</Text>
+          <Text style={styles.profileShortId}>{formatE164ForDisplay(phoneNumber)}</Text>
         ) : null}
         <Text style={styles.profileShortId}>Wallet ID: #{shortId}</Text>
         

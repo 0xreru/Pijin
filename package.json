@@ -3,6 +3,9 @@
     "apps/*",
     "packages/*"
   ],
+  "dependencies": {
+    "libphonenumber-js": "^1.13.9"
+  },
   "devDependencies": {
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",

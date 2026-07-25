@@ -198,7 +198,7 @@ export function TransportChoiceScreen({ route, navigation }: any) {
             </View>
             <Text style={styles.cardTitle}>Send Using My Phone</Text>
             <Text style={styles.cardSubtitle}>
-              Standard SMS charges apply. Active text promo required.
+              Standard messaging rates may apply.
             </Text>
           </View>
         </TouchableOpacity>

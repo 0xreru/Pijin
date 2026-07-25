@@ -29,6 +29,7 @@ import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
 import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
 import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegistrySync';
+import { formatE164ForDisplay } from '../utils/phoneFormatter';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -203,11 +204,6 @@ export function SignInScreen() {
     navigation.navigate('Onboarding', { initialStep: 2 });
   };
 
-  const formatPhoneNumber = (phone: string) => {
-    const clean = phone.replace(/[^0-9]/g, '');
-    if (clean.length !== 10) return `+63 - ${clean}`;
-    return `+63 - ${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(6)}`;
-  };
 
   const renderPinDots = () => {
     return (
@@ -244,7 +240,7 @@ export function SignInScreen() {
           />
           {/* Cover/Overlay for the hardcoded number inside the badge */}
           <View style={styles.badgeOverlay}>
-            <Text style={styles.badgeText}>{formatPhoneNumber(phoneNumber)}</Text>
+            <Text style={styles.badgeText}>{formatE164ForDisplay(phoneNumber)}</Text>
           </View>
         </View>
 

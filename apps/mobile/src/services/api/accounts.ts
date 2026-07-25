@@ -69,11 +69,12 @@ type CheckUserResponse = {
 
 /**
  * Checks whether a phone number is already registered.
- * @param phone - local number (no country code), e.g. "9123456789"
+ * @param phone - full E.164 string, e.g. "+639123456789" or "+12125551234"
+ *   The backend strips all non-digits via /\D/g, so sending E.164 is safe.
  */
 export async function checkUserExists(phone: string): Promise<CheckUserResponse> {
-  const cleanLocal = phone.replace(/\D/g, "");
-  return apiRequest<CheckUserResponse>(`/api/users/check?phone=63${cleanLocal}`);
+  // Pass the full E.164 number — the backend strips '+' via /\D/g automatically.
+  return apiRequest<CheckUserResponse>(`/api/users/check?phone=${encodeURIComponent(phone)}`);
 }
 
 type LookupUserResponse = {
