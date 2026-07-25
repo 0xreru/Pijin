@@ -27,20 +27,8 @@ export async function submitOfflineVoucher(
     const token = await prisma.token.findUnique({ where: { symbol: 'PHPC' } });
     if (!token) throw new Error("PHPC token not found in DB");
 
-    let gateway = await prisma.gatewayNode.findFirst({ where: { isActive: true } });
-    
-    // Fallback: If no gateway node is seeded in local DB, create a mock one so simulation can proceed
-    if (!gateway) {
-      console.log("No gateway node found, auto-provisioning mock Gateway Node...");
-      const gatewayKp = Keypair.random();
-      gateway = await prisma.gatewayNode.create({
-        data: {
-          name: "Simulation Gateway",
-          stellarPublicKey: gatewayKp.publicKey(),
-          isActive: true
-        }
-      });
-    }
+    const gatewayPubKey = process.env.RELAYER_PUBLIC_KEY;
+    if (!gatewayPubKey) throw new Error("Server missing RELAYER_PUBLIC_KEY");
 
     const amountStroops = BigInt(Math.floor(amountPhp * 10_000_000));
 
@@ -49,7 +37,7 @@ export async function submitOfflineVoucher(
       senderShortId: sender.shortId,
       receiverShortId,
       amountStroops,
-      gatewayPubKey: gateway.stellarPublicKey,
+      gatewayPubKey,
       tokenContractId: token.contractId,
       tokenSymbol: token.symbol,
       tokenIdStr: token.id.toString(),
