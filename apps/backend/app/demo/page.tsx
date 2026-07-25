@@ -11,7 +11,7 @@ const HORIZON_TESTNET_URL = 'https://horizon-testnet.stellar.org';
 const server = new Horizon.Server(HORIZON_TESTNET_URL);
 
 export default function DemoDashboard() {
-  const { publicKey, secretKey } = useJudgeContext();
+  const { publicKey, secretKey, shortId, role } = useJudgeContext();
   const router = useRouter();
   const [balancePHPC, setBalancePHPC] = useState("0.00");
   const [offlineBalancePHPC, setOfflineBalancePHPC] = useState("0.00");
@@ -43,13 +43,21 @@ export default function DemoDashboard() {
     fetchBalance();
   }, [publicKey]);
 
-  // Hook to refresh when coming back from transfers
+  // Hook to refresh when coming back from transfers and poll every 3 seconds
   useEffect(() => {
     const handleFocus = () => {
       fetchBalance();
     };
     window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    
+    const intervalId = setInterval(() => {
+      fetchBalance();
+    }, 3000);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(intervalId);
+    };
   }, [publicKey]);
 
 
@@ -75,22 +83,26 @@ export default function DemoDashboard() {
       {/* Header */}
       <div className="px-6 py-4 flex justify-between items-center">
         <div>
-          <p className="text-xs text-neutral-500 font-bold tracking-wider uppercase">Judge Wallet</p>
-          <p className="text-sm font-semibold truncate w-32">{publicKey.slice(0, 6)}...{publicKey.slice(-4)}</p>
+          <p className="text-xs text-neutral-500 font-bold tracking-wider uppercase">
+            {role === 'sender' ? 'Sender Phone' : 'Receiver Phone'}
+          </p>
+          <p className="text-lg font-black text-[#001E42] mt-0.5">
+            ID: {shortId}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button 
             onClick={() => {
               sessionStorage.clear();
               window.location.reload();
             }}
-            className="w-10 h-10 bg-red-100 text-red-500 rounded-full flex items-center justify-center cursor-pointer hover:bg-red-200"
+            className="w-10 h-10 bg-red-100 text-red-500 rounded-full flex items-center justify-center cursor-pointer hover:bg-red-200 shadow-sm"
             title="Reset Simulator"
           >
             <RefreshCw size={16} />
           </button>
-          <div className="w-10 h-10 bg-[#001E42] rounded-full flex items-center justify-center">
-            <p className="text-white font-bold">JD</p>
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm ${role === 'sender' ? 'bg-[#001E42]' : 'bg-green-600'}`}>
+            <p className="text-white font-bold">{role === 'sender' ? 'S' : 'R'}</p>
           </div>
         </div>
       </div>

@@ -170,6 +170,44 @@ export async function registerJudgeAccount(publicKey: string) {
       }
     });
 
+    // Automatically register the short ID on the smart contract
+    try {
+      const { rpc, xdr, Contract, Address, StrKey } = require('@stellar/stellar-sdk');
+      const server = new rpc.Server(HORIZON_TESTNET_URL.replace('horizon', 'soroban'), { allowHttp: true });
+      const horizonServer = new Horizon.Server(HORIZON_TESTNET_URL);
+      
+      const registrarSecret = process.env.REGISTRAR_SECRET_KEY;
+      if (registrarSecret) {
+        const registrarKp = Keypair.fromSecret(registrarSecret);
+        const registrarAccount = await horizonServer.loadAccount(registrarKp.publicKey());
+        const contract = new Contract(process.env.CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC");
+        
+        let tx = new TransactionBuilder(registrarAccount, { fee: "1000", networkPassphrase: Networks.TESTNET })
+          .addOperation(
+            contract.call(
+              'register_recipient',
+              new Address(registrarKp.publicKey()).toScVal(),
+              xdr.ScVal.scvBytes(Buffer.from(shortId, 'ascii')),
+              new Address(publicKey).toScVal()
+            )
+          )
+          .setTimeout(180)
+          .build();
+
+        const simulation = await server.simulateTransaction(tx);
+        if (rpc.Api.isSimulationError(simulation)) {
+           console.error("Simulation error registering shortId:", simulation.error);
+        } else {
+           tx = rpc.assembleTransaction(tx, simulation).build();
+           tx.sign(registrarKp);
+           await server.sendTransaction(tx);
+           console.log(`Successfully registered shortId ${shortId} on-chain for ${publicKey}`);
+        }
+      }
+    } catch (contractErr) {
+      console.error("Failed to register shortId on smart contract:", contractErr);
+    }
+
     return account.shortId;
   } catch (err: any) {
     console.error("Database registration failed:", err);
@@ -210,4 +248,12 @@ export async function simulateDeposit(publicKey: string, amount: string) {
     console.error("Simulation deposit failed:", err);
     return { success: false, error: err.message };
   }
+}
+
+export async function getPublicKeyFromShortId(shortId: string) {
+  const account = await prisma.account.findUnique({
+    where: { shortId }
+  });
+  if (!account) return null;
+  return account.stellarPublicKey;
 }

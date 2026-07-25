@@ -7,6 +7,8 @@ import { registerJudgeAccount } from './actions';
 interface JudgeContextType {
   publicKey: string;
   secretKey: string;
+  shortId: string;
+  role: string;
 }
 
 const JudgeContext = createContext<JudgeContextType | null>(null);
@@ -28,31 +30,48 @@ export default function GhostProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     async function initializeGhost() {
-      // 1. Check for Hardcoded Demo Account (Pre-provisioned Mobile Account)
-      const demoSecret = process.env.NEXT_PUBLIC_DEMO_SECRET_KEY;
-      if (demoSecret) {
+      // Parse role from URL if present
+      const urlParams = new URLSearchParams(window.location.search);
+      const role = urlParams.get('role') || 'sender';
+      const sessionKey = `judge_secret_${role}`;
+
+      // 1. Check if we already have a session for THIS role
+      const storedSec = sessionStorage.getItem(sessionKey);
+      if (storedSec) {
         try {
-          const kp = Keypair.fromSecret(demoSecret);
-          setJudge({ publicKey: kp.publicKey(), secretKey: kp.secret() });
+          const kp = Keypair.fromSecret(storedSec);
+          const shortId = await registerJudgeAccount(kp.publicKey());
+          setJudge({ publicKey: kp.publicKey(), secretKey: kp.secret(), shortId, role });
           setLoading(false);
           return;
-        } catch (err) {
-          console.error("Invalid NEXT_PUBLIC_DEMO_SECRET_KEY:", err);
+        } catch(err) {
+          console.error("Failed to restore session", err);
         }
       }
 
-      // 2. Check if we already have a session
-      const storedSec = sessionStorage.getItem('judge_secret');
-      if (storedSec) {
-        const kp = Keypair.fromSecret(storedSec);
-        setJudge({ publicKey: kp.publicKey(), secretKey: kp.secret() });
-        setLoading(false);
-        return;
+      // 2. Check for Hardcoded Demo Account (Pre-provisioned Mobile Account)
+      // Only use the hardcoded SENDER secret if the role is sender.
+      const senderSecret = process.env.NEXT_PUBLIC_DEMO_SECRET_KEY;
+      const receiverSecret = process.env.NEXT_PUBLIC_DEMO_RECEIVER_SECRET; // Optional
+      
+      const targetSecret = role === 'sender' ? senderSecret : receiverSecret;
+
+      if (targetSecret) {
+        try {
+          const kp = Keypair.fromSecret(targetSecret);
+          const shortId = await registerJudgeAccount(kp.publicKey());
+          sessionStorage.setItem(sessionKey, kp.secret());
+          setJudge({ publicKey: kp.publicKey(), secretKey: kp.secret(), shortId, role });
+          setLoading(false);
+          return;
+        } catch (err) {
+          console.error(`Invalid ${role} hardcoded secret:`, err);
+        }
       }
 
       try {
-        // 3. Generate new Keypair
-        setStatus("Generating secure judge wallet...");
+        // 3. Generate new Keypair (if no hardcoded secret exists for this role)
+        setStatus(`Generating secure ${role} wallet...`);
         const kp = Keypair.random();
         const publicKey = kp.publicKey();
         const secretKey = kp.secret();
@@ -81,12 +100,12 @@ export default function GhostProvider({ children }: { children: React.ReactNode 
         if (!txResponse.successful) throw new Error("Trustline transaction failed");
 
         // 4.5 Register in DB
-        setStatus("Registering judge in PostgreSQL...");
-        await registerJudgeAccount(publicKey);
+        setStatus("Registering in PostgreSQL...");
+        const shortId = await registerJudgeAccount(publicKey);
 
         // 5. Save to session and finish
-        sessionStorage.setItem('judge_secret', secretKey);
-        setJudge({ publicKey, secretKey });
+        sessionStorage.setItem(sessionKey, secretKey);
+        setJudge({ publicKey, secretKey, shortId, role });
         setLoading(false);
       } catch (err: any) {
         setStatus(`Error initializing: ${err.message}`);
