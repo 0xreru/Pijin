@@ -47,6 +47,13 @@ import { generateWalletMnemonic, deriveKeysFromMnemonic } from '../services/wall
 import * as SecureStore from 'expo-secure-store';
 import { ensureMigration } from '../services/storage/migration';
 import * as Clipboard from 'expo-clipboard';
+import {
+  CountryCodePicker,
+  CountryEntry,
+  DEFAULT_COUNTRY,
+  loadPersistedCountry,
+} from '../components/ui/CountryCodePicker';
+import { formatE164ForDisplay } from '../utils/phoneFormatter';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -92,6 +99,12 @@ export function OnboardingScreen() {
   // Phone form
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phoneError, setPhoneError] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState<CountryEntry>(DEFAULT_COUNTRY);
+
+  // Preload persisted country selection from AsyncStorage
+  useEffect(() => {
+    loadPersistedCountry().then(setSelectedCountry);
+  }, []);
 
   // OTP
   const [otp, setOtp] = useState('');
@@ -188,21 +201,32 @@ export function OnboardingScreen() {
   const handleSendOtp = async () => {
     if (isSendingOtp) return; // debounce
     const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-    if (cleanNumber.length !== 10) {
-      setPhoneError('Please enter a valid 10-digit phone number (e.g. 9123456789)');
+
+    // Validate digit length for the selected country (supports fixed or variable lengths)
+    const expectedLength = selectedCountry.digitLength;
+    const isValidLength = Array.isArray(expectedLength)
+      ? expectedLength.includes(cleanNumber.length)
+      : cleanNumber.length === expectedLength;
+    if (!isValidLength) {
+      const lengthDesc = Array.isArray(expectedLength)
+        ? expectedLength.join(' or ')
+        : expectedLength;
+      setPhoneError(`Please enter a valid ${lengthDesc}-digit phone number for ${selectedCountry.name}`);
       return;
     }
+
     setPhoneError('');
     setIsSendingOtp(true);
     try {
-      await saveUserPhone(cleanNumber);
+      const e164 = `${selectedCountry.dialCode}${cleanNumber}`;
+      // Store the full E.164 number so all downstream formatters have country context
+      await saveUserPhone(e164);
 
       // Check if user already exists (determines flow type)
-      const { exists } = await checkUserExists(cleanNumber).catch(() => ({ exists: false }));
+      const { exists } = await checkUserExists(e164).catch(() => ({ exists: false }));
       setUserFlowType(exists ? 'returning' : 'new');
 
       // Send the real OTP via the backend
-      const e164 = `+63${cleanNumber}`;
       const response = await fetch(`${API_URL}/api/otp/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -235,7 +259,7 @@ export function OnboardingScreen() {
     if (code.length !== 6) return;
     if (isVerifyingOtp) return;
     const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-    const e164 = `+63${cleanNumber}`;
+    const e164 = `${selectedCountry.dialCode}${cleanNumber}`;
     setIsVerifyingOtp(true);
     try {
       const response = await fetch(`${API_URL}/api/otp/verify`, {
@@ -405,11 +429,13 @@ export function OnboardingScreen() {
       // Register the account on the backend with two DISTINCT keys.
       // The Stellar wallet key is the on-chain balance address; the device key
       // is only for offline signing.
+      const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
       const registrationPayload = {
         stellarPublicKey,
         offlineDeviceKey,
         pin,
-        phoneNumber: '63' + phoneNumber,
+        // Send full E.164 — backend strips non-digits via /\D/g, same result
+        phoneNumber: `${selectedCountry.dialCode}${cleanNumber}`,
         firstName,
         lastName,
         email,
@@ -581,14 +607,18 @@ export function OnboardingScreen() {
               </View>
 
               <View style={styles.inputContainerRow}>
-                <View style={styles.countryCodeContainer}>
-                  <Text style={styles.countryCodeText}>+63</Text>
-                  <Ionicons name="caret-down" size={12} color="#08090A" style={styles.caret} />
-                </View>
+                <CountryCodePicker
+                  value={selectedCountry}
+                  onChange={(country) => {
+                    setSelectedCountry(country);
+                    setPhoneNumber('');
+                    setPhoneError('');
+                  }}
+                />
                 <View style={styles.phoneInputWrapper}>
                   <TextInput
                     style={styles.phoneInput}
-                    placeholder="912 345 6789"
+                    placeholder={selectedCountry.placeholder}
                     placeholderTextColor="#9CA3AF"
                     keyboardType="phone-pad"
                     value={phoneNumber}
@@ -596,7 +626,7 @@ export function OnboardingScreen() {
                       setPhoneNumber(text.replace(/[^0-9]/g, ''));
                       setPhoneError('');
                     }}
-                    maxLength={10}
+                    maxLength={selectedCountry.maxDigits}
                   />
                 </View>
               </View>
@@ -635,7 +665,10 @@ export function OnboardingScreen() {
               <View style={styles.textContainerLeft}>
                 <Text style={styles.stepTitleDark}>Verify OTP</Text>
                 <Text style={styles.stepSubtitleDark}>
-                  We sent a 6-digit code to +63 {phoneNumber ? `${phoneNumber.slice(0, 3)}-${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6)}` : '991-598-4988'}
+                  We sent a 6-digit code to{' '}
+                  {phoneNumber
+                    ? formatE164ForDisplay(`${selectedCountry.dialCode}${phoneNumber.replace(/[^0-9]/g, '')}`)
+                    : `${selectedCountry.dialCode} ···`}
                 </Text>
               </View>
 

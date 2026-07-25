@@ -1,0 +1,20 @@
+[
+  { "isoCode": "PH", "name": "Philippines",    "dialCode": "+63", "flag": "🇵🇭", "digitLength": 10, "maxDigits": 10, "placeholder": "912 345 6789" },
+  { "isoCode": "US", "name": "United States",  "dialCode": "+1",  "flag": "🇺🇸", "digitLength": 10, "maxDigits": 10, "placeholder": "212 555 1234" },
+  { "isoCode": "CA", "name": "Canada",          "dialCode": "+1",  "flag": "🇨🇦", "digitLength": 10, "maxDigits": 10, "placeholder": "416 555 1234" },
+  { "isoCode": "GB", "name": "United Kingdom",  "dialCode": "+44", "flag": "🇬🇧", "digitLength": 10, "maxDigits": 10, "placeholder": "7911 123456" },
+  { "isoCode": "AU", "name": "Australia",       "dialCode": "+61", "flag": "🇦🇺", "digitLength": 9,  "maxDigits": 9,  "placeholder": "412 345 678" },
+  { "isoCode": "NZ", "name": "New Zealand",     "dialCode": "+64", "flag": "🇳🇿", "digitLength": 9,  "maxDigits": 10, "placeholder": "21 123 4567" },
+  { "isoCode": "SG", "name": "Singapore",       "dialCode": "+65", "flag": "🇸🇬", "digitLength": 8,  "maxDigits": 8,  "placeholder": "9123 4567" },
+  { "isoCode": "MY", "name": "Malaysia",        "dialCode": "+60", "flag": "🇲🇾", "digitLength": [9, 10], "maxDigits": 10, "placeholder": "12 345 6789" },
+  { "isoCode": "ID", "name": "Indonesia",       "dialCode": "+62", "flag": "🇮🇩", "digitLength": [9, 10, 11], "maxDigits": 11, "placeholder": "812 345 6789" },
+  { "isoCode": "TH", "name": "Thailand",        "dialCode": "+66", "flag": "🇹🇭", "digitLength": 9,  "maxDigits": 9,  "placeholder": "81 234 5678" },
+  { "isoCode": "VN", "name": "Vietnam",         "dialCode": "+84", "flag": "🇻🇳", "digitLength": 9,  "maxDigits": 9,  "placeholder": "91 234 5678" },
+  { "isoCode": "JP", "name": "Japan",           "dialCode": "+81", "flag": "🇯🇵", "digitLength": 10, "maxDigits": 11, "placeholder": "90 1234 5678" },
+  { "isoCode": "KR", "name": "South Korea",     "dialCode": "+82", "flag": "🇰🇷", "digitLength": 10, "maxDigits": 11, "placeholder": "10 1234 5678" },
+  { "isoCode": "HK", "name": "Hong Kong",       "dialCode": "+852","flag": "🇭🇰", "digitLength": 8,  "maxDigits": 8,  "placeholder": "9123 4567" },
+  { "isoCode": "TW", "name": "Taiwan",          "dialCode": "+886","flag": "🇹🇼", "digitLength": 9,  "maxDigits": 9,  "placeholder": "912 345 678" },
+  { "isoCode": "IN", "name": "India",           "dialCode": "+91", "flag": "🇮🇳", "digitLength": 10, "maxDigits": 10, "placeholder": "912 345 6789" },
+  { "isoCode": "AE", "name": "United Arab Emirates", "dialCode": "+971", "flag": "🇦🇪", "digitLength": 9, "maxDigits": 9, "placeholder": "50 123 4567" },
+  { "isoCode": "SA", "name": "Saudi Arabia",    "dialCode": "+966","flag": "🇸🇦", "digitLength": 9,  "maxDigits": 9,  "placeholder": "51 234 5678" }
+]
