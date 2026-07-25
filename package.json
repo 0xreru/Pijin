@@ -4,6 +4,7 @@
     "packages/*"
   ],
   "devDependencies": {
+    "expo": "52.0.49",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "tailwindcss": "^4.0.0"
@@ -24,7 +25,6 @@
   "overrides": {
     "react-native": "0.76.9",
     "expo": "52.0.49",
-    "expo-media-library": "17.0.5",
     "metro": "0.80.12",
     "metro-cache": "0.80.12",
     "metro-config": "0.80.12",
