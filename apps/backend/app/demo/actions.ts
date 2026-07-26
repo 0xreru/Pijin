@@ -1,28 +1,60 @@
 "use server";
 
-import { Keypair, Horizon, TransactionBuilder, Asset, Networks, Operation } from '@stellar/stellar-sdk';
+import {
+  Address,
+  Asset,
+  Contract,
+  Horizon,
+  Keypair,
+  nativeToScVal,
+  Networks,
+  Operation,
+  rpc,
+  StrKey,
+  TransactionBuilder,
+  xdr,
+} from '@stellar/stellar-sdk';
 import { prisma } from '@/lib/prisma';
+import { parsePhpcToStroops } from '@/lib/demo/offline-transfer-balance';
 import { generateOfflineSmsPayload } from './utils/crypto';
 
+function requiredDemoEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`Server missing ${name}`);
+  return value;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function webhookErrorMessage(response: unknown, status: number): string {
+  if (
+    response &&
+    typeof response === 'object' &&
+    'error' in response &&
+    typeof response.error === 'string'
+  ) {
+    return response.error;
+  }
+  return `Webhook request failed with status ${status}`;
+}
+
 export async function submitOfflineVoucher(
-  senderSecretKey: string,
+  senderPublicKey: string,
+  senderDeviceSecretKey: string,
   receiverShortId: string,
-  amountPhp: number
+  amountPhpc: string,
 ) {
   try {
-    const senderKp = Keypair.fromSecret(senderSecretKey);
-    const publicKey = senderKp.publicKey();
-
-    let sender = await prisma.account.findUnique({ where: { stellarPublicKey: publicKey } });
-    
-    // Fallback: If they have a stale session but aren't in DB, register them now
-    if (!sender) {
-      console.log("Sender not in DB, auto-registering stale session...");
-      await registerJudgeAccount(publicKey);
-      sender = await prisma.account.findUnique({ where: { stellarPublicKey: publicKey } });
+    const senderDevice = Keypair.fromSecret(senderDeviceSecretKey);
+    const sender = await prisma.account.findUnique({
+      where: { stellarPublicKey: senderPublicKey },
+    });
+    if (!sender) throw new Error("Sender is not registered in DB");
+    if (sender.offlineDeviceKey !== senderDevice.publicKey()) {
+      throw new Error("Demo device key does not match the enrolled sender device");
     }
-    
-    if (!sender) throw new Error("Sender could not be registered in DB");
 
     const token = await prisma.token.findUnique({ where: { symbol: 'PHPC' } });
     if (!token) throw new Error("PHPC token not found in DB");
@@ -30,10 +62,13 @@ export async function submitOfflineVoucher(
     const gatewayPubKey = process.env.RELAYER_PUBLIC_KEY;
     if (!gatewayPubKey) throw new Error("Server missing RELAYER_PUBLIC_KEY");
 
-    const amountStroops = BigInt(Math.floor(amountPhp * 10_000_000));
+    const amountStroops = parsePhpcToStroops(amountPhpc);
+    if (amountStroops === null) {
+      throw new Error('Enter a valid PHPC amount with no more than 7 decimal places');
+    }
 
     const result = await generateOfflineSmsPayload({
-      senderSecretKey,
+      senderSecretKey: senderDeviceSecretKey,
       senderShortId: sender.shortId,
       receiverShortId,
       amountStroops,
@@ -43,8 +78,12 @@ export async function submitOfflineVoucher(
       tokenIdStr: token.id.toString(),
     });
 
-    const webhookSecret = process.env.TEXTBEE_WEBHOOK_SECRET || 'my-super-secret-password-123';
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const webhookSecret = requiredDemoEnv('TEXTBEE_WEBHOOK_SECRET');
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    ).replace(/\/+$/, '');
+    const senderTransportId =
+      sender.phoneNumber?.trim() || `demo:${sender.shortId}`;
     
     // Send to Webhook
     const res = await fetch(`${appUrl}/api/sms/webhook?secret=${webhookSecret}`, {
@@ -52,12 +91,26 @@ export async function submitOfflineVoucher(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: "RECEIVED",
-        sender: sender.phoneNumber,
+        sender: senderTransportId,
         message: result.smsPayload
       })
     });
 
-    const webhookResponse = await res.json();
+    const responseText = await res.text();
+    let webhookResponse: unknown = responseText;
+    try {
+      webhookResponse = JSON.parse(responseText);
+    } catch {
+      // Preserve non-JSON responses so the caller still gets useful context.
+    }
+
+    if (!res.ok) {
+      return {
+        success: false as const,
+        error: webhookErrorMessage(webhookResponse, res.status),
+        webhookResponse,
+      };
+    }
 
     // ─────────────────────────────────────────────────────────────────
     // LOCAL DEV BYPASS:
@@ -65,21 +118,42 @@ export async function submitOfflineVoucher(
     // Instead of incorrectly deducting the Testnet Online Balance, we just return a bypass flag
     // so the frontend can deduct the mock Offline Vault from sessionStorage.
     // ─────────────────────────────────────────────────────────────────
-    if (res.ok && process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development') {
       console.log("Local Dev Detected: Bypassing Qstash localhost restriction...");
-      return { success: true, debug: result.debug, webhookResponse, localBypass: true };
+      return {
+        success: true as const,
+        debug: {
+          ...result.debug,
+          smsPayload: result.smsPayload,
+          senderShortId: sender.shortId,
+        },
+        webhookResponse,
+        localBypass: true,
+      };
     }
 
-    return { success: res.ok, debug: result.debug, webhookResponse };
-  } catch (err: any) {
+    return {
+      success: true as const,
+      debug: {
+        ...result.debug,
+        smsPayload: result.smsPayload,
+        senderShortId: sender.shortId,
+      },
+      webhookResponse,
+    };
+  } catch (err: unknown) {
     console.error("Offline voucher simulation failed:", err);
-    return { success: false, error: err.message };
+    return { success: false as const, error: errorMessage(err) };
   }
 }
 
-export async function burnPHPC(publicKey: string, amountPhp: string, secretKey: string) {
+export async function burnPHPC(
+  publicKey: string,
+  amountPhp: string,
+  secretKey: string,
+  devicePublicKey: string,
+) {
   try {
-    const { rpc, xdr, Contract, Address, nativeToScVal, StrKey } = require('@stellar/stellar-sdk');
     const server = new rpc.Server(HORIZON_TESTNET_URL.replace('horizon', 'soroban'), { allowHttp: true });
     
     // 1. Load sequence
@@ -88,7 +162,7 @@ export async function burnPHPC(publicKey: string, amountPhp: string, secretKey: 
     
     // 2. Build TX
     const contract = new Contract(process.env.CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC");
-    const pubkeyRaw = StrKey.decodeEd25519PublicKey(publicKey);
+    const pubkeyRaw = StrKey.decodeEd25519PublicKey(devicePublicKey);
     const pubkeyScVal = xdr.ScVal.scvBytes(Buffer.from(pubkeyRaw));
     
     const amountStroops = BigInt(Math.floor(parseFloat(amountPhp) * 10_000_000));
@@ -137,9 +211,9 @@ export async function burnPHPC(publicKey: string, amountPhp: string, secretKey: 
     if (!isConfirmed) throw new Error("Transaction timed out. Please check again later.");
 
     return { success: true, hash: sendRes.hash };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Soroban Load Offline failed:", err);
-    return { success: false, error: err.message };
+    return { success: false, error: errorMessage(err) };
   }
 }
 
@@ -148,85 +222,15 @@ export async function mintPHPC(publicKey: string, amount: string) {
 }
 
 
-export async function registerJudgeAccount(publicKey: string) {
-  try {
-    const existing = await prisma.account.findUnique({
-      where: { stellarPublicKey: publicKey }
-    });
-    
-    if (existing) return existing.shortId;
-
-    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const shortId = `jd${randomSuffix}`;
-    const phoneNumber = `+63999000${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const account = await prisma.account.create({
-      data: {
-        stellarPublicKey: publicKey,
-        offlineDeviceKey: publicKey,
-        shortId: shortId,
-        phoneNumber: phoneNumber,
-        role: "USER"
-      }
-    });
-
-    // Automatically register the short ID on the smart contract
-    try {
-      const { rpc, xdr, Contract, Address, StrKey } = require('@stellar/stellar-sdk');
-      const server = new rpc.Server(HORIZON_TESTNET_URL.replace('horizon', 'soroban'), { allowHttp: true });
-      const horizonServer = new Horizon.Server(HORIZON_TESTNET_URL);
-      
-      const registrarSecret = process.env.REGISTRAR_SECRET_KEY;
-      if (registrarSecret) {
-        const registrarKp = Keypair.fromSecret(registrarSecret);
-        const registrarAccount = await horizonServer.loadAccount(registrarKp.publicKey());
-        const contract = new Contract(process.env.CONTRACT_ID || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC");
-        
-        let tx = new TransactionBuilder(registrarAccount, { fee: "1000", networkPassphrase: Networks.TESTNET })
-          .addOperation(
-            contract.call(
-              'register_recipient',
-              new Address(registrarKp.publicKey()).toScVal(),
-              xdr.ScVal.scvBytes(Buffer.from(shortId, 'ascii')),
-              new Address(publicKey).toScVal()
-            )
-          )
-          .setTimeout(180)
-          .build();
-
-        const simulation = await server.simulateTransaction(tx);
-        if (rpc.Api.isSimulationError(simulation)) {
-           console.error("Simulation error registering shortId:", simulation.error);
-        } else {
-           tx = rpc.assembleTransaction(tx, simulation).build();
-           tx.sign(registrarKp);
-           await server.sendTransaction(tx);
-           console.log(`Successfully registered shortId ${shortId} on-chain for ${publicKey}`);
-        }
-      }
-    } catch (contractErr) {
-      console.error("Failed to register shortId on smart contract:", contractErr);
-    }
-
-    return account.shortId;
-  } catch (err: any) {
-    console.error("Database registration failed:", err);
-    throw new Error("Failed to register Ghost Account in DB");
-  }
-}
-
-
-const PHPC_DIST_SECRET = "SCANG3TWL5L6HIJIPMGBU6HSAQBSPQTDNPGWPB5GDCH2PV3UGINPYKUF";
-const PHPC_ISSUER = "GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY";
 const HORIZON_TESTNET_URL = "https://horizon-testnet.stellar.org";
 const server = new Horizon.Server(HORIZON_TESTNET_URL);
 
 export async function simulateDeposit(publicKey: string, amount: string) {
   try {
-    const distKp = Keypair.fromSecret(PHPC_DIST_SECRET);
+    const distKp = Keypair.fromSecret(requiredDemoEnv('PHPC_DISTRIBUTOR_SECRET'));
     const distAccount = await server.loadAccount(distKp.publicKey());
     
-    const phpcAsset = new Asset("PHPC", PHPC_ISSUER);
+    const phpcAsset = new Asset("PHPC", requiredDemoEnv('PHPC_ISSUER_PUBKEY'));
 
     const tx = new TransactionBuilder(distAccount, {
       fee: "100",
@@ -244,9 +248,9 @@ export async function simulateDeposit(publicKey: string, amount: string) {
 
     const res = await server.submitTransaction(tx);
     return { success: res.successful, hash: res.hash };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Simulation deposit failed:", err);
-    return { success: false, error: err.message };
+    return { success: false, error: errorMessage(err) };
   }
 }
 

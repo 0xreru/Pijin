@@ -1,133 +1,181 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Keypair, Horizon, Asset, TransactionBuilder, Networks, Operation } from '@stellar/stellar-sdk';
-import { registerJudgeAccount } from './actions';
+import {
+  claimDemoSession,
+  demoAccessCode,
+  DEMO_SESSION_STORAGE_KEY,
+  type DemoSessionPayload,
+  retireDemoSession,
+} from './demo-session-client';
+
+type JudgeRole = 'sender' | 'receiver';
 
 interface JudgeContextType {
   publicKey: string;
   secretKey: string;
+  deviceSecretKey: string;
+  devicePublicKey: string;
   shortId: string;
-  role: string;
+  role: JudgeRole;
+  sessionId: string;
+  resetDemoSession: () => Promise<void>;
 }
 
 const JudgeContext = createContext<JudgeContextType | null>(null);
 
 export function useJudgeContext() {
-  const ctx = useContext(JudgeContext);
-  if (!ctx) throw new Error("useJudgeContext must be used within GhostProvider");
-  return ctx;
+  const context = useContext(JudgeContext);
+  if (!context) throw new Error('useJudgeContext must be used within GhostProvider');
+  return context;
 }
 
-const PHPC_ISSUER = 'GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY';
-const HORIZON_TESTNET_URL = 'https://horizon-testnet.stellar.org';
-const server = new Horizon.Server(HORIZON_TESTNET_URL);
+function storedSession(): DemoSessionPayload | null {
+  const raw = sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as DemoSessionPayload;
+  } catch {
+    sessionStorage.removeItem(DEMO_SESSION_STORAGE_KEY);
+    return null;
+  }
+}
 
 export default function GhostProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState("Initializing Simulation Environment...");
-  const [judge, setJudge] = useState<JudgeContextType | null>(null);
+  const [claiming, setClaiming] = useState(false);
+  const [status, setStatus] = useState('Loading demo session...');
+  const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<DemoSessionPayload | null>(null);
+  const [role, setRole] = useState<JudgeRole>('sender');
+  const [accessCode, setAccessCode] = useState('');
+
+  const activateSession = (payload: DemoSessionPayload) => {
+    sessionStorage.setItem(DEMO_SESSION_STORAGE_KEY, JSON.stringify(payload));
+    setSession(payload);
+    setError(null);
+  };
 
   useEffect(() => {
-    async function initializeGhost() {
-      // Parse role from URL if present
-      const urlParams = new URLSearchParams(window.location.search);
-      const role = urlParams.get('role') || 'sender';
-      const sessionKey = `judge_secret_${role}`;
+    let cancelled = false;
 
-      // 1. Check if we already have a session for THIS role
-      const storedSec = sessionStorage.getItem(sessionKey);
-      if (storedSec) {
-        try {
-          const kp = Keypair.fromSecret(storedSec);
-          const shortId = await registerJudgeAccount(kp.publicKey());
-          setJudge({ publicKey: kp.publicKey(), secretKey: kp.secret(), shortId, role });
-          setLoading(false);
-          return;
-        } catch(err) {
-          console.error("Failed to restore session", err);
-        }
-      }
+    const initialize = async () => {
+      // Yield once so this effect synchronizes with browser storage without
+      // triggering a synchronous set-state cascade.
+      await Promise.resolve();
+      const searchParams = new URLSearchParams(window.location.search);
+      const requestedRole: JudgeRole =
+        searchParams.get('role') === 'receiver' ? 'receiver' : 'sender';
+      const requestedSessionId = searchParams.get('session')?.trim();
+      const resolvedAccessCode = demoAccessCode(searchParams);
+      const cached = storedSession();
 
-      // 2. Check for Hardcoded Demo Account (Pre-provisioned Mobile Account)
-      // Only use the hardcoded SENDER secret if the role is sender.
-      const senderSecret = process.env.NEXT_PUBLIC_DEMO_SECRET_KEY;
-      const receiverSecret = process.env.NEXT_PUBLIC_DEMO_RECEIVER_SECRET; // Optional
-      
-      const targetSecret = role === 'sender' ? senderSecret : receiverSecret;
+      if (cancelled) return;
+      setRole(requestedRole);
+      setAccessCode(resolvedAccessCode);
 
-      if (targetSecret) {
-        try {
-          const kp = Keypair.fromSecret(targetSecret);
-          const shortId = await registerJudgeAccount(kp.publicKey());
-          sessionStorage.setItem(sessionKey, kp.secret());
-          setJudge({ publicKey: kp.publicKey(), secretKey: kp.secret(), shortId, role });
-          setLoading(false);
-          return;
-        } catch (err) {
-          console.error(`Invalid ${role} hardcoded secret:`, err);
-        }
-      }
-
-      try {
-        // 3. Generate new Keypair (if no hardcoded secret exists for this role)
-        setStatus(`Generating secure ${role} wallet...`);
-        const kp = Keypair.random();
-        const publicKey = kp.publicKey();
-        const secretKey = kp.secret();
-
-        // 3. Fund with Friendbot
-        setStatus("Funding wallet with XLM (Friendbot)...");
-        const res = await fetch(`https://friendbot.stellar.org/?addr=${publicKey}`);
-        if (!res.ok) throw new Error("Friendbot funding failed");
-
-        // 4. Establish PHPC Trustline
-        setStatus("Establishing PHPC Trustline...");
-        const account = await server.loadAccount(publicKey);
-        const phpcAsset = new Asset("PHPC", PHPC_ISSUER);
-
-        const tx = new TransactionBuilder(account, {
-          fee: "100",
-          networkPassphrase: Networks.TESTNET,
-        })
-          .addOperation(Operation.changeTrust({ asset: phpcAsset }))
-          .setTimeout(30)
-          .build();
-
-        tx.sign(kp);
-
-        const txResponse = await server.submitTransaction(tx);
-        if (!txResponse.successful) throw new Error("Trustline transaction failed");
-
-        // 4.5 Register in DB
-        setStatus("Registering in PostgreSQL...");
-        const shortId = await registerJudgeAccount(publicKey);
-
-        // 5. Save to session and finish
-        sessionStorage.setItem(sessionKey, secretKey);
-        setJudge({ publicKey, secretKey, shortId, role });
+      if (cached && (!requestedSessionId || cached.sessionId === requestedSessionId)) {
+        setSession(cached);
         setLoading(false);
-      } catch (err: any) {
-        setStatus(`Error initializing: ${err.message}`);
+        return;
       }
-    }
 
-    initializeGhost();
+      if (!requestedSessionId) {
+        setLoading(false);
+        return;
+      }
+
+      setStatus('Claiming your isolated Testnet account pair...');
+      try {
+        const payload = await claimDemoSession(requestedSessionId, resolvedAccessCode);
+        if (!cancelled) activateSession(payload);
+      } catch (cause) {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : 'Unable to claim demo session');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  if (loading) {
+  const startSession = async () => {
+    setClaiming(true);
+    setError(null);
+    setStatus('Claiming your isolated Testnet account pair...');
+    try {
+      const payload = await claimDemoSession(crypto.randomUUID(), accessCode);
+      activateSession(payload);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to claim demo session');
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  const resetDemoSession = async () => {
+    if (!session) return;
+    try {
+      await retireDemoSession(session.sessionId, accessCode);
+    } finally {
+      sessionStorage.removeItem(DEMO_SESSION_STORAGE_KEY);
+      if (window.top && window.top !== window) {
+        window.top.location.reload();
+      } else {
+        window.location.assign('/demo');
+      }
+    }
+  };
+
+  if (loading || claiming) {
     return (
       <div className="flex-1 bg-black text-white flex flex-col items-center justify-center p-8 text-center space-y-6">
-        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
         <div className="text-xl font-bold tracking-wide">Pijin</div>
         <p className="text-sm text-neutral-400">{status}</p>
       </div>
     );
   }
 
-  return (
-    <JudgeContext.Provider value={judge!}>
-      {children}
-    </JudgeContext.Provider>
-  );
+  if (!session) {
+    return (
+      <div className="flex-1 bg-black text-white flex flex-col items-center justify-center p-8 text-center">
+        <div className="text-2xl font-black tracking-tight">Pijin Judge Demo</div>
+        <p className="mt-3 text-sm text-neutral-400 max-w-xs">
+          Start a disposable Testnet session with two isolated phone accounts.
+        </p>
+        {error && (
+          <p className="mt-5 rounded-xl bg-red-950 px-4 py-3 text-xs text-red-200">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={startSession}
+          className="mt-8 rounded-full bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-500"
+        >
+          Start Fresh Demo Session
+        </button>
+      </div>
+    );
+  }
+
+  const account = session[role];
+  const context: JudgeContextType = {
+    publicKey: account.publicKey,
+    secretKey: account.walletSecret,
+    deviceSecretKey: account.deviceSecret,
+    devicePublicKey: account.devicePublicKey,
+    shortId: account.shortId,
+    role,
+    sessionId: session.sessionId,
+    resetDemoSession,
+  };
+
+  return <JudgeContext.Provider value={context}>{children}</JudgeContext.Provider>;
 }

@@ -1,30 +1,184 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJudgeContext } from '../../GhostProvider';
 import { submitOfflineVoucher } from '../../actions'; 
-import { ArrowLeft, Send, CheckCircle, WifiOff, FileCode2, Key, Database, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Send, CheckCircle, WifiOff, FileCode2, Key, Database, ExternalLink, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+  demoAccessCode,
+  getDemoSettlementStatus,
+} from '../../demo-session-client';
+import {
+  formatPhpcStroops,
+  quoteOfflineTransfer,
+} from '@/lib/demo/offline-transfer-balance';
+import { stellarExpertTestnetTxUrl } from '@/lib/demo/settlement-status';
 
 import Image from 'next/image';
 
+type VoucherDebugData = {
+  amountBase62?: string;
+  nonceB64?: string;
+  nonceHex?: string;
+  senderShortId?: string;
+  signatureB64?: string;
+  smsPayload?: string;
+};
+
+type VaultBalanceResponse = {
+  success?: boolean;
+  offlineBalanceStroops?: string;
+  error?: string;
+};
+
 export default function OfflineTransferPage() {
   const router = useRouter();
-  const { secretKey } = useJudgeContext();
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<"idle" | "visualizing" | "success" | "error">("idle");
+  const { publicKey, deviceSecretKey, shortId } = useJudgeContext();
+  const [status, setStatus] = useState<"idle" | "visualizing" | "queued" | "settled" | "error">("idle");
   const [receiver, setReceiver] = useState("");
   const [amount, setAmount] = useState("50");
-  const [debugData, setDebugData] = useState<any>(null);
+  const [debugData, setDebugData] = useState<VoucherDebugData | null>(null);
+  const [failureMessage, setFailureMessage] = useState("");
+  const [transactionHash, setTransactionHash] = useState("");
+  const [settlementCheckMessage, setSettlementCheckMessage] = useState("");
+  const [offlineBalanceStroops, setOfflineBalanceStroops] = useState<bigint | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(true);
+  const [balanceError, setBalanceError] = useState("");
 
   const [step, setStep] = useState(0);
 
+  const refreshOfflineBalance = useCallback(async (): Promise<bigint | null> => {
+    setBalanceLoading(true);
+    setBalanceError("");
+
+    try {
+      const response = await fetch(
+        `/api/vault-balance?stellarPublicKey=${encodeURIComponent(publicKey)}`,
+        { cache: 'no-store' },
+      );
+      const body = await response.json() as VaultBalanceResponse;
+      if (!response.ok || !body.success) {
+        throw new Error(body.error || 'Unable to read the offline vault balance');
+      }
+      if (
+        typeof body.offlineBalanceStroops !== 'string' ||
+        !/^\d+$/.test(body.offlineBalanceStroops)
+      ) {
+        throw new Error('The offline vault returned an invalid balance');
+      }
+
+      const balance = BigInt(body.offlineBalanceStroops);
+      setOfflineBalanceStroops(balance);
+      return balance;
+    } catch (error) {
+      setOfflineBalanceStroops(null);
+      setBalanceError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to read the offline vault balance',
+      );
+      return null;
+    } finally {
+      setBalanceLoading(false);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void refreshOfflineBalance();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [refreshOfflineBalance]);
+
+  const settlementNonce = debugData?.nonceB64;
+  const settlementSenderShortId = debugData?.senderShortId || shortId;
+  const stellarExpertUrl = stellarExpertTestnetTxUrl(transactionHash);
+
+  useEffect(() => {
+    if (status !== 'queued' || !settlementNonce) return;
+
+    let cancelled = false;
+    let timeoutId: number | undefined;
+
+    const scheduleNextCheck = (delayMs: number) => {
+      timeoutId = window.setTimeout(() => {
+        void checkSettlement();
+      }, delayMs);
+    };
+
+    const checkSettlement = async () => {
+      try {
+        const settlement = await getDemoSettlementStatus(
+          settlementNonce,
+          settlementSenderShortId,
+          demoAccessCode(),
+        );
+        if (cancelled) return;
+
+        if (settlement.status === 'SETTLED') {
+          if (!settlement.txHash || !stellarExpertTestnetTxUrl(settlement.txHash)) {
+            setFailureMessage('Settlement completed without a valid transaction hash');
+            setStatus('error');
+            return;
+          }
+          setTransactionHash(settlement.txHash);
+          setSettlementCheckMessage('');
+          setStatus('settled');
+          return;
+        }
+
+        if (settlement.status === 'FAILED') {
+          setFailureMessage(
+            settlement.failureReason || 'The offline settlement was rejected',
+          );
+          setStatus('error');
+          return;
+        }
+
+        setSettlementCheckMessage('');
+        scheduleNextCheck(1_500);
+      } catch (error) {
+        if (cancelled) return;
+        setSettlementCheckMessage(
+          error instanceof Error
+            ? `${error.message}. Retrying confirmation...`
+            : 'Confirmation check delayed. Retrying...',
+        );
+        scheduleNextCheck(3_000);
+      }
+    };
+
+    scheduleNextCheck(0);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [settlementNonce, settlementSenderShortId, status]);
+
+  const quote =
+    offlineBalanceStroops === null
+      ? null
+      : quoteOfflineTransfer(amount, offlineBalanceStroops);
+  const hasInsufficientBalance =
+    quote !== null && quote.shortfallStroops > 0n;
+  const canSubmit =
+    receiver.trim().length > 0 &&
+    quote !== null &&
+    !hasInsufficientBalance &&
+    !balanceLoading &&
+    !balanceError;
+
   const handleSimulateSms = async () => {
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
     if (!receiver) return;
 
-    setLoading(true);
+    const latestBalance = await refreshOfflineBalance();
+    if (latestBalance === null) return;
+    const latestQuote = quoteOfflineTransfer(amount, latestBalance);
+    if (!latestQuote || latestQuote.shortfallStroops > 0n) return;
+
     setStatus("visualizing");
+    setFailureMessage("");
     setStep(1); // Nonce generation
 
     setTimeout(() => setStep(2), 1500); // Amount Base62
@@ -32,16 +186,21 @@ export default function OfflineTransferPage() {
     setTimeout(() => setStep(4), 4500); // Ed25519 Sign
     setTimeout(() => setStep(5), 6000); // Webhook
 
-    const res = await submitOfflineVoucher(secretKey, receiver, Number(amount));
+    const res = await submitOfflineVoucher(
+      publicKey,
+      deviceSecretKey,
+      receiver,
+      amount,
+    );
     
     setTimeout(() => {
       if (res.success) {
         setDebugData(res.debug);
-        setStatus("success");
+        setStatus("queued");
       } else {
+        setFailureMessage(res.error);
         setStatus("error");
       }
-      setLoading(false);
     }, 7500);
   };
 
@@ -94,7 +253,62 @@ export default function OfflineTransferPage() {
                 className="bg-transparent text-3xl font-extrabold text-gray-900 w-full outline-none"
               />
             </div>
+            <div className="mt-3 flex items-center justify-between px-1 text-xs">
+              <span className="text-gray-500">
+                Available offline:{' '}
+                <strong className="text-gray-800">
+                  {offlineBalanceStroops === null
+                    ? '—'
+                    : `₱${formatPhpcStroops(offlineBalanceStroops)}`}
+                </strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => void refreshOfflineBalance()}
+                disabled={balanceLoading}
+                className="inline-flex items-center gap-1 font-bold text-blue-600 disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={balanceLoading ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
           </div>
+
+          {balanceError && (
+            <div role="alert" className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-left">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={20} className="mt-0.5 shrink-0 text-red-600" />
+                <div>
+                  <p className="text-sm font-bold text-red-800">Unable to verify offline funds</p>
+                  <p className="mt-1 text-xs leading-relaxed text-red-700">{balanceError}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {hasInsufficientBalance && quote && offlineBalanceStroops !== null && (
+            <div role="alert" className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-left">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-600" />
+                <div>
+                  <p className="text-sm font-bold text-amber-900">Not enough offline funds</p>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                    You have ₱{formatPhpcStroops(offlineBalanceStroops)}, but this
+                    transfer requires ₱{formatPhpcStroops(quote.requiredStroops)},
+                    including the ₱0.50 protocol fee. Load offline funds first
+                    before sending.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/demo/load-offline')}
+                    className="mt-3 rounded-full bg-amber-900 px-4 py-2 text-xs font-bold text-white hover:bg-amber-800"
+                  >
+                    Load Offline Funds
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           
           <div className="bg-white p-5 rounded-2xl border border-gray-100 mb-8 flex items-start shadow-sm">
             <div className="bg-gray-50 p-2 rounded-full mr-4 mt-1">
@@ -110,9 +324,14 @@ export default function OfflineTransferPage() {
 
           <button 
             onClick={handleSimulateSms}
-            className="w-full bg-black text-white font-bold py-5 rounded-full flex justify-center items-center mt-auto shadow-xl shadow-black/20 hover:scale-[1.02] active:scale-95 transition-all"
+            disabled={!canSubmit}
+            className="w-full bg-black text-white font-bold py-5 rounded-full flex justify-center items-center mt-auto shadow-xl shadow-black/20 hover:scale-[1.02] active:scale-95 transition-all disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none disabled:hover:scale-100"
           >
-            Compress & Send SMS
+            {balanceLoading
+              ? 'Checking Offline Balance...'
+              : hasInsufficientBalance
+                ? 'Load Offline Funds First'
+                : 'Compress & Send SMS'}
           </button>
         </div>
       )}
@@ -131,19 +350,51 @@ export default function OfflineTransferPage() {
         </div>
       )}
 
-      {status === "success" && (
+      {(status === "queued" || status === "settled") && (
         <div className="flex-1 flex flex-col items-center justify-center text-center animate-in zoom-in p-6">
-          <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mb-6">
-            <CheckCircle size={48} className="text-green-500" />
+          <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 ${status === 'settled' ? 'bg-green-50' : 'bg-blue-50'}`}>
+            {status === 'settled' ? (
+              <CheckCircle size={48} className="text-green-500" />
+            ) : (
+              <RefreshCw size={44} className="animate-spin text-blue-500" />
+            )}
           </div>
-          <h1 className="text-2xl font-black text-gray-900 mb-2">SMS Webhook Success!</h1>
-          <p className="text-gray-500 text-sm font-medium mb-8">The cryptographically secured 6-part voucher has been dispatched.</p>
+          <h1 className="text-2xl font-black text-gray-900 mb-2">
+            {status === 'settled' ? 'Transaction Settled' : 'Voucher Queued'}
+          </h1>
+          <p className="text-gray-500 text-sm font-medium mb-8">
+            {status === 'settled'
+              ? 'The offline payment is confirmed on Stellar Testnet.'
+              : 'The webhook accepted the voucher. Waiting for QStash and Stellar confirmation.'}
+          </p>
           
           <div className="w-full text-left bg-[#121212] p-5 rounded-2xl shadow-xl">
-            <p className="text-gray-400 mb-3 text-xs font-bold uppercase tracking-wider">// 6-Part Voucher Sent</p>
-            <p className="text-green-400 text-xs font-mono break-all mb-4">1:jd123:{receiver}:{debugData?.amountBase62}:{debugData?.nonceB64}:{debugData?.signatureB64}</p>
-            <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mt-4">// Settled in QStash via Deduplication ID</p>
-            <p className="text-green-400 text-xs font-mono break-all mt-1">jd123_{debugData?.nonceHex}</p>
+            <p className="text-gray-400 mb-3 text-xs font-bold uppercase tracking-wider">{'// 6-Part Voucher Sent'}</p>
+            <p className="text-green-400 text-xs font-mono break-all mb-4">{debugData?.smsPayload}</p>
+            {status === 'settled' && stellarExpertUrl ? (
+              <>
+                <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mt-4">{'// Transaction Hash'}</p>
+                <a
+                  href={stellarExpertUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex items-start gap-2 text-green-400 hover:text-green-300"
+                >
+                  <span className="min-w-0 break-all font-mono text-xs">{transactionHash}</span>
+                  <ExternalLink size={14} className="mt-0.5 shrink-0" />
+                </a>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mt-4">{'// QStash Deduplication ID'}</p>
+                <p className="text-blue-400 text-xs font-mono break-all mt-1">
+                  {settlementSenderShortId}_{settlementNonce}
+                </p>
+                <p className="mt-3 text-xs text-gray-400">
+                  {settlementCheckMessage || 'Checking settlement status...'}
+                </p>
+              </>
+            )}
           </div>
 
           <button 
@@ -157,8 +408,10 @@ export default function OfflineTransferPage() {
       
       {status === "error" && (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-          <h1 className="text-2xl font-black text-red-500">Webhook Failed</h1>
-          <p className="text-gray-500 text-sm mt-2">Check server logs for details.</p>
+          <h1 className="text-2xl font-black text-red-500">Transaction Failed</h1>
+          <p className="text-gray-500 text-sm mt-2 max-w-sm">
+            {failureMessage || "Check server logs for details."}
+          </p>
           <button onClick={() => setStatus("idle")} className="mt-8 bg-gray-100 text-gray-900 font-bold px-8 py-4 rounded-full">Retry</button>
         </div>
       )}
@@ -166,7 +419,7 @@ export default function OfflineTransferPage() {
   );
 }
 
-function StepCard({ active, icon, title, desc, isLast }: { active: boolean, icon: any, title: string, desc: string, isLast?: boolean }) {
+function StepCard({ active, icon, title, desc, isLast }: { active: boolean, icon: React.ReactNode, title: string, desc: string, isLast?: boolean }) {
   return (
     <div className={`flex items-start transition-all duration-700 ${active ? 'opacity-100 translate-y-0' : 'opacity-20 translate-y-2'}`}>
       <div className="flex flex-col items-center">

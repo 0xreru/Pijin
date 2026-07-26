@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useJudgeContext } from './GhostProvider';
 import { Horizon } from '@stellar/stellar-sdk';
 import { Send, ArrowDownToLine, RefreshCw, Smartphone, Cloud, ArrowDownCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { burnPHPC, mintPHPC } from './actions';
+import { mintPHPC } from './actions';
 
 const HORIZON_TESTNET_URL = 'https://horizon-testnet.stellar.org';
 const server = new Horizon.Server(HORIZON_TESTNET_URL);
 
 export default function DemoDashboard() {
-  const { publicKey, secretKey, shortId, role } = useJudgeContext();
+  const { publicKey, shortId, role, resetDemoSession } = useJudgeContext();
   const router = useRouter();
   const [balancePHPC, setBalancePHPC] = useState("0.00");
   const [offlineBalancePHPC, setOfflineBalancePHPC] = useState("0.00");
@@ -19,7 +19,7 @@ export default function DemoDashboard() {
   const [isOnline, setIsOnline] = useState(true);
   const [loadingAction, setLoadingAction] = useState(false);
 
-  const fetchBalance = async () => {
+  const fetchBalance = useCallback(async () => {
     try {
       const res = await fetch(`/api/vault-balance?stellarPublicKey=${publicKey}`);
       const data = await res.json();
@@ -31,34 +31,32 @@ export default function DemoDashboard() {
       
       // Also fetch native XLM for the UI just in case
       const account = await server.loadAccount(publicKey);
-      const xlm = account.balances.find((b: any) => b.asset_type === 'native');
+      const xlm = account.balances.find((b) => b.asset_type === 'native');
       if (xlm) setBalanceXLM(parseFloat(xlm.balance).toFixed(2));
       
     } catch (err) {
       console.error("Error fetching balance:", err);
     }
-  };
-
-  useEffect(() => {
-    fetchBalance();
   }, [publicKey]);
 
   // Hook to refresh when coming back from transfers and poll every 3 seconds
   useEffect(() => {
     const handleFocus = () => {
-      fetchBalance();
+      void fetchBalance();
     };
+    const initialTimeoutId = window.setTimeout(handleFocus, 0);
     window.addEventListener('focus', handleFocus);
     
-    const intervalId = setInterval(() => {
-      fetchBalance();
+    const intervalId = window.setInterval(() => {
+      void fetchBalance();
     }, 3000);
     
     return () => {
+      window.clearTimeout(initialTimeoutId);
       window.removeEventListener('focus', handleFocus);
-      clearInterval(intervalId);
+      window.clearInterval(intervalId);
     };
-  }, [publicKey]);
+  }, [fetchBalance]);
 
 
 
@@ -84,7 +82,7 @@ export default function DemoDashboard() {
       <div className="px-6 py-4 flex justify-between items-center">
         <div>
           <p className="text-xs text-neutral-500 font-bold tracking-wider uppercase">
-            {role === 'sender' ? 'Sender Phone' : 'Receiver Phone'}
+            {role === 'sender' ? 'Phone 1' : 'Phone 2'}
           </p>
           <p className="text-lg font-black text-[#001E42] mt-0.5">
             ID: {shortId}
@@ -92,17 +90,14 @@ export default function DemoDashboard() {
         </div>
         <div className="flex gap-2 items-center">
           <button 
-            onClick={() => {
-              sessionStorage.clear();
-              window.location.reload();
-            }}
+            onClick={() => void resetDemoSession()}
             className="w-10 h-10 bg-red-100 text-red-500 rounded-full flex items-center justify-center cursor-pointer hover:bg-red-200 shadow-sm"
             title="Reset Simulator"
           >
             <RefreshCw size={16} />
           </button>
           <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm ${role === 'sender' ? 'bg-[#001E42]' : 'bg-green-600'}`}>
-            <p className="text-white font-bold">{role === 'sender' ? 'S' : 'R'}</p>
+            <p className="text-white font-bold">{role === 'sender' ? '1' : '2'}</p>
           </div>
         </div>
       </div>

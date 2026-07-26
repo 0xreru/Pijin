@@ -1,14 +1,31 @@
 /**
  * Shared SMS notification utility.
  *
- * Sends a single SMS via the Textbee Android Gateway. This is intentionally
- * kept simple and fire-and-forget — callers should catch errors themselves.
- *
- * Required env vars:
- * TEXTBEE_GATEWAY_URL  – Full Textbee device endpoint URL
- * TEXTBEE_API_KEY      – API key sent in x-api-key header
+ * Required environment variables:
+ * TEXTBEE_GATEWAY_URL - Full Textbee device endpoint URL
+ * TEXTBEE_API_KEY     - API key sent in the x-api-key header
  */
+
+export function normalizeSmsRecipient(to: string): string | null {
+    const compact = to.trim().replace(/[\s().-]/g, '');
+
+    let normalized = compact;
+    if (/^09\d{9}$/.test(normalized)) {
+        normalized = `+63${normalized.slice(1)}`;
+    } else if (/^63\d{10}$/.test(normalized)) {
+        normalized = `+${normalized}`;
+    }
+
+    return /^\+[1-9]\d{7,14}$/.test(normalized) ? normalized : null;
+}
+
 export async function sendSmsNotification(to: string, message: string): Promise<void> {
+    const formattedTo = normalizeSmsRecipient(to);
+    if (!formattedTo) {
+        console.info('[SMS] Skipped notification for non-phone recipient');
+        return;
+    }
+
     const gatewayUrl = process.env.TEXTBEE_GATEWAY_URL;
     const apiKey = process.env.TEXTBEE_API_KEY;
 
@@ -17,30 +34,15 @@ export async function sendSmsNotification(to: string, message: string): Promise<
         return;
     }
 
-    // Clean any weird characters from the incoming number
-    let formattedTo = to.trim().replace(/[^0-9+]/g, '');
-    
-    // Textbee strictly requires E.164 format (+639...) to deliver via local cell towers.
-    // If the number starts with '09' (local PH format), convert it to '+639'.
-    // If it starts with '63' (missing the '+'), prepend the '+'.
-    if (formattedTo.startsWith('09') && formattedTo.length === 11) {
-        formattedTo = '+63' + formattedTo.substring(1);
-    } else if (formattedTo.startsWith('63') && formattedTo.length === 12) {
-        formattedTo = '+' + formattedTo;
-    } else if (!formattedTo.startsWith('+')) {
-         // Fallback just in case
-         formattedTo = '+' + formattedTo;
-    }
-
     const response = await fetch(gatewayUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
         },
-        body: JSON.stringify({ 
-            recipients: [formattedTo], 
-            message 
+        body: JSON.stringify({
+            recipients: [formattedTo],
+            message,
         }),
     });
 
