@@ -19,6 +19,16 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(projectRoot);
 
+// --- FIX EXPO ASSET PLUGIN RESOLUTION FOR EAS/MONOREPO ---
+if (config.transformer && config.transformer.assetPlugins) {
+  config.transformer.assetPlugins = config.transformer.assetPlugins.map(plugin => {
+    if (plugin === 'expo-asset/tools/hashAssetFiles') {
+      return require.resolve('expo-asset/tools/hashAssetFiles');
+    }
+    return plugin;
+  });
+}
+
 // --- MONOREPO CONFIGURATION ---
 // 1. Watch all files within the monorepo root so Metro can see hoisted packages
 config.watchFolders = [workspaceRoot];

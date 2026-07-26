@@ -6,6 +6,7 @@ import {
   About,
   MeetTheTeam,
   FAQ,
+  Banner,
   Footer,
 } from './components';
 
@@ -16,6 +17,7 @@ export default function HomePage() {
       <About />
       <MeetTheTeam />
       <FAQ />
+      <Banner />
       <Footer />
     </Layout>
   );
