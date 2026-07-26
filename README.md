@@ -96,8 +96,7 @@ The app uses familiar, **non-technical** labels:
 2. Watch the product demo video on the website before selecting **Simulate App**. This provides context for the complete Pijin flow before you test the focused simulation.
 
 ### 2. Open the simulator
-
-1. Select **Simulate App** on the website, or open the **[Pijin App Simulator](https://pijin.live/demo-split)** directly.
+1. Select **Simulate App** on the website, or open the <a href="https://pijin.live/demo-split" target="_blank"><strong>Pijin App Simulator</a></strong> directly.
 2. Read all onboarding slides and select **Continue** after each one.
 3. On the final slide, confirm that you are using a desktop view, then select **Enter the Demo Environment**.
 4. Wait while the sandbox initializes and prepares two isolated Stellar Testnet accounts. Do not refresh or close the page during initialization.
