@@ -4,7 +4,6 @@ import { Networks } from '@stellar/stellar-sdk';
 const DEFAULT_PAIR_COUNT = 14;
 const DEFAULT_QA_PAIR_COUNT = 2;
 const DEFAULT_SESSION_TTL_HOURS = 12;
-const DEFAULT_STARTING_PHPC = '1000';
 
 function positiveInteger(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -28,7 +27,6 @@ export function demoPoolConfig() {
       process.env.DEMO_SESSION_TTL_HOURS,
       DEFAULT_SESSION_TTL_HOURS,
     ),
-    startingPhpc: process.env.DEMO_STARTING_PHPC?.trim() || DEFAULT_STARTING_PHPC,
   };
 }
 

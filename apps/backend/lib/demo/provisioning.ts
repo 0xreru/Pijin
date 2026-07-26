@@ -32,7 +32,6 @@ const HORIZON_TESTNET_URL =
 const horizon = new Horizon.Server(HORIZON_TESTNET_URL);
 const BASE_FEE = '100';
 const TX_TIMEOUT_SECONDS = 180;
-const STROOPS_PER_UNIT = 10_000_000n;
 
 type PairSecrets = {
   senderWallet: Keypair;
@@ -73,23 +72,6 @@ function isNotFound(error: unknown): boolean {
     'status' in error.response &&
     error.response.status === 404
   );
-}
-
-function decimalToStroops(value: string): bigint {
-  const match = /^(\d+)(?:\.(\d{0,7}))?$/.exec(value.trim());
-  if (!match) throw new Error(`Invalid Stellar amount: ${value}`);
-  const whole = BigInt(match[1]);
-  const fraction = (match[2] ?? '').padEnd(7, '0');
-  return whole * STROOPS_PER_UNIT + BigInt(fraction || '0');
-}
-
-function stroopsToDecimal(value: bigint): string {
-  const whole = value / STROOPS_PER_UNIT;
-  const fraction = (value % STROOPS_PER_UNIT)
-    .toString()
-    .padStart(7, '0')
-    .replace(/0+$/, '');
-  return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
 async function loadAccountOrNull(publicKey: string) {
@@ -232,34 +214,6 @@ async function ensureOfflineKey(
   await rotation.signAndSend({
     signTransaction: (xdr, options) => signWith(wallet, xdr, options),
   });
-}
-
-async function ensureStartingBalance(
-  wallet: Keypair,
-  targetAmount: string,
-): Promise<void> {
-  const account = await horizon.loadAccount(wallet.publicKey());
-  const current = decimalToStroops(findPhpcBalance(account) ?? '0');
-  const target = decimalToStroops(targetAmount);
-  if (current >= target) return;
-
-  const distributor = Keypair.fromSecret(requiredEnv('PHPC_DISTRIBUTOR_SECRET'));
-  const distributorAccount = await horizon.loadAccount(distributor.publicKey());
-  const transaction = new TransactionBuilder(distributorAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      Operation.payment({
-        destination: wallet.publicKey(),
-        asset: phpcAsset(),
-        amount: stroopsToDecimal(target - current),
-      }),
-    )
-    .setTimeout(TX_TIMEOUT_SECONDS)
-    .build();
-  transaction.sign(distributor);
-  await horizon.submitTransaction(transaction);
 }
 
 function newPairSecrets(): PairSecrets {
@@ -439,9 +393,6 @@ async function provisionPair(pair: DemoAccountPair): Promise<void> {
     await ensureOfflineKey(secrets.senderWallet, secrets.senderDevice);
     await ensureOfflineKey(secrets.receiverWallet, secrets.receiverDevice);
 
-    const { startingPhpc } = demoPoolConfig();
-    await ensureStartingBalance(secrets.senderWallet, startingPhpc);
-    await ensureStartingBalance(secrets.receiverWallet, startingPhpc);
     await verifyDemoPair(pair.id);
 
     await prisma.demoAccountPair.update({
