@@ -289,13 +289,13 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 <img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
 
 - 🔗 **Pijin App Simulator:** [Live Demo](https://pijin.live/demo-split)
-- 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/4bd23b10-ba65-492a-b6e0-2a83b7260b12)
+- 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/fa770cff-7d57-44f9-b94d-8a1e1c73e2aa)
 - 🔗 **Pijin Website:** [Pijin Website](https://pijin.live)
 - 🔗 **Pijin API:** [Pijin API](https://pijin.live/api-docs) 
 - 🔗 **Treasury Portal:** [Pijin Treasury Portal](https://pijin-treasury-portal.vercel.app)
 - 🔗 **𝕏 Account:** [Pijin X Account](https://x.com/supportpijin)
 - 🎬 **Demo Video:** [Google Drive link](https://drive.google.com/drive/folders/1t6U8wcVb51mi0uzTqRw5SjulPRAxKj4w?fbclid=IwY2xjawTFPk5leHRuA2FlbQIxMABicmlkETF3Wm82aU56ZHFma0pGQmFQc3J0YwZhcHBfaWQQMjIyMDM5MTc4ODIwMDg5MgABHq_xaoYl2-Dgd9RmSoQc3SldJ-Z-oKXJb6OHMCCuLCpf2uL49ET3IVDRL2rO_aem_uB4143FHr410vqQskDKX7A)
-- 🖼️ **Pitch Deck:** [Canva link](https://www.canva.com/design/DAHPdpDXm5k/b5wIV2DLf6mnzxYA4wJKvg/edit)
+- 🖼️ **Pitch Deck:** [Canva link](https://www.canva.com/design/DAHQftZcNfQ/stkrT_pfyH_xrup4vs31WQ/edit)
 
 <div align="center">
 
