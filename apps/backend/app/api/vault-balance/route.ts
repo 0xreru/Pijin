@@ -104,6 +104,18 @@ import { Horizon } from "@stellar/stellar-sdk";
 const HORIZON_URL = process.env.SOROBAN_RPC_URL?.replace("soroban-testnet", "horizon-testnet") ?? "https://horizon-testnet.stellar.org";
 const server = new Horizon.Server(HORIZON_URL);
 
+function isHorizonNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error &&
+    typeof error.response === "object" &&
+    error.response !== null &&
+    "status" in error.response &&
+    error.response.status === 404
+  );
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -148,8 +160,13 @@ export async function GET(req: NextRequest) {
       const account = await server.loadAccount(stellarPublicKey);
       
       const issuer = process.env.PHPC_ISSUER_PUBKEY ?? "GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY";
-      const trustlineBalance = account.balances.find((b: any) => {
-        if (b.asset_type === "native") return false;
+      const trustlineBalance = account.balances.find((b) => {
+        if (
+          b.asset_type !== "credit_alphanum4" &&
+          b.asset_type !== "credit_alphanum12"
+        ) {
+          return false;
+        }
         return b.asset_code === "PHPC" && b.asset_issuer === issuer;
       });
 
@@ -157,8 +174,8 @@ export async function GET(req: NextRequest) {
         balancePHP = parseFloat(trustlineBalance.balance);
         balanceStroops = BigInt(Math.round(balancePHP * 10_000_000));
       }
-    } catch (err: any) {
-      if (err?.response?.status === 404) {
+    } catch (err: unknown) {
+      if (isHorizonNotFound(err)) {
         console.info(`[Vault Balance API] Account not found on Horizon: ${stellarPublicKey}`);
       } else {
         console.error("[Vault Balance API] Horizon loadAccount error:", err);
@@ -166,17 +183,32 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    let offlineBalanceStroops = BigInt(0);
     let offlineBalancePHP: number = 0;
     try {
-      const tokenAddress = process.env.TOKEN_ID ?? "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+      const phpcToken = await prisma.token.findUnique({
+        where: { symbol: "PHPC" },
+        select: { contractId: true, isActive: true },
+      });
+      if (!phpcToken?.isActive) {
+        return NextResponse.json(
+          { error: "PHPC token is not configured or is inactive." },
+          { status: 503 },
+        );
+      }
+
       const vaultTx = await pijinContract.get_vault({
         user: stellarPublicKey,
-        token: tokenAddress,
+        token: phpcToken.contractId,
       });
-      const offlineStroops = vaultTx.result;
-      offlineBalancePHP = Number(offlineStroops) / 10_000_000;
+      offlineBalanceStroops = vaultTx.result;
+      offlineBalancePHP = Number(offlineBalanceStroops) / 10_000_000;
     } catch (err) {
       console.error("[Vault Balance API] Failed to fetch offline vault balance:", err);
+      return NextResponse.json(
+        { error: "Failed to read offline vault balance from Stellar network." },
+        { status: 502 },
+      );
     }
 
     return NextResponse.json({
@@ -185,6 +217,7 @@ export async function GET(req: NextRequest) {
       shortId: shortIdFound,
       balanceStroops: balanceStroops.toString(),
       balancePHP,
+      offlineBalanceStroops: offlineBalanceStroops.toString(),
       offlineBalancePHP,
     });
 

@@ -22,6 +22,19 @@ enum SettlementStatus {
   FAILED
 }
 
+enum DemoPairPurpose {
+  JUDGE
+  QA
+}
+
+enum DemoPairStatus {
+  PROVISIONING
+  READY
+  LEASED
+  FAILED
+  RETIRED
+}
+
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
@@ -40,7 +53,37 @@ model Account {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
+  demoSenderPair   DemoAccountPair? @relation("DemoSenderAccount")
+  demoReceiverPair DemoAccountPair? @relation("DemoReceiverAccount")
+
   @@map("account")
+}
+
+/// A pre-provisioned, single-use pair of disposable Testnet accounts for judges.
+/// Secrets are encrypted by the application before they are persisted.
+model DemoAccountPair {
+  id                            String          @id @default(cuid())
+  senderAccountId               Int             @unique @map("sender_account_id")
+  receiverAccountId             Int             @unique @map("receiver_account_id")
+  encryptedSenderWalletSecret   String          @map("encrypted_sender_wallet_secret")
+  encryptedReceiverWalletSecret String          @map("encrypted_receiver_wallet_secret")
+  encryptedSenderDeviceSecret   String          @map("encrypted_sender_device_secret")
+  encryptedReceiverDeviceSecret String          @map("encrypted_receiver_device_secret")
+  purpose                       DemoPairPurpose @default(JUDGE)
+  status                        DemoPairStatus  @default(PROVISIONING)
+  claimedByHash                 String?         @unique @map("claimed_by_hash")
+  claimedAt                     DateTime?       @map("claimed_at")
+  expiresAt                     DateTime?       @map("expires_at")
+  lastVerifiedAt                DateTime?       @map("last_verified_at")
+  lastError                     String?         @map("last_error")
+  createdAt                     DateTime        @default(now()) @map("created_at")
+  updatedAt                     DateTime        @updatedAt @map("updated_at")
+
+  senderAccount   Account @relation("DemoSenderAccount", fields: [senderAccountId], references: [id], onDelete: Restrict)
+  receiverAccount Account @relation("DemoReceiverAccount", fields: [receiverAccountId], references: [id], onDelete: Restrict)
+
+  @@index([purpose, status, createdAt])
+  @@map("demo_account_pair")
 }
 
 model GatewayNode {
