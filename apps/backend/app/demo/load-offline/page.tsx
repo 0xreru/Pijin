@@ -10,7 +10,7 @@ import Image from 'next/image';
 
 export default function LoadOfflinePage() {
   const router = useRouter();
-  const { publicKey, secretKey } = useJudgeContext();
+  const { publicKey, secretKey, devicePublicKey } = useJudgeContext();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<"idle" | "visualizing" | "success" | "error">("idle");
   const [amount, setAmount] = useState("50");
@@ -29,7 +29,7 @@ export default function LoadOfflinePage() {
     setTimeout(() => setStep(4), 4500); // Sign
     setTimeout(() => setStep(5), 6000); // Send & Poll
 
-    const res = await burnPHPC(publicKey, amount, secretKey);
+    const res = await burnPHPC(publicKey, amount, secretKey, devicePublicKey);
     
     if (res.success) {
       setTxHash(res.hash || "");

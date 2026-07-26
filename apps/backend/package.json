@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo:pool": "tsx scripts/provision-demo-pool.ts",
+    "demo:verify": "tsx scripts/verify-demo-pool.ts",
+    "demo:test-leasing": "tsx scripts/test-demo-leasing.ts",
+    "demo:test-qa": "tsx scripts/test-demo-qa.ts",
+    "demo:test": "tsx --test lib/demo/*.test.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -41,6 +46,7 @@
     "@tailwindcss/postcss": "^4.0.0",
     "prisma": "^7.8.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
 }
