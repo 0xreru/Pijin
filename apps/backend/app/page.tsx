@@ -7,6 +7,7 @@ import {
   ProductTour,
   MeetTheTeam,
   FAQ,
+  Banner,
   Footer,
 } from './components';
 
@@ -18,6 +19,7 @@ export default function HomePage() {
       <ProductTour />
       <MeetTheTeam />
       <FAQ />
+      <Banner />
       <Footer />
     </Layout>
   );
