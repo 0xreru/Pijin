@@ -6,7 +6,11 @@ import { useJudgeContext } from '../../GhostProvider';
 import { ArrowLeft, Send, CheckCircle, Globe } from 'lucide-react';
 import { Horizon, Keypair, TransactionBuilder, Networks, Asset, Operation } from '@stellar/stellar-sdk';
 import { getPublicKeyFromShortId } from '../../actions';
-import Image from 'next/image';
+import {
+  createDemoEvent,
+  publishDemoEvent,
+  recordLocalDemoHistory,
+} from '../../demo-events';
 
 const HORIZON_TESTNET_URL = 'https://horizon-testnet.stellar.org';
 const server = new Horizon.Server(HORIZON_TESTNET_URL);
@@ -14,24 +18,41 @@ const PHPC_ISSUER = "GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY";
 
 export default function OnlineTransferPage() {
   const router = useRouter();
-  const { secretKey } = useJudgeContext();
-  const [loading, setLoading] = useState(false);
+  const { publicKey, secretKey, role, sessionId } = useJudgeContext();
   const [status, setStatus] = useState<"idle" | "sending" | "success" | "error" | "not_found">("idle");
   const [receiver, setReceiver] = useState("");
   const [amount, setAmount] = useState("10");
+  const [operationId] = useState(() => crypto.randomUUID());
 
   const handleSend = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
     if (!receiver) return;
 
-    setLoading(true);
     setStatus("sending");
+    publishDemoEvent(createDemoEvent({
+      id: operationId,
+      sessionId,
+      role,
+      phase: 'pending',
+      title: 'Sending online payment',
+      message: `Sending ₱${amount} PHPC to ${receiver}.`,
+      tag: 'WALLET',
+      amount,
+      assetCode: 'PHPC',
+    }));
     
     try {
       const destinationPubKey = await getPublicKeyFromShortId(receiver);
       if (!destinationPubKey) {
         setStatus("not_found");
-        setLoading(false);
+        publishDemoEvent(createDemoEvent({
+          id: operationId,
+          sessionId,
+          role,
+          phase: 'error',
+          title: 'Receiver not found',
+          message: `No Pijin account matches ${receiver}.`,
+        }));
         return;
       }
 
@@ -56,14 +77,56 @@ export default function OnlineTransferPage() {
       
       if (res.successful) {
         setStatus("success");
+        const timestamp = new Date().toISOString();
+        recordLocalDemoHistory(sessionId, publicKey, {
+          id: `online:${res.hash}:send`,
+          type: 'SEND',
+          tag: 'WALLET',
+          title: `Sent to ${receiver}`,
+          amount: `-${amount}`,
+          assetCode: 'PHPC',
+          status: 'SETTLED',
+          timestamp,
+          txHash: res.hash,
+        });
+        recordLocalDemoHistory(sessionId, destinationPubKey, {
+          id: `online:${res.hash}:receive`,
+          type: 'RECEIVE',
+          tag: 'WALLET',
+          title: `Received from ${shorten(publicKey)}`,
+          amount,
+          assetCode: 'PHPC',
+          status: 'SETTLED',
+          timestamp,
+          txHash: res.hash,
+        });
+        publishDemoEvent(createDemoEvent({
+          id: operationId,
+          sessionId,
+          role,
+          phase: 'success',
+          title: 'Online transfer complete',
+          message: `₱${amount} PHPC was sent to ${receiver}.`,
+          tag: 'WALLET',
+          amount,
+          assetCode: 'PHPC',
+          txHash: res.hash,
+        }));
       } else {
         setStatus("error");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Online transfer failed:", err);
       setStatus("error");
+      publishDemoEvent(createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'error',
+        title: 'Online transfer failed',
+        message: err instanceof Error ? err.message : 'The Stellar payment failed.',
+      }));
     } finally {
-      setLoading(false);
     }
   };
 
@@ -150,7 +213,7 @@ export default function OnlineTransferPage() {
       {status === "not_found" && (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
           <h1 className="text-2xl font-black text-red-500">Account Not Found</h1>
-          <p className="text-gray-500 text-sm mt-2">The Short ID "{receiver}" does not exist.</p>
+          <p className="text-gray-500 text-sm mt-2">The Short ID &quot;{receiver}&quot; does not exist.</p>
           <button onClick={() => setStatus("idle")} className="mt-8 bg-gray-100 text-gray-900 font-bold px-8 py-4 rounded-full">Try Again</button>
         </div>
       )}
@@ -182,4 +245,8 @@ export default function OnlineTransferPage() {
       )}
     </div>
   );
+}
+
+function shorten(publicKey: string) {
+  return `${publicKey.slice(0, 6)}…${publicKey.slice(-4)}`;
 }

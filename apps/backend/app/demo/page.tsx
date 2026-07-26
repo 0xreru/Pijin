@@ -1,218 +1,274 @@
 "use client";
 
+import { Horizon } from '@stellar/stellar-sdk';
+import {
+  ArrowDownCircle,
+  ArrowDownToLine,
+  Cloud,
+  RefreshCw,
+  Send,
+  Smartphone,
+  WalletCards,
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useJudgeContext } from './GhostProvider';
-import { Horizon } from '@stellar/stellar-sdk';
-import { Send, ArrowDownToLine, RefreshCw, Smartphone, Cloud, ArrowDownCircle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { mintPHPC } from './actions';
+import { RecentActivity } from './RecentActivity';
+import { createDemoEvent, publishDemoEvent } from './demo-events';
 
-const HORIZON_TESTNET_URL = 'https://horizon-testnet.stellar.org';
-const server = new Horizon.Server(HORIZON_TESTNET_URL);
+const server = new Horizon.Server('https://horizon-testnet.stellar.org');
 
 export default function DemoDashboard() {
-  const { publicKey, shortId, role, resetDemoSession } = useJudgeContext();
+  const { publicKey, shortId, role, sessionId, resetDemoSession } =
+    useJudgeContext();
   const router = useRouter();
-  const [balancePHPC, setBalancePHPC] = useState("0.00");
-  const [offlineBalancePHPC, setOfflineBalancePHPC] = useState("0.00");
-  const [balanceXLM, setBalanceXLM] = useState("0.00");
+  const [balancePHPC, setBalancePHPC] = useState('0.00');
+  const [offlineBalancePHPC, setOfflineBalancePHPC] = useState('0.00');
+  const [balanceXLM, setBalanceXLM] = useState('0.00');
   const [isOnline, setIsOnline] = useState(true);
-  const [loadingAction, setLoadingAction] = useState(false);
+
+  const emit = (
+    title: string,
+    message: string,
+    id = crypto.randomUUID(),
+  ) =>
+    publishDemoEvent(
+      createDemoEvent({
+        id,
+        sessionId,
+        role,
+        phase: 'info',
+        title,
+        message,
+      }),
+    );
 
   const fetchBalance = useCallback(async () => {
     try {
-      const res = await fetch(`/api/vault-balance?stellarPublicKey=${publicKey}`);
-      const data = await res.json();
-      
+      const response = await fetch(
+        `/api/vault-balance?stellarPublicKey=${publicKey}`,
+        { cache: 'no-store' },
+      );
+      const data = await response.json();
       if (data.success) {
         setBalancePHPC(data.balancePHP.toFixed(2));
         setOfflineBalancePHPC(data.offlineBalancePHP.toFixed(2));
       }
-      
-      // Also fetch native XLM for the UI just in case
       const account = await server.loadAccount(publicKey);
-      const xlm = account.balances.find((b) => b.asset_type === 'native');
-      if (xlm) setBalanceXLM(parseFloat(xlm.balance).toFixed(2));
-      
-    } catch (err) {
-      console.error("Error fetching balance:", err);
+      const xlm = account.balances.find((balance) => balance.asset_type === 'native');
+      if (xlm) setBalanceXLM(Number(xlm.balance).toFixed(2));
+    } catch (error) {
+      console.error('Error fetching demo balance:', error);
     }
   }, [publicKey]);
 
-  // Hook to refresh when coming back from transfers and poll every 3 seconds
   useEffect(() => {
-    const handleFocus = () => {
-      void fetchBalance();
+    const initialRefresh = window.setTimeout(() => void fetchBalance(), 0);
+    const handleFocus = () => void fetchBalance();
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        event.origin === window.location.origin &&
+        event.data?.type === 'pijin:demo-refresh' &&
+        event.data?.sessionId === sessionId
+      ) {
+        void fetchBalance();
+      }
     };
-    const initialTimeoutId = window.setTimeout(handleFocus, 0);
     window.addEventListener('focus', handleFocus);
-    
-    const intervalId = window.setInterval(() => {
-      void fetchBalance();
-    }, 3000);
-    
+    window.addEventListener('message', handleMessage);
     return () => {
-      window.clearTimeout(initialTimeoutId);
+      window.clearTimeout(initialRefresh);
       window.removeEventListener('focus', handleFocus);
-      window.clearInterval(intervalId);
+      window.removeEventListener('message', handleMessage);
     };
-  }, [fetchBalance]);
+  }, [fetchBalance, sessionId]);
 
+  const navigate = (title: string, path: string) => {
+    emit(title, `Opened ${title.toLowerCase()}.`);
+    router.push(path);
+  };
 
-
-  const handleSyncOnline = async () => {
-    const amt = prompt(`How much PHPC would you like to unlock back to your online balance? (Max: ${offlineBalancePHPC})`);
-    if (!amt || isNaN(Number(amt)) || Number(amt) <= 0 || Number(amt) > Number(offlineBalancePHPC)) return;
-    
-    setLoadingAction(true);
-    // Mint to trustline to simulate vault unlock
-    const res = await mintPHPC(publicKey, amt);
-    if (res.success) {
-      await fetchBalance();
-      alert(`Successfully unlocked ₱${amt} back to your online balance! Note: Since this is a demo, it did not execute the Soroban sync_online contract. Use your mobile app to actually sync funds!`);
-    } else {
-      alert("Failed to sync online: " + res.error);
-    }
-    setLoadingAction(false);
+  const selectMode = (online: boolean) => {
+    setIsOnline(online);
+    emit(
+      online ? 'Online wallet selected' : 'Offline wallet selected',
+      online
+        ? 'Viewing funds available on Stellar.'
+        : 'Viewing funds available without connectivity.',
+      `mode:${role}`,
+    );
   };
 
   return (
-    <div className="flex-1 bg-white rounded-[2rem] overflow-hidden flex flex-col relative text-black pt-8">
-      {/* Header */}
-      <div className="px-6 py-4 flex justify-between items-center">
+    <div className="relative flex flex-1 flex-col overflow-hidden rounded-[2rem] bg-white pt-8 text-black">
+      <div className="flex items-center justify-between px-6 py-4">
         <div>
-          <p className="text-xs text-neutral-500 font-bold tracking-wider uppercase">
+          <p className="text-xs font-bold uppercase tracking-wider text-neutral-500">
             {role === 'sender' ? 'Phone 1' : 'Phone 2'}
           </p>
-          <p className="text-lg font-black text-[#001E42] mt-0.5">
-            ID: {shortId}
-          </p>
+          <p className="mt-0.5 text-lg font-black text-[#001E42]">ID: {shortId}</p>
         </div>
-        <div className="flex gap-2 items-center">
-          <button 
-            onClick={() => void resetDemoSession()}
-            className="w-10 h-10 bg-red-100 text-red-500 rounded-full flex items-center justify-center cursor-pointer hover:bg-red-200 shadow-sm"
-            title="Reset Simulator"
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              emit('Reset demo', 'Resetting this demo session.');
+              void resetDemoSession();
+            }}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-500 shadow-sm hover:bg-red-200"
+            title="Reset simulator"
+            aria-label="Reset simulator"
           >
             <RefreshCw size={16} />
           </button>
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm ${role === 'sender' ? 'bg-[#001E42]' : 'bg-green-600'}`}>
-            <p className="text-white font-bold">{role === 'sender' ? '1' : '2'}</p>
+          <div
+            className={`flex h-10 w-10 items-center justify-center rounded-full shadow-sm ${
+              role === 'sender' ? 'bg-[#001E42]' : 'bg-green-600'
+            }`}
+          >
+            <p className="font-bold text-white">{role === 'sender' ? '1' : '2'}</p>
           </div>
         </div>
       </div>
 
-      {/* Online/Offline Toggle */}
       <div className="px-6">
-        <div className="flex bg-[#E6E9EE] p-1 rounded-full w-fit">
-          <button 
-            onClick={() => setIsOnline(true)}
-            className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all ${isOnline ? 'bg-[#001E42] text-white' : 'text-[#707984]'}`}
+        <div className="flex w-fit rounded-full bg-[#E6E9EE] p-1">
+          <button
+            type="button"
+            onClick={() => selectMode(true)}
+            aria-pressed={isOnline}
+            className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${
+              isOnline ? 'bg-[#001E42] text-white' : 'text-[#707984]'
+            }`}
           >
             Online
           </button>
-          <button 
-            onClick={() => setIsOnline(false)}
-            className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all ${!isOnline ? 'bg-[#001E42] text-white' : 'text-[#707984]'}`}
+          <button
+            type="button"
+            onClick={() => selectMode(false)}
+            aria-pressed={!isOnline}
+            className={`rounded-full px-4 py-1.5 text-sm font-bold transition-all ${
+              !isOnline ? 'bg-[#001E42] text-white' : 'text-[#707984]'
+            }`}
           >
             Offline
           </button>
         </div>
       </div>
 
-      {/* Balance Card */}
-      <div className="px-6 mt-4 relative z-10">
-        <div className="bg-[#001E42] rounded-3xl p-6 shadow-xl overflow-hidden relative">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full blur-2xl"></div>
-          
-          {loadingAction && (
-             <div className="absolute inset-0 bg-[#001E42]/80 backdrop-blur-sm z-20 flex items-center justify-center">
-               <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-             </div>
-          )}
-
-          <p className="text-blue-100 text-sm font-medium mb-1">
-            {isOnline ? 'Online Balance' : 'Offline Vault (Omni-Vault)'}
+      <div className="relative z-10 mt-4 px-6">
+        <div className="relative overflow-hidden rounded-3xl bg-[#001E42] p-6 shadow-xl">
+          <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-blue-500/20 blur-2xl" />
+          <p className="mb-1 text-sm font-medium text-blue-100">
+            {isOnline ? 'Online Balance' : 'Offline Wallet'}
           </p>
           <div className="flex items-baseline space-x-2">
-            <span className="text-white text-4xl font-black">
+            <span className="text-4xl font-black text-white">
               ₱ {isOnline ? balancePHPC : offlineBalancePHPC}
             </span>
-            <span className="text-blue-200 text-sm">PHPC</span>
+            <span className="text-sm text-blue-200">PHPC</span>
           </div>
-          {isOnline && <p className="text-blue-300 text-xs mt-2">{balanceXLM} XLM reserved</p>}
-          {!isOnline && <p className="text-blue-300 text-xs mt-2">Locked in Smart Contract</p>}
+          {isOnline ? (
+            <p className="mt-2 text-xs text-blue-300">{balanceXLM} XLM reserved</p>
+          ) : (
+            <p className="mt-2 text-xs text-blue-300">Secured by the Pijin contract</p>
+          )}
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="px-6 mt-6">
-        <div className="flex justify-between items-start">
-          <ActionBtn 
-            icon={<Send size={20} />} 
-            label="Send" 
-            onClick={() => router.push(isOnline ? '/demo/transfer/online' : '/demo/transfer/offline')} 
+      <div className="mt-6 px-6">
+        <div className={`grid items-start ${isOnline ? 'grid-cols-5' : 'grid-cols-3'}`}>
+          <ActionButton
+            icon={<Send size={19} />}
+            label="Send"
+            onClick={() =>
+              navigate(
+                isOnline ? 'Online transfer' : 'Offline transfer',
+                isOnline ? '/demo/transfer/online' : '/demo/transfer/offline',
+              )
+            }
           />
-          <ActionBtn 
-            icon={<ArrowDownToLine size={20} />} 
-            label="Receive" 
-            onClick={() => alert("Receive mocked")} 
+          <ActionButton
+            icon={<ArrowDownToLine size={19} />}
+            label="Receive"
+            onClick={() =>
+              emit('Receive details', `Share your Pijin ID ${shortId} to receive PHPC.`)
+            }
           />
-          
           {isOnline ? (
             <>
-              <ActionBtn 
-                icon={<ArrowDownCircle size={20} />} 
-                label="Top-Up" 
-                onClick={() => router.push('/demo/topup')} 
+              <ActionButton
+                icon={<ArrowDownCircle size={19} />}
+                label="Top-Up"
+                onClick={() => navigate('Top up', '/demo/topup')}
               />
-              <ActionBtn 
-                icon={<Cloud size={20} />} 
-                label="Load Offline" 
-                onClick={() => router.push('/demo/load-offline')} 
+              <ActionButton
+                icon={<Cloud size={19} />}
+                label="Load Offline"
+                onClick={() => navigate('Load offline', '/demo/load-offline')}
+              />
+              <ActionButton
+                icon={<WalletCards size={19} />}
+                label="Withdraw"
+                onClick={() => navigate('SEP-24 withdrawal', '/demo/withdraw')}
               />
             </>
           ) : (
-            <ActionBtn 
-              icon={<RefreshCw size={20} />} 
-              label="Sync Online" 
-              onClick={handleSyncOnline} 
+            <ActionButton
+              icon={<RefreshCw size={19} />}
+              label="Transfer Online"
+              onClick={() =>
+                navigate(
+                  'Transfer online',
+                  `/demo/transfer-to-online?balance=${encodeURIComponent(
+                    offlineBalancePHPC,
+                  )}`,
+                )
+              }
             />
           )}
         </div>
       </div>
 
-      {/* Transactions List Mock */}
-      <div className="px-6 mt-8 flex-1">
-        <h3 className="font-bold text-neutral-800 mb-4">Recent Activity</h3>
-        <div className="text-center text-neutral-400 mt-10 text-sm">
-          No recent transactions in simulation.
-        </div>
+      <div className="mt-6 flex-1 overflow-y-auto px-6 pb-24">
+        <RecentActivity
+          publicKey={publicKey}
+          shortId={shortId}
+          sessionId={sessionId}
+          tag={isOnline ? 'WALLET' : 'OFFLINE'}
+        />
       </div>
 
-      {/* Bottom Nav Mock */}
-      <div className="absolute bottom-0 inset-x-0 h-20 bg-white border-t border-gray-100 flex justify-between items-center px-10 pb-4">
+      <div className="absolute inset-x-0 bottom-0 flex h-20 items-center justify-between border-t border-gray-100 bg-white px-10 pb-4">
         <Smartphone size={24} className="text-[#001E42]" />
         <RefreshCw size={24} className="text-gray-400" />
-        <div className="w-12 h-12 bg-[#001E42] rounded-full flex items-center justify-center shadow-lg -mt-8">
-           <Send size={20} className="text-white" />
+        <div className="-mt-8 flex h-12 w-12 items-center justify-center rounded-full bg-[#001E42] shadow-lg">
+          <Send size={20} className="text-white" />
         </div>
         <Cloud size={24} className="text-gray-400" />
-        <div className="w-6 h-6 bg-gray-300 rounded-full" />
+        <div className="h-6 w-6 rounded-full bg-gray-300" />
       </div>
     </div>
   );
 }
 
-function ActionBtn({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick: () => void }) {
+function ActionButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
   return (
-    <div className="flex flex-col items-center flex-1" onClick={onClick}>
-      <div className="w-14 h-14 bg-[#001E42] rounded-full flex items-center justify-center shadow-md cursor-pointer hover:bg-[#002b5e] transition-colors text-white">
+    <button type="button" className="flex min-w-0 flex-col items-center" onClick={onClick}>
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#001E42] text-white shadow-md transition-colors hover:bg-[#002b5e]">
         {icon}
-      </div>
-      <span className="text-[10px] font-semibold text-[#001E42] mt-2 text-center leading-tight">
+      </span>
+      <span className="mt-2 text-center text-[10px] font-semibold leading-tight text-[#001E42]">
         {label}
       </span>
-    </div>
+    </button>
   );
 }

@@ -6,16 +6,24 @@ import {
   Contract,
   Horizon,
   Keypair,
+  Memo,
   nativeToScVal,
   Networks,
   Operation,
   rpc,
   StrKey,
   TransactionBuilder,
+  Transaction,
   xdr,
 } from '@stellar/stellar-sdk';
 import { prisma } from '@/lib/prisma';
 import { parsePhpcToStroops } from '@/lib/demo/offline-transfer-balance';
+import {
+  createDemoWithdrawRequest,
+  demoWithdrawCanonicalMessage,
+} from '@/lib/demo/withdraw-request';
+import { getClaimedDemoPair } from '@/lib/demo/pool';
+import { contractConfig, sorobanRpcServer } from '@/lib/pijin-contract';
 import { generateOfflineSmsPayload } from './utils/crypto';
 
 function requiredDemoEnv(name: string): string {
@@ -260,4 +268,235 @@ export async function getPublicKeyFromShortId(shortId: string) {
   });
   if (!account) return null;
   return account.stellarPublicKey;
+}
+
+type DemoRole = 'sender' | 'receiver';
+
+async function demoAccountFor(sessionId: string, role: DemoRole) {
+  const session = await getClaimedDemoPair(sessionId);
+  return session[role];
+}
+
+async function responseJson(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { error: text || `Request failed with status ${response.status}` };
+  }
+}
+
+export async function transferDemoOfflineToOnline(
+  sessionId: string,
+  role: DemoRole,
+  amountPhpc: string,
+) {
+  try {
+    const amountStroops = parsePhpcToStroops(amountPhpc);
+    if (amountStroops === null) {
+      throw new Error('Enter a valid PHPC amount with no more than 7 decimal places');
+    }
+    const account = await demoAccountFor(sessionId, role);
+    const tokenAddress = contractConfig.tokenId;
+    if (!tokenAddress) throw new Error('Server missing TOKEN_ID');
+
+    const withdrawRequest = createDemoWithdrawRequest(
+      account.publicKey,
+      tokenAddress,
+      amountStroops,
+    );
+    const signature = Keypair.fromSecret(account.walletSecret)
+      .sign(Buffer.from(demoWithdrawCanonicalMessage(withdrawRequest)))
+      .toString('base64');
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    ).replace(/\/+$/, '');
+    const response = await fetch(`${appUrl}/api/engine/withdraw`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${signature}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(withdrawRequest),
+      cache: 'no-store',
+    });
+    const payload = await responseJson(response);
+    if (!response.ok || typeof payload.xdr !== 'string') {
+      throw new Error(String(payload.error || 'Unable to assemble the withdrawal'));
+    }
+
+    const transaction = new Transaction(payload.xdr, contractConfig.networkPassphrase);
+    transaction.sign(Keypair.fromSecret(account.walletSecret));
+    const submitted = await sorobanRpcServer.sendTransaction(transaction);
+    if (submitted.status === 'ERROR') {
+      throw new Error('The Stellar network rejected the withdrawal');
+    }
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const result = await sorobanRpcServer.getTransaction(submitted.hash);
+      if (result.status === 'SUCCESS') {
+        return { success: true as const, hash: submitted.hash };
+      }
+      if (result.status !== 'NOT_FOUND') {
+        throw new Error(`Withdrawal failed with status ${result.status}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    throw new Error('Withdrawal confirmation timed out. Check the wallet balance again.');
+  } catch (error: unknown) {
+    console.error('Demo offline-to-online withdrawal failed:', error);
+    return { success: false as const, error: errorMessage(error) };
+  }
+}
+
+export async function startDemoSep24Withdrawal(
+  sessionId: string,
+  role: DemoRole,
+) {
+  try {
+    const account = await demoAccountFor(sessionId, role);
+    const keypair = Keypair.fromSecret(account.walletSecret);
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
+    const challengeResponse = await fetch(
+      `${appUrl}/api/auth?account=${encodeURIComponent(account.publicKey)}`,
+      { cache: 'no-store' },
+    );
+    const challenge = await responseJson(challengeResponse);
+    if (!challengeResponse.ok || typeof challenge.transaction !== 'string') {
+      throw new Error(String(challenge.message || challenge.error || 'SEP-10 challenge failed'));
+    }
+    const challengeTx = new Transaction(challenge.transaction, Networks.TESTNET);
+    challengeTx.sign(keypair);
+
+    const tokenResponse = await fetch(`${appUrl}/api/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transaction: challengeTx.toXDR() }),
+      cache: 'no-store',
+    });
+    const tokenPayload = await responseJson(tokenResponse);
+    if (!tokenResponse.ok || typeof tokenPayload.token !== 'string') {
+      throw new Error(String(tokenPayload.message || tokenPayload.error || 'SEP-10 authentication failed'));
+    }
+
+    const interactiveResponse = await fetch(
+      `${appUrl}/api/sep24/transactions/withdraw/interactive`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${tokenPayload.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ asset_code: 'PHPC' }),
+        cache: 'no-store',
+      },
+    );
+    const interactive = await responseJson(interactiveResponse);
+    if (
+      !interactiveResponse.ok ||
+      typeof interactive.url !== 'string' ||
+      typeof interactive.id !== 'string'
+    ) {
+      throw new Error(String(interactive.message || interactive.error || 'SEP-24 withdrawal failed'));
+    }
+    return {
+      success: true as const,
+      url: interactive.url,
+      transactionId: interactive.id,
+      token: tokenPayload.token,
+    };
+  } catch (error: unknown) {
+    console.error('Demo SEP-24 start failed:', error);
+    return { success: false as const, error: errorMessage(error) };
+  }
+}
+
+export async function completeDemoSep24Withdrawal(
+  sessionId: string,
+  role: DemoRole,
+  transactionId: string,
+  sep10Token: string,
+) {
+  try {
+    const account = await demoAccountFor(sessionId, role);
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    ).replace(/\/+$/, '');
+    const statusResponse = await fetch(
+      `${appUrl}/api/sep24/transaction?id=${encodeURIComponent(transactionId)}`,
+      {
+        headers: { Authorization: `Bearer ${sep10Token}` },
+        cache: 'no-store',
+      },
+    );
+    const statusPayload = await responseJson(statusResponse);
+    const instruction = statusPayload.transaction as Record<string, unknown> | undefined;
+    if (!statusResponse.ok || !instruction) {
+      throw new Error(String(statusPayload.message || statusPayload.error || 'Withdrawal instructions unavailable'));
+    }
+    const amount = typeof instruction.amount_in === 'string' ? instruction.amount_in : '';
+    const destination =
+      typeof instruction.withdraw_anchor_account === 'string'
+        ? instruction.withdraw_anchor_account
+        : '';
+    const memo = typeof instruction.withdraw_memo === 'string' ? instruction.withdraw_memo : '';
+    if (
+      instruction.status !== 'pending_user_transfer_start' ||
+      instruction.stellar_account !== account.publicKey ||
+      instruction.asset_code !== 'PHPC' ||
+      !amount ||
+      !destination ||
+      !memo
+    ) {
+      throw new Error('The anchor returned invalid or incomplete withdrawal instructions');
+    }
+
+    const keypair = Keypair.fromSecret(account.walletSecret);
+    const source = await server.loadAccount(account.publicKey);
+    const transaction = new TransactionBuilder(source, {
+      fee: '100',
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        Operation.payment({
+          destination,
+          asset: new Asset('PHPC', requiredDemoEnv('PHPC_ISSUER_PUBKEY')),
+          amount,
+        }),
+      )
+      .addMemo(Memo.text(memo))
+      .setTimeout(180)
+      .build();
+    transaction.sign(keypair);
+    const submitted = await server.submitTransaction(transaction);
+
+    const confirmResponse = await fetch(`${appUrl}/api/anchor/confirm-withdraw`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sep10Token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        transaction_id: transactionId,
+        stellar_transaction_id: submitted.hash,
+      }),
+      cache: 'no-store',
+    });
+    const confirmation = await responseJson(confirmResponse);
+    if (!confirmResponse.ok || confirmation.success !== true) {
+      throw new Error(String(confirmation.error || 'Anchor could not verify the PHPC transfer'));
+    }
+    return {
+      success: true as const,
+      hash: submitted.hash,
+      amount,
+      status: String(confirmation.status || 'pending_external'),
+    };
+  } catch (error: unknown) {
+    console.error('Demo SEP-24 completion failed:', error);
+    return { success: false as const, error: errorMessage(error) };
+  }
 }

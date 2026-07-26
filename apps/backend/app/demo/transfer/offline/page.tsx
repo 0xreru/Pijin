@@ -14,6 +14,7 @@ import {
   quoteOfflineTransfer,
 } from '@/lib/demo/offline-transfer-balance';
 import { stellarExpertTestnetTxUrl } from '@/lib/demo/settlement-status';
+import { createDemoEvent, publishDemoEvent } from '../../demo-events';
 
 import Image from 'next/image';
 
@@ -34,10 +35,11 @@ type VaultBalanceResponse = {
 
 export default function OfflineTransferPage() {
   const router = useRouter();
-  const { publicKey, deviceSecretKey, shortId } = useJudgeContext();
+  const { publicKey, deviceSecretKey, shortId, role, sessionId } = useJudgeContext();
   const [status, setStatus] = useState<"idle" | "visualizing" | "queued" | "settled" | "error">("idle");
   const [receiver, setReceiver] = useState("");
-  const [amount, setAmount] = useState("50");
+  const [amount, setAmount] = useState("");
+  const [operationId] = useState(() => crypto.randomUUID());
   const [debugData, setDebugData] = useState<VoucherDebugData | null>(null);
   const [failureMessage, setFailureMessage] = useState("");
   const [transactionHash, setTransactionHash] = useState("");
@@ -125,6 +127,18 @@ export default function OfflineTransferPage() {
           setTransactionHash(settlement.txHash);
           setSettlementCheckMessage('');
           setStatus('settled');
+          publishDemoEvent(createDemoEvent({
+            id: operationId,
+            sessionId,
+            role,
+            phase: 'success',
+            title: 'Offline transaction settled',
+            message: `₱${amount} PHPC was sent to ${receiver}.`,
+            tag: 'OFFLINE',
+            amount,
+            assetCode: 'PHPC',
+            txHash: settlement.txHash,
+          }));
           return;
         }
 
@@ -133,6 +147,14 @@ export default function OfflineTransferPage() {
             settlement.failureReason || 'The offline settlement was rejected',
           );
           setStatus('error');
+          publishDemoEvent(createDemoEvent({
+            id: operationId,
+            sessionId,
+            role,
+            phase: 'error',
+            title: 'Offline transfer failed',
+            message: settlement.failureReason || 'The offline settlement was rejected.',
+          }));
           return;
         }
 
@@ -154,7 +176,7 @@ export default function OfflineTransferPage() {
       cancelled = true;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     };
-  }, [settlementNonce, settlementSenderShortId, status]);
+  }, [amount, operationId, receiver, role, sessionId, settlementNonce, settlementSenderShortId, status]);
 
   const quote =
     offlineBalanceStroops === null
@@ -179,6 +201,17 @@ export default function OfflineTransferPage() {
 
     setStatus("visualizing");
     setFailureMessage("");
+    publishDemoEvent(createDemoEvent({
+      id: operationId,
+      sessionId,
+      role,
+      phase: 'pending',
+      title: 'Sending offline payment',
+      message: `Preparing ₱${amount} PHPC for ${receiver}.`,
+      tag: 'OFFLINE',
+      amount,
+      assetCode: 'PHPC',
+    }));
     setStep(1); // Nonce generation
 
     setTimeout(() => setStep(2), 1500); // Amount Base62
@@ -200,6 +233,14 @@ export default function OfflineTransferPage() {
       } else {
         setFailureMessage(res.error);
         setStatus("error");
+        publishDemoEvent(createDemoEvent({
+          id: operationId,
+          sessionId,
+          role,
+          phase: 'error',
+          title: 'Offline transfer failed',
+          message: res.error,
+        }));
       }
     }, 7500);
   };
@@ -396,6 +437,12 @@ export default function OfflineTransferPage() {
               </>
             )}
           </div>
+
+          {status === 'settled' && (
+            <p className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium leading-relaxed text-[#1e3e62]">
+              The receiver can view the credited amount in their Offline tab.
+            </p>
+          )}
 
           <button 
             onClick={() => router.push('/demo')}

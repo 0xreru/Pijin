@@ -29,13 +29,13 @@ export function Footer() {
             {/* Contact Details */}
             <div className="flex flex-col space-y-3 pt-2">
               <a
-                href="mailto:Help@pijin.Com"
+                href="mailto:support.pijin@gmail.com"
                 className="flex items-center space-x-2.5 text-[15px] font-semibold text-slate-800 hover:text-black transition-colors font-sans"
               >
                 <div className="flex items-center justify-center w-5 h-5 text-[#1e3e62]">
                   <Mail className="w-5 h-5" />
                 </div>
-                <span>Help@Pijin.Com</span>
+                <span>support.pijin@gmail.com</span>
               </a>
 
               <a

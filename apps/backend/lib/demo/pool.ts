@@ -107,6 +107,26 @@ export async function claimDemoPair(rawSessionId: unknown): Promise<DemoSessionP
   return sessionPayload(sessionId, pair);
 }
 
+export async function getClaimedDemoPair(
+  rawSessionId: unknown,
+): Promise<DemoSessionPayload> {
+  const sessionId = validateDemoSessionId(rawSessionId);
+  const claimedByHash = hashDemoSessionId(sessionId);
+  const pair = await prisma.demoAccountPair.findUnique({
+    where: { claimedByHash },
+    ...pairWithAccounts,
+  });
+  if (
+    !pair ||
+    pair.status !== DemoPairStatus.LEASED ||
+    !pair.expiresAt ||
+    pair.expiresAt.getTime() <= Date.now()
+  ) {
+    throw new Error('Demo session is missing or expired');
+  }
+  return sessionPayload(sessionId, pair);
+}
+
 export async function retireDemoPair(rawSessionId: unknown): Promise<void> {
   const sessionId = validateDemoSessionId(rawSessionId);
   const claimedByHash = hashDemoSessionId(sessionId);

@@ -14,31 +14,41 @@ const leftColumnFAQs: FAQItem[] = [
   },
   {
     type: 'light',
-    question: 'Do business owners need to buy special hardware?',
-    answer: 'Not at all. The platform runs entirely on standard mobile devices that merchants and consumers already own.'
+    question: 'Do users need to buy special hardware?',
+    answer: 'Not at all. The platform runs entirely on standard mobile devices that users already own.'
   },
   {
     type: 'dark',
     question: 'Who is this platform designed for?',
-    answer: 'It is built for anyone facing unreliable internet, especially sari-sari stores, wet market vendors, transport operators, and rural households.'
+    answer: 'It is built for anyone facing unreliable internet, especially sari-sari stores, wet market vendors, transport operators, rural households, and anyone who wants to send money offline.'
+  },
+  {
+    type: 'light',
+    question: 'Why send a cryptographic payload instead of a simple text like "Send 50 to 09XX..."?',
+    answer: 'Because standard SMS is incredibly easy to fake or spoof. Pijin is a fully non-custodial and trustless protocol. We don\'t rely on phone numbers for security because SIM cards can be cloned. Instead, the payload contains an offline mathematical signature generated directly by your device.'
   }
 ]
 
 const rightColumnFAQs: FAQItem[] = [
   {
     type: 'light',
-    question: 'How do merchants verify a payment without internet?',
-    answer: 'Merchants receive an instant, secure text confirmation receipt directly to their phone the second the transaction settles'
+    question: 'How do users verify a payment without internet?',
+    answer: 'Users receive an instant, secure text confirmation receipt directly to their phone the second the transaction settles.'
   },
   {
     type: 'dark',
     question: 'Do I need to understand blockchain or crypto to use it?',
-    answer: 'Not at all. The app uses simple, everyday terms like "Online Balance" and "Offline Cash Vault" to completely remove any technical confusion.'
+    answer: 'Absolutely not. We use wallet abstraction to completely hide private keys and network mechanics. You only interact with familiar concepts like an "Online Balance" and "Offline Cash Vault," making it feel exactly like a standard e-wallet.'
   },
   {
     type: 'light',
     question: 'Do I need to enter long, complicated account numbers to make a payment?',
     answer: 'Not at all. The platform maps accounts to short, simple identifiers to keep your checkout process quick and effortless.'
+  },
+  {
+    type: 'dark',
+    question: 'What happens if I lose my phone or SIM card?',
+    answer: 'Your money is still safe! When you create an account, Pijin gives you a secure 12-word "Recovery Phrase." You can use this exact phrase to instantly recover your funds on any new device.'
   }
 ]
 
