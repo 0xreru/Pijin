@@ -4,6 +4,7 @@ import {
   Layout,
   Hero,
   About,
+  ProductTour,
   MeetTheTeam,
   FAQ,
   Footer,
@@ -14,6 +15,7 @@ export default function HomePage() {
     <Layout>
       <Hero />
       <About />
+      <ProductTour />
       <MeetTheTeam />
       <FAQ />
       <Footer />

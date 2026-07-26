@@ -9,6 +9,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Home', href: '#' },
   { label: 'About', href: '#about' },
+  { label: 'Demo', href: '#tour' },
   { label: 'Team', href: '#team' },
   { label: 'FAQ', href: '#faq' },
 ]
@@ -42,6 +43,7 @@ export function Navbar() {
 
       const scrollPosition = window.scrollY + 120 // offset for navbar height
       const aboutSection = document.getElementById('about')
+      const tourSection = document.getElementById('tour')
       const teamSection = document.getElementById('team')
       const faqSection = document.getElementById('faq')
 
@@ -53,6 +55,8 @@ export function Navbar() {
         currentSection = '#faq'
       } else if (teamSection && scrollPosition >= teamSection.offsetTop) {
         currentSection = '#team'
+      } else if (tourSection && scrollPosition >= tourSection.offsetTop) {
+        currentSection = '#tour'
       } else if (aboutSection && scrollPosition >= aboutSection.offsetTop) {
         currentSection = '#about'
       } else {
