@@ -4,24 +4,36 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJudgeContext } from '../GhostProvider';
 import { burnPHPC } from '../actions'; 
-import { ArrowLeft, Send, CheckCircle, Cloud, FileCode2, Key, Database, ShieldCheck, Link2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Cloud, FileCode2, Key, Database, ShieldCheck, Link2 } from 'lucide-react';
+import {
+  createDemoEvent,
+  publishDemoEvent,
+  recordLocalDemoHistory,
+} from '../demo-events';
 
 import Image from 'next/image';
 
 export default function LoadOfflinePage() {
   const router = useRouter();
-  const { publicKey, secretKey, devicePublicKey } = useJudgeContext();
-  const [loading, setLoading] = useState(false);
+  const { publicKey, secretKey, devicePublicKey, role, sessionId } = useJudgeContext();
   const [status, setStatus] = useState<"idle" | "visualizing" | "success" | "error">("idle");
-  const [amount, setAmount] = useState("50");
+  const [amount, setAmount] = useState("");
   const [txHash, setTxHash] = useState("");
+  const [operationId] = useState(() => crypto.randomUUID());
 
   const [step, setStep] = useState(0);
 
   const handleLoadOffline = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
-    setLoading(true);
     setStatus("visualizing");
+    publishDemoEvent(createDemoEvent({
+      id: operationId,
+      sessionId,
+      role,
+      phase: 'pending',
+      title: 'Loading Offline Wallet',
+      message: `Locking ₱${amount} PHPC for offline use.`,
+    }));
     
     setStep(1); // Build XDR
     setTimeout(() => setStep(2), 1500); // Simulate
@@ -34,10 +46,52 @@ export default function LoadOfflinePage() {
     if (res.success) {
       setTxHash(res.hash || "");
       setStatus("success");
+      const timestamp = new Date().toISOString();
+      recordLocalDemoHistory(sessionId, publicKey, {
+        id: `load-online:${res.hash}`,
+        type: 'TRANSFER',
+        tag: 'WALLET',
+        title: 'Loaded Offline Wallet',
+        amount: `-${amount}`,
+        assetCode: 'PHPC',
+        status: 'SETTLED',
+        timestamp,
+        txHash: res.hash,
+      });
+      recordLocalDemoHistory(sessionId, publicKey, {
+        id: `load-offline:${res.hash}`,
+        type: 'RECEIVE',
+        tag: 'OFFLINE',
+        title: 'Loaded from Online Wallet',
+        amount,
+        assetCode: 'PHPC',
+        status: 'SETTLED',
+        timestamp,
+        txHash: res.hash,
+      });
+      publishDemoEvent(createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'success',
+        title: 'Funds ready for offline use',
+        message: `₱${amount} PHPC was securely locked in your Offline Wallet. Select the Offline tab to continue.`,
+        tag: 'OFFLINE',
+        amount,
+        assetCode: 'PHPC',
+        txHash: res.hash,
+      }));
     } else {
       setStatus("error");
+      publishDemoEvent(createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'error',
+        title: 'Load offline failed',
+        message: res.error || 'The transaction could not be completed.',
+      }));
     }
-    setLoading(false);
   };
 
   return (
@@ -45,7 +99,7 @@ export default function LoadOfflinePage() {
       <div className="bg-white p-6 pb-8 rounded-b-[2rem] shadow-sm z-10 relative">
         <div className="flex items-center mb-6">
           <ArrowLeft size={24} className="text-gray-800 cursor-pointer hover:opacity-70 transition-opacity" onClick={() => router.back()} />
-          <h1 className="ml-4 text-xl font-bold text-gray-900 tracking-tight">Load Offline Vault</h1>
+          <h1 className="ml-4 text-xl font-bold text-gray-900 tracking-tight">Load Offline Wallet</h1>
         </div>
         
         {status === "idle" && (
@@ -58,7 +112,7 @@ export default function LoadOfflinePage() {
               className="drop-shadow-lg"
             />
             <p className="text-center text-sm text-gray-500 font-medium mt-4 max-w-[240px]">
-              Lock PHPC into your secure local vault for offline use.
+              Secure PHPC in your Offline Wallet for use without connectivity.
             </p>
           </div>
         )}
@@ -86,7 +140,7 @@ export default function LoadOfflinePage() {
             <div>
               <p className="text-sm font-bold text-gray-900">Soroban Smart Contract</p>
               <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                This executes a genuine `deposit` on the Pijin contract, mathematically locking your funds to your device's Ed25519 key.
+                This executes a genuine `deposit` on the Pijin contract, mathematically locking your funds to your device&apos;s Ed25519 key.
               </p>
             </div>
           </div>
@@ -120,10 +174,13 @@ export default function LoadOfflinePage() {
             <CheckCircle size={48} className="text-green-500" />
           </div>
           <h1 className="text-2xl font-black text-gray-900 mb-2">Successfully Loaded!</h1>
-          <p className="text-gray-500 text-sm font-medium mb-8">₱{amount} has been locked to your Offline Vault.</p>
+          <p className="text-gray-500 text-sm font-medium mb-3">₱{amount} has been locked in your Offline Wallet.</p>
+          <p className="mb-8 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium leading-relaxed text-[#1e3e62]">
+            Your funds are ready for offline use. Return to the dashboard and select the Offline tab to continue.
+          </p>
           
           <div className="w-full text-left bg-[#121212] p-5 rounded-2xl shadow-xl">
-            <p className="text-gray-400 mb-3 text-xs font-bold uppercase tracking-wider">// Soroban Tx Hash</p>
+            <p className="text-gray-400 mb-3 text-xs font-bold uppercase tracking-wider">{'// Soroban Tx Hash'}</p>
             <p className="text-green-400 text-xs font-mono break-all">{txHash}</p>
           </div>
 
@@ -147,7 +204,7 @@ export default function LoadOfflinePage() {
   );
 }
 
-function StepCard({ active, icon, title, desc, isLast }: { active: boolean, icon: any, title: string, desc: string, isLast?: boolean }) {
+function StepCard({ active, icon, title, desc, isLast }: { active: boolean, icon: React.ReactNode, title: string, desc: string, isLast?: boolean }) {
   return (
     <div className={`flex items-start transition-all duration-700 ${active ? 'opacity-100 translate-y-0' : 'opacity-20 translate-y-2'}`}>
       <div className="flex flex-col items-center">

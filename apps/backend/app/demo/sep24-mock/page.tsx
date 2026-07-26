@@ -5,23 +5,71 @@ import { useRouter } from 'next/navigation';
 import { useJudgeContext } from '../GhostProvider';
 import { simulateDeposit } from '../actions';
 import { CheckCircle, AlertCircle } from 'lucide-react';
+import {
+  createDemoEvent,
+  publishDemoEvent,
+  recordLocalDemoHistory,
+} from '../demo-events';
 
 export default function Sep24MockPage() {
   const router = useRouter();
-  const { publicKey } = useJudgeContext();
+  const { publicKey, role, sessionId } = useJudgeContext();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [amount, setAmount] = useState("1000");
+  const [operationId] = useState(() => crypto.randomUUID());
 
   const handleSimulate = async () => {
     setLoading(true);
+    publishDemoEvent(createDemoEvent({
+      id: operationId,
+      sessionId,
+      role,
+      phase: 'pending',
+      title: 'Top-up in progress',
+      message: `Adding ₱${amount} PHPC to the Online Wallet.`,
+      tag: 'WALLET',
+      amount,
+      assetCode: 'PHPC',
+    }));
     const res = await simulateDeposit(publicKey, amount);
     if (res.success) {
       setStatus("success");
+      recordLocalDemoHistory(sessionId, publicKey, {
+        id: `topup:${res.hash}`,
+        type: 'TRANSFER',
+        tag: 'WALLET',
+        title: 'Wallet Top-up',
+        amount,
+        assetCode: 'PHPC',
+        status: 'SETTLED',
+        timestamp: new Date().toISOString(),
+        txHash: res.hash,
+      });
+      publishDemoEvent(createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'success',
+        title: 'Top-up complete',
+        message: `₱${amount} PHPC is available in the Online Wallet.`,
+        tag: 'WALLET',
+        amount,
+        assetCode: 'PHPC',
+        txHash: res.hash,
+      }));
       setTimeout(() => router.push('/demo'), 2000);
     } else {
       setStatus("error");
       setLoading(false);
+      publishDemoEvent(createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'error',
+        title: 'Top-up failed',
+        message: res.error || 'The simulated deposit could not be completed.',
+      }));
     }
   };
 
@@ -36,7 +84,7 @@ export default function Sep24MockPage() {
             </div>
             <h1 className="text-xl font-bold text-gray-900 mb-4">SEP-24 Simulation Bypass</h1>
             <p className="text-gray-500 mb-8 px-4 text-sm">
-              In the real Pijin app, this screen securely loads the bank's portal inside a WebView iframe. 
+              In the real Pijin app, this screen securely loads the bank&apos;s portal inside a WebView iframe.
               Because we are in a web simulation, the Anchor blocks iframes for security reasons.
             </p>
             

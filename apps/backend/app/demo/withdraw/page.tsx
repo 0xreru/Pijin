@@ -1,0 +1,232 @@
+"use client";
+
+import { ArrowLeft, CheckCircle2, RefreshCw, WalletCards } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import {
+  completeDemoSep24Withdrawal,
+  startDemoSep24Withdrawal,
+} from '../actions';
+import {
+  createDemoEvent,
+  publishDemoEvent,
+  recordLocalDemoHistory,
+} from '../demo-events';
+import { useJudgeContext } from '../GhostProvider';
+
+type FlowState = 'starting' | 'interactive' | 'confirm' | 'submitting' | 'success' | 'error';
+
+export default function DemoWithdrawalPage() {
+  const router = useRouter();
+  const { publicKey, role, sessionId } = useJudgeContext();
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const startedRef = useRef(false);
+  const [state, setState] = useState<FlowState>('starting');
+  const [message, setMessage] = useState('Securing your anchor session…');
+  const [url, setUrl] = useState('');
+  const [transactionId, setTransactionId] = useState('');
+  const [token, setToken] = useState('');
+  const [amount, setAmount] = useState('');
+  const [hash, setHash] = useState('');
+  const [operationId] = useState(() => crypto.randomUUID());
+
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    publishDemoEvent(
+      createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'pending',
+        title: 'Starting SEP-24 withdrawal',
+        message: 'Authenticating your Online Wallet with the Pijin anchor.',
+      }),
+    );
+    const start = async () => {
+      const result = await startDemoSep24Withdrawal(sessionId, role);
+      if (!result.success) {
+        setState('error');
+        setMessage(result.error);
+        publishDemoEvent(
+          createDemoEvent({
+            id: operationId,
+            sessionId,
+            role,
+            phase: 'error',
+            title: 'Withdrawal unavailable',
+            message: result.error,
+          }),
+        );
+        return;
+      }
+      setUrl(result.url);
+      setTransactionId(result.transactionId);
+      setToken(result.token);
+      setState('interactive');
+      setMessage('Enter your withdrawal details in the secure anchor form.');
+    };
+    void start();
+  }, [operationId, role, sessionId]);
+
+  useEffect(() => {
+    const handleHandoff = (event: MessageEvent) => {
+      if (
+        event.origin === window.location.origin &&
+        event.source === iframeRef.current?.contentWindow &&
+        event.data?.type === 'success' &&
+        event.data?.status === 'pending_user_transfer_start'
+      ) {
+        setState('confirm');
+        setMessage('Your payout details are ready. Approve the PHPC transfer to continue.');
+      }
+    };
+    window.addEventListener('message', handleHandoff);
+    return () => window.removeEventListener('message', handleHandoff);
+  }, []);
+
+  const complete = async () => {
+    setState('submitting');
+    setMessage('Signing the PHPC transfer and waiting for anchor verification…');
+    const result = await completeDemoSep24Withdrawal(
+      sessionId,
+      role,
+      transactionId,
+      token,
+    );
+    if (!result.success) {
+      setState('error');
+      setMessage(result.error);
+      publishDemoEvent(
+        createDemoEvent({
+          id: operationId,
+          sessionId,
+          role,
+          phase: 'error',
+          title: 'Withdrawal failed',
+          message: result.error,
+        }),
+      );
+      return;
+    }
+    setAmount(result.amount);
+    setHash(result.hash);
+    setState('success');
+    recordLocalDemoHistory(sessionId, publicKey, {
+      id: transactionId,
+      type: 'WITHDRAWAL',
+      tag: 'WALLET',
+      title: 'Wallet Withdrawal',
+      amount: `-${result.amount}`,
+      assetCode: 'PHPC',
+      status: result.status.toUpperCase(),
+      timestamp: new Date().toISOString(),
+    });
+    publishDemoEvent(
+      createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'success',
+        title: 'Withdrawal transfer confirmed',
+        message: `₱${result.amount} PHPC was received by the anchor. GCash payout is pending.`,
+        tag: 'WALLET',
+        amount: result.amount,
+        assetCode: 'PHPC',
+        txHash: result.hash,
+      }),
+    );
+  };
+
+  return (
+    <div className="flex h-full flex-1 flex-col overflow-hidden rounded-[2rem] bg-[#F5F5F6] text-slate-950">
+      <header className="flex items-center gap-4 bg-white px-6 pb-5 pt-10 shadow-sm">
+        <button type="button" onClick={() => router.push('/demo')} aria-label="Back to dashboard">
+          <ArrowLeft size={24} />
+        </button>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#1e3e62]">
+            SEP-24
+          </p>
+          <h1 className="text-xl font-black">Withdraw PHPC</h1>
+        </div>
+      </header>
+
+      {state === 'interactive' && url ? (
+        <iframe
+          ref={iframeRef}
+          src={url}
+          title="Pijin SEP-24 withdrawal form"
+          className="min-h-0 flex-1 border-0 bg-white"
+        />
+      ) : (
+        <main className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+          {state === 'success' ? (
+            <>
+              <span className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                <CheckCircle2 size={50} />
+              </span>
+              <h2 className="mt-6 text-2xl font-black">Transfer Confirmed</h2>
+              <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">
+                ₱{amount} PHPC reached the anchor. Your GCash payout is now pending processing.
+              </p>
+              <p className="mt-5 break-all rounded-2xl bg-slate-900 p-4 text-left font-mono text-[10px] text-emerald-400">
+                {hash}
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push('/demo')}
+                className="mt-auto w-full rounded-full bg-black py-4 font-bold text-white"
+              >
+                Back to Dashboard
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 text-[#1e3e62]">
+                {state === 'starting' || state === 'submitting' ? (
+                  <RefreshCw size={34} className="animate-spin" />
+                ) : (
+                  <WalletCards size={34} />
+                )}
+              </span>
+              <h2 className="mt-5 text-xl font-black">
+                {state === 'confirm'
+                  ? 'Approve Wallet Transfer'
+                  : state === 'error'
+                    ? 'Withdrawal Could Not Continue'
+                    : 'Preparing Withdrawal'}
+              </h2>
+              <p
+                role={state === 'error' ? 'alert' : 'status'}
+                className={`mt-2 max-w-xs text-sm font-medium leading-relaxed ${
+                  state === 'error' ? 'text-red-600' : 'text-slate-500'
+                }`}
+              >
+                {message}
+              </p>
+              {state === 'confirm' && (
+                <button
+                  type="button"
+                  onClick={() => void complete()}
+                  className="mt-8 w-full rounded-full bg-black py-4 font-bold text-white"
+                >
+                  Approve PHPC Transfer
+                </button>
+              )}
+              {state === 'error' && (
+                <button
+                  type="button"
+                  onClick={() => router.push('/demo')}
+                  className="mt-8 w-full rounded-full bg-black py-4 font-bold text-white"
+                >
+                  Back to Dashboard
+                </button>
+              )}
+            </>
+          )}
+        </main>
+      )}
+    </div>
+  );
+}

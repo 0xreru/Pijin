@@ -61,7 +61,7 @@ function buildXdrTuple(
 
 export async function generateOfflineSmsPayload(
   params: SmsPayloadParams,
-): Promise<{ smsPayload: string; debug: any }> {
+): Promise<{ smsPayload: string; debug: Record<string, string | number> }> {
   const {
     senderSecretKey,
     senderShortId,

@@ -15,6 +15,7 @@
   <img src="https://img.shields.io/badge/Smart_Contract-Soroban-orange?style=for-the-badge&logo=rust" alt="Soroban">
 </p>
 
+
 ## ⭐️ Hackathon Track 
 
 **Local Finance & Real World Access** - Build applications that connect real-world assets to blockchain infrastructure. 
@@ -81,6 +82,49 @@ The app uses familiar, **non-technical** labels:
 - **Local-First Transaction History:** Transaction history is persisted in SQLite and synchronized with backend records using upsert logic. The app supports separate Wallet, Offline Funds, and combined transaction views.
 - **SEP-10 Authentication for SEP-24:** The anchor flow authenticates the user by fetching a challenge, signing it with the wallet key, and exchanging it for a short-lived authorization token before starting deposits or withdrawals.
 - **SMS Transaction Receipts:** After successful offline settlement, the backend can send a receipt notification to the sender and receiver through the configured SMS gateway.
+
+## Judges: Start Here - Demo Walkthrough
+
+> [!IMPORTANT]
+> Please use a desktop browser for the best experience. The simulator displays two phones side by side and performs real settlement on the Stellar Testnet.
+>
+> The Pijin mobile app is not yet published on the Google Play Store. Therefore, the browser-based simulator is the official way for judges to test the application's core features hands-on. The demo video on our website shows the actual Android application and its complete user experience.
+
+### 1. Watch the demo video
+
+1. Visit the **[Pijin website](https://pijin.live)** and explore the project.
+2. Watch the product demo video on the website before selecting **Simulate App**. This provides context for the complete Pijin flow before you test the focused simulation.
+
+### 2. Open the simulator
+
+1. Select **Simulate App** on the website, or open the **[Pijin App Simulator](https://pijin.live/demo-split)** directly.
+2. Read all onboarding slides and select **Continue** after each one.
+3. On the final slide, confirm that you are using a desktop view, then select **Enter the Demo Environment**.
+4. Wait while the sandbox initializes and prepares two isolated Stellar Testnet accounts. Do not refresh or close the page during initialization.
+
+### 3. Prepare Phone 1 for an offline payment
+
+1. On **Phone 1**, remain on the **Online** tab and select **Top-Up**.
+2. Follow the prompts to add PHPC to its Online Wallet, then return to the dashboard.
+3. Select **Load Offline** and transfer some PHPC from the Online Wallet to the Offline Wallet.
+4. Wait for the load operation to complete and return to the dashboard.
+
+### 4. Send PHPC from Phone 1 to Phone 2
+
+1. Note the case-sensitive **ID** shown at the top of the **Phone 2** dashboard. This is the receiver's Short ID.
+2. On **Phone 1**, select the **Offline** tab, then select **Send**.
+3. Enter Phone 2's Short ID in **Receiver Short ID** and specify an amount. Keep enough offline funds available for the displayed protocol fee.
+4. Select **Compress & Send SMS** to submit the simulated offline transaction.
+5. Wait for the cryptographic processing and settlement flow to finish. The result will change to **Transaction Settled** after confirmation on Stellar Testnet.
+
+### 5. Verify the result
+
+1. Under **Transaction Hash**, select the linked hash to open the transaction in **Stellar Expert** and inspect the on-chain Testnet settlement.
+2. On **Phone 2**, select the **Offline** tab and confirm that its Offline Wallet balance increased by the transferred amount.
+3. If the updated balance is not immediately visible, wait a few seconds and return to the Phone 2 dashboard to trigger a refresh.
+
+> [!NOTE]
+> The public simulator reproduces the offline signing, compression, webhook, queue, and on-chain settlement flow. Live carrier SMS is intentionally replaced by a safe simulated dispatch in this judge environment.
 
 ## 🏛️ Pijin Architecture
 
@@ -245,7 +289,7 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 
 <img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
 
-
+- 🔗 **Interactive Mobile Demo:** [Live Demo](https://pijin.live/demo-split)
 - 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/4bd23b10-ba65-492a-b6e0-2a83b7260b12)
 - 🔗 **Pijin Website:** [Pijin Website](https://pijin.live)
 - 🔗 **Pijin API:** [Pijin API](https://pijin.live/api-docs) 

@@ -36,7 +36,7 @@ export function Hero() {
             <ScrollReveal direction="up" delay={300} duration={800}>
               <div className="flex flex-wrap items-center gap-4 sm:gap-6 mb-8 lg:mb-10">
                 <a
-                  href="https://www.pijin.live/split"
+                  href="/demo-split"
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label="Simulate the Pijin app"

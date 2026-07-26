@@ -20,6 +20,12 @@ import {
   DEMO_SESSION_STORAGE_KEY,
   type DemoSessionPayload,
 } from '../demo/demo-session-client';
+import {
+  DEMO_REFRESH_TYPE,
+  isDemoEvent,
+  type DemoEvent,
+  type DemoRole,
+} from '../demo/demo-events';
 
 const slides = [
   {
@@ -120,7 +126,10 @@ export default function SplitSimulatorPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
   const [desktopConfirmed, setDesktopConfirmed] = useState(false);
+  const [toasts, setToasts] = useState<DemoEvent[]>([]);
   const touchStartX = useRef<number | null>(null);
+  const phone1Ref = useRef<HTMLIFrameElement | null>(null);
+  const phone2Ref = useRef<HTMLIFrameElement | null>(null);
   const lastSlideIndex = slides.length - 1;
 
   const showSlide = useCallback((index: number) => {
@@ -147,6 +156,59 @@ export default function SplitSimulatorPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const handlePhoneEvent = (message: MessageEvent) => {
+      if (message.origin !== window.location.origin || !isDemoEvent(message.data)) {
+        return;
+      }
+      const expectedRole: DemoRole | null =
+        message.source === phone1Ref.current?.contentWindow
+          ? 'sender'
+          : message.source === phone2Ref.current?.contentWindow
+            ? 'receiver'
+            : null;
+      if (
+        !expectedRole ||
+        message.data.role !== expectedRole ||
+        message.data.sessionId !== sessionId
+      ) {
+        return;
+      }
+
+      setToasts((current) => {
+        const next = [
+          message.data,
+          ...current.filter(
+            (toast) =>
+              !(toast.id === message.data.id && toast.role === message.data.role),
+          ),
+        ];
+        return next.slice(0, 6);
+      });
+
+      for (const frame of [phone1Ref.current, phone2Ref.current]) {
+        frame?.contentWindow?.postMessage(
+          { type: DEMO_REFRESH_TYPE, sessionId },
+          window.location.origin,
+        );
+      }
+
+      if (message.data.phase !== 'pending') {
+        window.setTimeout(() => {
+          setToasts((current) =>
+            current.filter(
+              (toast) =>
+                !(toast.id === message.data.id && toast.role === message.data.role),
+            ),
+          );
+        }, 5000);
+      }
+    };
+    window.addEventListener('message', handlePhoneEvent);
+    return () => window.removeEventListener('message', handlePhoneEvent);
+  }, [sessionId]);
 
   const startSession = async () => {
     if (!desktopConfirmed || activeSlide !== lastSlideIndex) return;
@@ -388,6 +450,10 @@ export default function SplitSimulatorPage() {
         <p className="text-neutral-400 font-medium mt-1">Isolated Judge Session</p>
       </div>
 
+      <ToastRail
+        role="sender"
+        toasts={toasts.filter((toast) => toast.role === 'sender').slice(0, 3)}
+      />
       <div
         className="flex flex-row items-center justify-center gap-8 md:gap-16 w-full"
         style={{
@@ -398,6 +464,7 @@ export default function SplitSimulatorPage() {
         <div className="flex flex-col items-center">
           <p className="text-neutral-500 font-bold uppercase tracking-widest mb-4">Phone 1</p>
           <iframe
+            ref={phone1Ref}
             src={`/demo?role=sender&session=${encodedSession}`}
             className="w-[418px] h-[872px] border-none rounded-[3rem] shadow-2xl bg-black overflow-hidden"
             scrolling="no"
@@ -408,6 +475,7 @@ export default function SplitSimulatorPage() {
         <div className="flex flex-col items-center">
           <p className="text-neutral-500 font-bold uppercase tracking-widest mb-4">Phone 2</p>
           <iframe
+            ref={phone2Ref}
             src={`/demo?role=receiver&session=${encodedSession}`}
             className="w-[418px] h-[872px] border-none rounded-[3rem] shadow-2xl bg-black overflow-hidden"
             scrolling="no"
@@ -415,6 +483,44 @@ export default function SplitSimulatorPage() {
           />
         </div>
       </div>
+      <ToastRail
+        role="receiver"
+        toasts={toasts.filter((toast) => toast.role === 'receiver').slice(0, 3)}
+      />
+    </div>
+  );
+}
+
+function ToastRail({ role, toasts }: { role: DemoRole; toasts: DemoEvent[] }) {
+  const phoneLabel = role === 'sender' ? 'Phone 1' : 'Phone 2';
+  return (
+    <div
+      className={`fixed top-1/2 z-50 flex w-64 -translate-y-1/2 flex-col gap-3 ${
+        role === 'sender' ? 'left-5 items-start' : 'right-5 items-end'
+      }`}
+      aria-live="polite"
+      aria-label={`${phoneLabel} notifications`}
+    >
+      {toasts.map((toast) => (
+        <div
+          key={`${toast.role}:${toast.id}`}
+          className={`w-full rounded-2xl border bg-white p-4 font-sans text-left shadow-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 ${
+            toast.phase === 'error'
+              ? 'border-red-200'
+              : toast.phase === 'success'
+                ? 'border-emerald-200'
+                : 'border-slate-200'
+          }`}
+        >
+          <span className="inline-flex rounded-full bg-[#1e3e62] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+            {phoneLabel}
+          </span>
+          <p className="mt-2 text-sm font-bold text-slate-950">{toast.title}</p>
+          <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500">
+            {toast.message}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
