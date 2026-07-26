@@ -1,4 +1,4 @@
-import { Users } from 'lucide-react'
+import { Smartphone, Play } from 'lucide-react'
 import { ScrollReveal } from '../ScrollReveal'
 
 export function Hero() {
@@ -36,28 +36,23 @@ export function Hero() {
             <ScrollReveal direction="up" delay={300} duration={800}>
               <div className="flex flex-wrap items-center gap-4 sm:gap-6 mb-8 lg:mb-10">
                 <a
-                  href="https://github.com/0xreru/Pijin"
+                  href="https://www.pijin.live/split"
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="View on GitHub"
+                  aria-label="Simulate the Pijin app"
                   className="inline-flex items-center justify-center bg-black hover:bg-slate-900 text-white font-semibold px-8 py-3.5 rounded-[4px] gap-2.5 transition-all duration-300 hover:shadow-md hover:scale-[1.02] active:scale-95 text-sm font-sans group"
                 >
-                  <svg
-                    className="h-5 w-5 fill-current"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.07 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z" />
-                  </svg>
-                  <span>README</span>
+                  <Smartphone className="h-5 w-5" />
+                  <span>SIMULATE APP</span>
                 </a>
 
                 <a
-                  href="#team"
+                  href="#tour"
+                  aria-label="Watch the Pijin product demo"
                   className="inline-flex items-center justify-center bg-transparent hover:bg-slate-50 border border-slate-200 text-slate-800 hover:text-black font-semibold px-8 py-3.5 rounded-[4px] gap-2 transition-all duration-300 hover:shadow-sm hover:scale-[1.02] active:scale-95 text-sm font-sans group"
                 >
-                  <Users className="h-4 w-4 text-slate-500 group-hover:text-black transition-colors" />
-                  <span>Team</span>
+                  <Play className="h-4 w-4 text-slate-500 group-hover:text-black transition-colors fill-current" />
+                  <span>Watch Demo</span>
                 </a>
               </div>
             </ScrollReveal>
