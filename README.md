@@ -92,11 +92,11 @@ The app uses familiar, **non-technical** labels:
 
 ### 1. Watch the demo video
 
-1. Visit the **[Pijin website](https://pijin.live)** and explore the project.
+1. Visit the **[Pijin website](https://pijin.live)** and explore the project. *(Ctrl/Cmd + Click to open in new tab)*
 2. Watch the product demo video on the website before selecting **Simulate App**. This provides context for the complete Pijin flow before you test the focused simulation.
 
 ### 2. Open the simulator
-1. Select **Simulate App** on the website, or open the <a href="https://pijin.live/demo-split" target="_blank"><strong>Pijin App Simulator</a></strong> directly.
+1. Select **Simulate App** on the website, or open the <a href="https://pijin.live/demo-split" target="_blank"><strong>Pijin App Simulator</a></strong> directly. *(Ctrl/Cmd + Click to open in new tab)*
 2. Read all onboarding slides and select **Continue** after each one.
 3. On the final slide, confirm that you are using a desktop view, then select **Enter the Demo Environment**.
 4. Wait while the sandbox initializes and prepares two isolated Stellar Testnet accounts. Do not refresh or close the page during initialization.
@@ -288,7 +288,7 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 
 <img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
 
-- 🔗 **Interactive Mobile Demo:** [Live Demo](https://pijin.live/demo-split)
+- 🔗 **Pijin App Simulator:** [Live Demo](https://pijin.live/demo-split)
 - 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/4bd23b10-ba65-492a-b6e0-2a83b7260b12)
 - 🔗 **Pijin Website:** [Pijin Website](https://pijin.live)
 - 🔗 **Pijin API:** [Pijin API](https://pijin.live/api-docs) 
