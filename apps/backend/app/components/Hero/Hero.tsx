@@ -1,5 +1,15 @@
-import { Smartphone, Play } from 'lucide-react'
+import { Play } from 'lucide-react'
 import { ScrollReveal } from '../ScrollReveal'
+
+const SmartphoneFilledIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M8 1h8a3 3 0 0 1 3 3v16a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V4a3 3 0 0 1 3-3zM8 5h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 21h4v1h-4z"
+    />
+  </svg>
+)
 
 export function Hero() {
   return (
@@ -42,17 +52,17 @@ export function Hero() {
                   aria-label="Simulate the Pijin app"
                   className="inline-flex items-center justify-center bg-black hover:bg-slate-900 text-white font-semibold px-8 py-3.5 rounded-[4px] gap-2.5 transition-all duration-300 hover:shadow-md hover:scale-[1.02] active:scale-95 text-sm font-sans group"
                 >
-                  <Smartphone className="h-5 w-5" />
+                  <SmartphoneFilledIcon className="h-5 w-5" />
                   <span>SIMULATE APP</span>
                 </a>
 
                 <a
                   href="#tour"
                   aria-label="Watch the Pijin product demo"
-                  className="inline-flex items-center justify-center bg-transparent hover:bg-slate-50 border border-slate-200 text-slate-800 hover:text-black font-semibold px-8 py-3.5 rounded-[4px] gap-2 transition-all duration-300 hover:shadow-sm hover:scale-[1.02] active:scale-95 text-sm font-sans group"
+                  className="inline-flex items-center justify-center bg-black hover:bg-slate-900 text-white font-semibold px-8 py-3.5 rounded-[4px] gap-2 transition-all duration-300 hover:shadow-md hover:scale-[1.02] active:scale-95 text-sm font-sans group"
                 >
-                  <Play className="h-4 w-4 text-slate-500 group-hover:text-black transition-colors fill-current" />
-                  <span>Watch Demo</span>
+                  <Play className="h-4 w-4 text-white" style={{ fill: 'currentColor', stroke: 'none' }} />
+                  <span>WATCH DEMO</span>
                 </a>
               </div>
             </ScrollReveal>

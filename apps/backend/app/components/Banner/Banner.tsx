@@ -1,8 +1,12 @@
 import { ScrollReveal } from '../ScrollReveal'
 
-const AndroidIcon = ({ className }: { className?: string }) => (
+const SmartphoneFilledIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-    <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993.0004.5511-.4482.9997-.9993.9997zm-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997zm11.4045-6.02l1.9973-3.4592c.1146-.1986.0467-.4522-.1518-.5672-.1993-.1142-.4526-.0464-.5672.1522l-2.0223 3.503c-1.4727-.6718-3.2383-1.0478-5.1375-1.0478-1.8988 0-3.6645.376-5.1371 1.0478l-2.0227-3.503c-.1146-.1986-.3682-.2664-.5672-.1522-.1986.115-.2664.3686-.1518.5672l1.9973 3.4592C2.656 10.7422.3857 14.1507.0392 18.2573h23.9216c-.3469-4.1066-2.6172-7.5151-6.0333-8.9359z" />
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M8 1h8a3 3 0 0 1 3 3v16a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V4a3 3 0 0 1 3-3zM8 5h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 21h4v1h-4z"
+    />
   </svg>
 )
 
@@ -76,10 +80,15 @@ export function Banner() {
                 </p>
               </ScrollReveal>
               <ScrollReveal direction="up" delay={500} duration={800}>
-                <button className="bg-white hover:bg-slate-100 text-black px-6 sm:px-7 py-3.5 rounded-lg font-semibold flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-sm">
-                  <span className="font-sans text-sm sm:text-[15px]">Download App</span>
-                  <AndroidIcon className="w-5 h-5 sm:w-6 sm:h-6" />
-                </button>
+                <a
+                  href="/demo-split"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-white hover:bg-slate-100 text-black px-6 sm:px-7 py-3.5 rounded-lg font-semibold inline-flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-sm"
+                >
+                  <span className="font-sans text-sm sm:text-[15px]">Simulate App</span>
+                  <SmartphoneFilledIcon className="w-5 h-5 sm:w-6 sm:h-6" />
+                </a>
               </ScrollReveal>
             </div>
 
