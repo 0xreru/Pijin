@@ -2,7 +2,8 @@
 
 import { ArrowLeft, CheckCircle2, RefreshCw, WalletCards } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { isReadySep24WithdrawalMessage } from '@/lib/demo/sep24-withdrawal';
 import {
   completeDemoSep24Withdrawal,
   startDemoSep24Withdrawal,
@@ -21,6 +22,7 @@ export default function DemoWithdrawalPage() {
   const { publicKey, role, sessionId } = useJudgeContext();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const startedRef = useRef(false);
+  const readyRef = useRef(false);
   const [state, setState] = useState<FlowState>('starting');
   const [message, setMessage] = useState('Securing your anchor session…');
   const [url, setUrl] = useState('');
@@ -69,21 +71,104 @@ export default function DemoWithdrawalPage() {
     void start();
   }, [operationId, role, sessionId]);
 
+  const markReadyForTransfer = useCallback(() => {
+    if (readyRef.current) return;
+    readyRef.current = true;
+    setState('confirm');
+    setMessage('Your payout details are ready. Approve the PHPC transfer to continue.');
+    publishDemoEvent(
+      createDemoEvent({
+        id: operationId,
+        sessionId,
+        role,
+        phase: 'info',
+        title: 'Withdrawal ready for approval',
+        message: 'Review and approve the PHPC transfer from the Online Wallet.',
+      }),
+    );
+  }, [operationId, role, sessionId]);
+
+  // Prefer the interactive form's callback, while accepting both the legacy
+  // Pijin message and the SEP-24 transaction callback shape.
   useEffect(() => {
+    if (!url || !transactionId) return;
+    const interactiveOrigin = new URL(url, window.location.href).origin;
     const handleHandoff = (event: MessageEvent) => {
       if (
-        event.origin === window.location.origin &&
+        event.origin === interactiveOrigin &&
         event.source === iframeRef.current?.contentWindow &&
-        event.data?.type === 'success' &&
-        event.data?.status === 'pending_user_transfer_start'
+        isReadySep24WithdrawalMessage(event.data, transactionId)
       ) {
-        setState('confirm');
-        setMessage('Your payout details are ready. Approve the PHPC transfer to continue.');
+        markReadyForTransfer();
       }
     };
     window.addEventListener('message', handleHandoff);
     return () => window.removeEventListener('message', handleHandoff);
-  }, []);
+  }, [markReadyForTransfer, transactionId, url]);
+
+  // SEP-24 explicitly allows wallets to poll /transaction. This prevents the
+  // demo from hanging if a browser drops or blocks the iframe callback.
+  useEffect(() => {
+    if (state !== 'interactive' || !transactionId || !token) return;
+
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let attempts = 0;
+
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const response = await fetch(
+          `/api/sep24/transaction?id=${encodeURIComponent(transactionId)}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+            signal: controller.signal,
+          },
+        );
+        const payload = (await response.json()) as unknown;
+        if (
+          response.ok &&
+          isReadySep24WithdrawalMessage(payload, transactionId)
+        ) {
+          markReadyForTransfer();
+          return;
+        }
+        if (response.status === 401 || response.status === 404) {
+          setState('error');
+          setMessage('The authenticated withdrawal session is no longer available.');
+          return;
+        }
+      } catch (error: unknown) {
+        if (controller.signal.aborted) return;
+        if (attempts >= 120) {
+          setState('error');
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : 'Timed out waiting for the anchor withdrawal instructions.',
+          );
+          return;
+        }
+      }
+
+      if (attempts >= 120) {
+        setState('error');
+        setMessage('Timed out waiting for the anchor withdrawal instructions.');
+        return;
+      }
+
+      if (!controller.signal.aborted) {
+        timer = window.setTimeout(() => void poll(), 1_000);
+      }
+    };
+
+    void poll();
+    return () => {
+      controller.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [markReadyForTransfer, state, token, transactionId]);
 
   const complete = async () => {
     setState('submitting');

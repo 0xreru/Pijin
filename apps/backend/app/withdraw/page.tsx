@@ -85,16 +85,27 @@ function WithdrawalForm() {
       setState('success');
       setMessage('Details accepted. Confirm the PHPC transfer in your wallet.');
 
-      // SEP-24 magic handoff: close the webview and let the Wallet SDK build
-      // the user-signed payment to the Treasury Cold Storage destination.
+      // Hand control back to the wallet. The transaction object matches the
+      // SEP-24 callback shape; the top-level fields keep older Pijin clients
+      // compatible while they migrate to the standard callback.
       if (typeof window !== 'undefined') {
-        const handoff = { type: 'success', status: 'pending_user_transfer_start' };
+        const handoff = {
+          type: 'success',
+          status: 'pending_user_transfer_start',
+          transaction: {
+            id: transactionId,
+            status: 'pending_user_transfer_start',
+            amount_in: amount,
+          },
+        };
         const nativeBridge = (window as ReactNativeWindow).ReactNativeWebView;
 
         if (nativeBridge) {
           nativeBridge.postMessage(JSON.stringify(handoff));
-        } else if (window.parent) {
-          window.parent.postMessage(handoff, '*');
+        } else {
+          const callbackTarget =
+            window.opener && !window.opener.closed ? window.opener : window.parent;
+          callbackTarget.postMessage(handoff, '*');
         }
       }
     } catch (error: unknown) {

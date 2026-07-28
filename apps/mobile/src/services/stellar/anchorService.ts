@@ -701,7 +701,10 @@ async function initiateSep24Withdrawal(
     );
   }
 
-  return { url: json.url, transactionId: json.id };
+  const interactiveUrl = new URL(json.url);
+  interactiveUrl.searchParams.set('callback', 'postMessage');
+
+  return { url: interactiveUrl.toString(), transactionId: json.id };
 }
 
 // ─── Utility helpers ─────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { prisma } from '@/lib/prisma';
 import { parsePhpcToStroops } from '@/lib/demo/offline-transfer-balance';
+import { withSep24PostMessageCallback } from '@/lib/demo/sep24-withdrawal';
 import {
   createDemoWithdrawRequest,
   demoWithdrawCanonicalMessage,
@@ -404,7 +405,7 @@ export async function startDemoSep24Withdrawal(
     }
     return {
       success: true as const,
-      url: interactive.url,
+      url: withSep24PostMessageCallback(interactive.url),
       transactionId: interactive.id,
       token: tokenPayload.token,
     };
@@ -456,6 +457,27 @@ export async function completeDemoSep24Withdrawal(
 
     const keypair = Keypair.fromSecret(account.walletSecret);
     const source = await server.loadAccount(account.publicKey);
+    const requiredBalance = parsePhpcToStroops(amount);
+    const phpcBalance = source.balances.find(
+      (balance) =>
+        balance.asset_type !== 'native' &&
+        'asset_code' in balance &&
+        balance.asset_code === 'PHPC' &&
+        balance.asset_issuer === requiredDemoEnv('PHPC_ISSUER_PUBKEY'),
+    );
+    const availableBalance = phpcBalance
+      ? parsePhpcToStroops(phpcBalance.balance)
+      : null;
+    if (
+      requiredBalance === null ||
+      availableBalance === null ||
+      availableBalance < requiredBalance
+    ) {
+      throw new Error(
+        'Insufficient online PHPC balance. Move offline funds online first if needed.',
+      );
+    }
+
     const transaction = new TransactionBuilder(source, {
       fee: '100',
       networkPassphrase: Networks.TESTNET,
