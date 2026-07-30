@@ -273,7 +273,7 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 
 ## 📸 Screenshots
 
-Every screen and sub-screen of the live Pijin mobile app, captured from the deployed Android build. Full-size originals are in [`screenshots/`](screenshots/).
+Every screen and sub-screen of the live Pijin mobile app, captured from the deployed Android build. All screenshoot are in [`screenshots/`](screenshots/).
 
 <details open>
 <summary><strong>Onboarding and secure access</strong> (mobile)</summary>
