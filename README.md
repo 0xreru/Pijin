@@ -271,6 +271,92 @@ The **Pijin Treasury Portal** serves as the central command center for network a
 - [Pijin Treasury Portal Repository](https://github.com/Kaido147/Pijin_Treasury_Portal)
 - [Pijin Treasury Portal](https://pijin-treasury-portal.vercel.app) 
 
+## 📸 Screenshots
+
+Every screen and sub-screen of the live Pijin mobile app, captured from the deployed Android build. Full-size originals are in [`screenshots/`](screenshots/).
+
+<details open>
+<summary><strong>Onboarding and secure access</strong> (mobile)</summary>
+
+<br />
+
+<table>
+<tr>
+<td align="center"><img src="screenshots/1-on-boarding.jpg" width="200" alt="Welcome to Pijin" /><br /><sub>Welcome to Pijin</sub></td>
+<td align="center"><img src="screenshots/2-on-boarding.jpg" width="200" alt="Enter phone number" /><br /><sub>Enter phone number</sub></td>
+<td align="center"><img src="screenshots/3-on-boarding.jpg" width="200" alt="Select country" /><br /><sub>Select country</sub></td>
+<td align="center"><img src="screenshots/4-on-boarding.jpg" width="200" alt="Verify OTP" /><br /><sub>Verify OTP</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="screenshots/5-on-boarding-if-existing-user.jpg" width="200" alt="Restore wallet" /><br /><sub>Restore wallet</sub></td>
+<td align="center"><img src="screenshots/6-mpin.jpg" width="200" alt="MPIN sign-in" /><br /><sub>MPIN sign-in</sub></td>
+<td></td>
+<td></td>
+</tr>
+</table>
+
+</details>
+
+<details open>
+<summary><strong>Wallet, activity, and QR tools</strong> (mobile)</summary>
+
+<br />
+
+<table>
+<tr>
+<td align="center"><img src="screenshots/7-online-wallet.jpg" width="200" alt="Online wallet" /><br /><sub>Online wallet</sub></td>
+<td align="center"><img src="screenshots/8-offline-wallet.jpg" width="200" alt="Offline vault" /><br /><sub>Offline vault</sub></td>
+<td align="center"><img src="screenshots/9-notification.jpg" width="200" alt="Notifications" /><br /><sub>Notifications</sub></td>
+<td align="center"><img src="screenshots/10-transactions.jpg" width="200" alt="Transaction history" /><br /><sub>Transaction history</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="screenshots/11-profile.jpg" width="200" alt="Profile" /><br /><sub>Profile</sub></td>
+<td align="center"><img src="screenshots/12-qr-scanner-generator.jpg" width="200" alt="QR scanner" /><br /><sub>QR scanner</sub></td>
+<td align="center"><img src="screenshots/12-qr-scanner-generator%281%29.jpg" width="200" alt="QR scanner camera permission" /><br /><sub>Camera permission</sub></td>
+<td align="center"><img src="screenshots/13-qr-receiver.jpg" width="200" alt="Receive money QR code" /><br /><sub>Receive money QR</sub></td>
+</tr>
+</table>
+
+</details>
+
+<details open>
+<summary><strong>Offline payment flow</strong> (signed voucher → SMS or QR relay)</summary>
+
+<br />
+
+<table>
+<tr>
+<td align="center"><img src="screenshots/14-send-funds.jpg" width="200" alt="Send money" /><br /><sub>Send money</sub></td>
+<td align="center"><img src="screenshots/15-send-funds-confirmation.jpg" width="200" alt="Review and authorize offline payment" /><br /><sub>Review and authorize</sub></td>
+<td align="center"><img src="screenshots/16-send-fund-receipt.jpg" width="200" alt="Offline voucher created" /><br /><sub>Offline voucher created</sub></td>
+<td align="center"><img src="screenshots/17-send-fund-method.jpg" width="200" alt="Select SMS or offline relay" /><br /><sub>Select dispatch method</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="screenshots/18-relaying-method.jpg" width="200" alt="Relay transaction QR code" /><br /><sub>Relay transaction QR</sub></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</table>
+
+</details>
+
+<details open>
+<summary><strong>Wallet funding and balance movement</strong> (mobile)</summary>
+
+<br />
+
+<table>
+<tr>
+<td align="center"><img src="screenshots/19-online-to-offline-wallet.jpg" width="200" alt="Move online wallet balance to offline funds" /><br /><sub>Online wallet → offline funds</sub></td>
+<td align="center"><img src="screenshots/20-offline-to-online-wallet.jpg" width="200" alt="Move offline vault balance to online wallet" /><br /><sub>Offline vault → online wallet</sub></td>
+<td align="center"><img src="screenshots/21-top-up-wallet.jpg" width="200" alt="Deposit PHPC through GCash" /><br /><sub>Deposit PHPC via GCash</sub></td>
+<td align="center"><img src="screenshots/22-cash-out-wallet.jpg" width="200" alt="Cash out PHPC to GCash" /><br /><sub>Cash out PHPC to GCash</sub></td>
+</tr>
+</table>
+
+</details>
+
 ## 🌐 Deployment
 
 ### Testnet
