@@ -22,8 +22,6 @@ import { db } from './client';
 import { sql } from 'drizzle-orm';
 
 export async function runMigrations(): Promise<void> {
-  console.log('[DB] Running migrations...');
-
   try {
     // ── transactions table ─────────────────────────────────────────────────
     // Replaces: src/services/storage/transactionStorage.ts
@@ -82,8 +80,6 @@ export async function runMigrations(): Promise<void> {
         tx_hash             TEXT
       )
     `);
-
-    console.log('[DB] Migrations complete.');
   } catch (error) {
     console.error('[DB] Migration failed:', error);
     throw error;

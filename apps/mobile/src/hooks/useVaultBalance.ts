@@ -14,7 +14,6 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
 
   const refresh = useCallback(async () => {
     if (!shortId && !stellarPublicKey) {
-      console.log('[useVaultBalance] Skipping refresh: no shortId or stellarPublicKey provided.');
       setBalancePhp(null);
       setBalanceXlm(null);
       setResolvedShortId(null);
@@ -24,9 +23,6 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
       return;
     }
 
-    console.log(
-      `[useVaultBalance] Starting refresh | shortId=${shortId ?? 'N/A'} | stellarPublicKey=${stellarPublicKey ?? 'N/A'}`
-    );
     setIsLoading(true);
     setError(null);
     setIsOffline(false);
@@ -36,13 +32,6 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
       const queryParams = stellarPublicKey ? { stellarPublicKey } : { shortId: shortId! };
       const result = await getVaultBalance(queryParams);
       const duration = Date.now() - startTime;
-
-      console.log(
-        `[useVaultBalance] API response success | duration=${duration}ms | ` +
-        `balancePHP=${result.balancePHP} | offlineBalancePHP=${result.offlineBalancePHP ?? 0} | ` +
-        `balanceStroops=${result.balanceStroops} | shortId=${result.shortId} | ` +
-        `stellarPublicKey=${result.stellarPublicKey}`
-      );
 
       setBalancePhp(result.balancePHP);
       setBalanceXlm(stroopsToXlm(result.balanceStroops));

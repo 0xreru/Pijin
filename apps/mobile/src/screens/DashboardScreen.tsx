@@ -57,10 +57,6 @@ export function DashboardScreen({ navigation }: any) {
       activeAccount?.stellarPublicKey &&
       jwt
     ) {
-      console.log(
-        `[DashboardScreen] Auto-healing local account storage: shortId missing/placeholder. ` +
-        `Setting to resolved shortId: ${resolvedShortId}`
-      );
       void login(activeAccount.stellarPublicKey, resolvedShortId, jwt).catch((err) => {
         console.warn('[DashboardScreen] Auto-heal login failed:', err);
       });
@@ -274,11 +270,6 @@ export function DashboardScreen({ navigation }: any) {
     const startBalance = previousBalance ?? cachedBalance ?? 0;
     startingBalanceRef.current = startBalance;
     
-    console.log(
-      `[DashboardScreen] startBalancePolling initialized | previousBalance=${previousBalance} | ` +
-      `cachedBalance=${cachedBalance} | startingBalanceRef=${startBalance}`
-    );
-    
     let attempt = 0;
     const POLLING_DELAYS_MS = [
       4000, 4000, 5000, 5000, 6000, 6000, 7000, 7000, 8000, 8000, 9000, 9000, 10000, 10000, 10000
@@ -289,11 +280,6 @@ export function DashboardScreen({ navigation }: any) {
       if (!mountedRef.current) return;
       attempt += 1;
       const delay = POLLING_DELAYS_MS[attempt - 1] ?? 10000;
-      console.log(
-        `[DashboardScreen] Polling balance: attempt ${attempt}/${MAX_ATTEMPTS} | ` +
-        `startingBalance=${startingBalanceRef.current} | currentBalance=${balancePhp} | ` +
-        `nextDelay=${delay}ms`
-      );
 
       if (!mountedRef.current) return;
       try {
@@ -306,7 +292,6 @@ export function DashboardScreen({ navigation }: any) {
       if (!mountedRef.current) return;
 
       if (attempt >= MAX_ATTEMPTS) {
-        console.log(`[DashboardScreen] Polling reached MAX_ATTEMPTS (${MAX_ATTEMPTS}). Polling stopped.`);
         setIsPollingBalance(false);
         pollingRef.current = null;
         Alert.alert(
@@ -326,21 +311,12 @@ export function DashboardScreen({ navigation }: any) {
   // Detect when balancePhp changes after polling starts and stop the loop.
   useEffect(() => {
     if (!isPollingBalance) return;
-    
-    console.log(
-      `[DashboardScreen] Balance check effect | isPollingBalance=true | ` +
-      `startingBalance=${startingBalanceRef.current} | currentBalance=${balancePhp}`
-    );
 
     if (
       balancePhp !== null &&
       startingBalanceRef.current !== null &&
       balancePhp !== startingBalanceRef.current
     ) {
-      console.log(
-        `[DashboardScreen] Success! Balance changed from ${startingBalanceRef.current} ` +
-        `to ${balancePhp}. Halting polling.`
-      );
       if (pollingRef.current) {
         clearTimeout(pollingRef.current);
         pollingRef.current = null;
@@ -358,7 +334,6 @@ export function DashboardScreen({ navigation }: any) {
   // Listen for ON_DEPOSIT_COMPLETE emitted by Sep24WebviewScreen on close.
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('ON_DEPOSIT_COMPLETE', () => {
-      console.log('[DashboardScreen] Received ON_DEPOSIT_COMPLETE event. Triggering startBalancePolling and sync...');
       startBalancePolling(balancePhp);
       if (isOnline && shortId !== '0000') {
         syncService.syncTransactions(shortId, publicKey)
@@ -373,7 +348,6 @@ export function DashboardScreen({ navigation }: any) {
     return () => {
       mountedRef.current = false;
       if (pollingRef.current) {
-        console.log('[DashboardScreen] Unmounting component. Cleaning up active polling timeout.');
         clearTimeout(pollingRef.current);
         pollingRef.current = null;
       }

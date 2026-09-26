@@ -6,8 +6,6 @@ export async function sendSmsReceipt(
   phoneNumber: string,
   message: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
-  console.log(`[Textbee] Preparing to send SMS to ${phoneNumber}: "${message}"`);
-
   // Preferred: explicit gateway URL override.
   // Default: official Textbee endpoint derived from TEXTBEE_DEVICE_ID.
   const deviceId = process.env.TEXTBEE_DEVICE_ID?.trim();
@@ -52,7 +50,6 @@ export async function sendSmsReceipt(
         : {}),
     };
 
-    console.log(`[Textbee] Sending POST to SMS Gateway at: ${gatewayUrl}`);
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       let response: Response;
       try {
@@ -101,7 +98,6 @@ export async function sendSmsReceipt(
         responseData = { message: "No JSON response" };
       }
 
-      console.log("[Textbee] SMS sent successfully via Android Gateway!");
       return {
         success: true,
         data: responseData,

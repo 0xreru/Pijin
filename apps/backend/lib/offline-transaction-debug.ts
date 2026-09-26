@@ -93,15 +93,7 @@ export function logOfflineTransactionDebug(
   stage: string,
   details: Record<string, unknown>,
 ): void {
-  if (!isOfflineTransactionDebugEnabled()) return;
-
-  console.log(
-    `[OfflineVoucher:backend:${stage}] ${debugJson({
-      traceId,
-      timestamp: new Date().toISOString(),
-      ...details,
-    })}`,
-  );
+  // Generic console.log suppressed for production
 }
 
 export function logOfflineVoucherDecompression(

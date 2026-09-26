@@ -121,8 +121,6 @@ function injectSourceAccountAuth(
         const invokeOp = body.invokeHostFunctionOp();
         const auth = invokeOp.auth();
 
-        console.log(`[Deposit:auth] existing entries=${auth.length}`);
-
         // We always overwrite the auth entries with our manually constructed
         // SourceAccount credentials because the mobile app signs the transaction
         // envelope directly as the source account.
@@ -171,7 +169,6 @@ function injectSourceAccountAuth(
             rootInvocation,
         });
 
-        console.log(`[Deposit:auth] Injected SourceAccount auth entry for ${senderPublicKey}`);
         invokeOp.auth([authEntry]);
     }
 
@@ -251,10 +248,6 @@ export async function POST(req: Request): Promise<Response> {
         console.error('[Deposit] Signature check threw:', err);
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
-
-    console.log(
-        `[Deposit] Verified | sender=${senderPublicKey} | amountStroops=${amountStroops} | token=${tokenAddress}`,
-    );
 
     // ── 4. Convert device pubkey hex → Buffer<32> ────────────────────────────
     const pubkeyBuffer = Buffer.from(offlineDevicePubkeyHex, 'hex');
@@ -372,8 +365,6 @@ export async function POST(req: Request): Promise<Response> {
 
         const finalTx = rebuilt.build();
         const xdrOut = finalTx.toEnvelope().toXDR('base64');
-
-        console.log(`[Deposit] Assembled XDR ready | sender=${senderPublicKey} | amountStroops=${amountStroops}`);
 
         return NextResponse.json({ xdr: xdrOut }, { status: 200 });
     } catch (err) {

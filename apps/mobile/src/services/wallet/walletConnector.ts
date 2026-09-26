@@ -16,7 +16,8 @@ const STELLAR_CHAIN =
   cleanEnv(process.env.EXPO_PUBLIC_STELLAR_WALLET_CHAIN) ?? 'stellar:pubnet';
 const WALLETCONNECT_RELAY_URL =
   cleanEnv(process.env.EXPO_PUBLIC_WALLETCONNECT_RELAY_URL) ?? 'wss://relay.walletconnect.com';
-const WALLETCONNECT_SIGN_DEEPLINK = 'lobstr://';
+const WALLETCONNECT_SIGN_DEEPLINK =
+  cleanEnv(process.env.EXPO_PUBLIC_WALLETCONNECT_SIGN_DEEPLINK) ?? 'lobstr://';
 const WALLET_SIGN_OPEN_STRATEGY = 'v2026-05-23-force-lobstr-root';
 const STELLAR_SIGN_METHOD = 'stellar_signXDR';
 const APPROVAL_TIMEOUT_MS = 30000;
@@ -101,7 +102,6 @@ export async function connectStellarWallet(
 
 async function getSignClient(): Promise<SignClient> {
   if (!signClientPromise) {
-    console.log('[wallet-sign] strategy-loaded', { strategy: WALLET_SIGN_OPEN_STRATEGY });
     const projectId = cleanEnv(process.env.EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID);
 
     if (!projectId) {
@@ -181,25 +181,16 @@ async function openWalletConnectUri(
   try {
     try {
       await Linking.openURL(uri);
-      console.log('WalletConnect openURL succeeded:', uriDiagnostics);
       onDeepLinkStatus?.({ canOpen: true, opened: true });
     } catch (error) {
       const message = getErrorMessage(
         error,
         'Unable to open wallet app. Please switch to your wallet and approve the connection.'
       );
-      console.log('WalletConnect openURL failed:', {
-        ...uriDiagnostics,
-        error: message,
-      });
       onDeepLinkStatus?.({ canOpen: false, opened: false, error: message });
     }
   } catch (error) {
     const message = getErrorMessage(error, 'Unable to process wallet routing payload.');
-    console.log('WalletConnect routing infrastructure failed:', {
-      ...uriDiagnostics,
-      error: message,
-    });
     onDeepLinkStatus?.({ canOpen: false, opened: false, error: message });
   }
 }
@@ -213,17 +204,8 @@ async function openWalletForSignature(client: SignClient) {
 
   try {
     await Linking.openURL(WALLETCONNECT_SIGN_DEEPLINK);
-    console.log('[wallet-sign] opened-wallet', {
-      uri: WALLETCONNECT_SIGN_DEEPLINK,
-      strategy: WALLET_SIGN_OPEN_STRATEGY,
-    });
   } catch (error) {
     const lastError = getErrorMessage(error, 'Unknown deep link error');
-    console.log('[wallet-sign] open-wallet-failed', {
-      uri: WALLETCONNECT_SIGN_DEEPLINK,
-      strategy: WALLET_SIGN_OPEN_STRATEGY,
-      error: lastError,
-    });
     throw new Error(lastError || 'Unable to open Lobstr deep link.');
   }
 }
@@ -267,7 +249,6 @@ async function signTransactionXdrInternal(
   }
 
   const pending = client.getPendingSessionRequests?.() ?? [];
-  console.log('[wallet-sign] pending-before', { count: pending.length });
   const hasPendingForTopic = pending.some((request: { topic?: string }) => request.topic === activeSessionTopic);
   if (hasPendingForTopic) {
     activeSignRequest = null;
@@ -293,11 +274,6 @@ async function signTransactionXdrInternal(
   }
   lastSignFingerprint = fingerprint;
   lastSignAtMs = now;
-  console.log('[wallet-sign] request-created', {
-    topic: activeSessionTopic,
-    chainId: activeChain,
-    xdrLen: unsigned.length,
-  });
 
   const requestPayload = {
     topic: activeSessionTopic,
@@ -316,14 +292,10 @@ async function signTransactionXdrInternal(
     'Wallet signature timed out. Open Lobstr and approve the request.'
   );
   openWalletForSignature(client).catch(() => {
-    console.log('Unable to foreground wallet app for signing request.');
+    // Keep silent, app may already be foreground.
   });
 
   const response = await requestPromise;
-  console.log('[wallet-sign] response-received', {
-    elapsedMs: Date.now() - startedAt,
-    topic: activeSessionTopic,
-  });
 
   const signedRaw = extractSignedXdr(response);
   const signed = normalizeXdr(signedRaw);

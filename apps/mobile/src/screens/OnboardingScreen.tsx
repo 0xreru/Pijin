@@ -54,11 +54,12 @@ import {
   loadPersistedCountry,
 } from '../components/ui/CountryCodePicker';
 import { formatE164ForDisplay } from '../utils/phoneFormatter';
+import { getApiBaseUrl } from '../constants/api';
 
 // ---------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------
-const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
+const API_URL = getApiBaseUrl();
 const FRIENDBOT_RETRY_DELAY_MS = 2_000;
 
 

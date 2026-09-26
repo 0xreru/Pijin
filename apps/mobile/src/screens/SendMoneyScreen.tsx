@@ -26,10 +26,11 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { db } from '../db/client';
 import { paymentQueue as paymentQueueTable } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
+import { getApiBaseUrl } from '../constants/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
-const API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app';
+const API_URL = getApiBaseUrl();
 const SHORT_ID_PATTERN = /^[0-9A-Za-z]{6}$/;
 
 // ---------------------------------------------------------------------------

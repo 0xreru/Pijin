@@ -33,7 +33,7 @@ export function ensureMigration(): Promise<void> {
           return;
         }
 
-        console.log('[Migration] Running one-time storage keys migration to pijn.*...');
+
 
         // Migrate AsyncStorage keys
         for (const key of ASYNC_KEYS) {
@@ -44,7 +44,7 @@ export function ensureMigration(): Promise<void> {
               if (abotperaValue !== null) {
                 await AsyncStorage.setItem(`pijn.${key}`, abotperaValue);
                 targetValue = abotperaValue;
-                console.log(`[Migration] Migrated AsyncStorage key: abotpera.${key} -> pijn.${key}`);
+
               }
             }
             if (targetValue === null) {
@@ -52,7 +52,7 @@ export function ensureMigration(): Promise<void> {
               if (pijinValue !== null) {
                 await AsyncStorage.setItem(`pijn.${key}`, pijinValue);
                 targetValue = pijinValue;
-                console.log(`[Migration] Migrated AsyncStorage key: pijin.${key} -> pijn.${key}`);
+
               }
             }
 
@@ -73,7 +73,7 @@ export function ensureMigration(): Promise<void> {
               if (abotperaValue !== null) {
                 await SecureStore.setItemAsync(`pijn.${key}`, abotperaValue);
                 targetValue = abotperaValue;
-                console.log(`[Migration] Migrated SecureStore key: abotpera.${key} -> pijn.${key}`);
+
               }
             }
             if (targetValue === null) {
@@ -81,7 +81,7 @@ export function ensureMigration(): Promise<void> {
               if (pijinValue !== null) {
                 await SecureStore.setItemAsync(`pijn.${key}`, pijinValue);
                 targetValue = pijinValue;
-                console.log(`[Migration] Migrated SecureStore key: pijin.${key} -> pijn.${key}`);
+
               }
             }
 
@@ -95,7 +95,7 @@ export function ensureMigration(): Promise<void> {
 
         await AsyncStorage.setItem('pijn.storage_migrated', 'true');
         await AsyncStorage.removeItem('pijin.storage_migrated').catch(() => {});
-        console.log('[Migration] Storage keys migration completed successfully.');
+
       } catch (err) {
         console.error('[Migration] Critical error running migration:', err);
       }
