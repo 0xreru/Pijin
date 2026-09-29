@@ -3,7 +3,7 @@
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
-use soroban_sdk::{testutils::Address as _, token, Address, Bytes, BytesN, Env};
+use soroban_sdk::{testutils::Address as _, token, Address, Bytes, BytesN, Env, String};
 
 const INITIAL_BALANCE: i128 = 1_000_000_000;
 const DEPOSIT_AMOUNT: i128 = 500_000_000;
@@ -55,12 +55,13 @@ impl TestContext {
         self.deposit_token(&self.token_a.clone(), amount);
     }
 
-    /// Build and sign a spend payload for the given token.
+    /// Build and sign a spend payload for the given contract and token.
     ///
-    /// Payload structure (6-item tuple):
-    /// (amount, protocol_toll, nonce, receiver_short_id, gateway, token)
-    fn sign_payload_for(
+    /// Payload structure (7-item tuple):
+    /// (amount, protocol_toll, nonce, receiver_short_id, gateway, token, contract)
+    fn sign_payload_for_contract(
         &self,
+        contract: &Address,
         token: &Address,
         amount: i128,
         protocol_toll: i128,
@@ -75,11 +76,33 @@ impl TestContext {
             receiver_short_id.clone(),
             gateway.clone(),
             token.clone(),
+            contract.clone(),
         )
             .to_xdr(&self.env);
         let payload_buffer = payload.to_buffer::<1024>();
         let signature = self.signing_key.sign(payload_buffer.as_slice()).to_bytes();
         BytesN::from_array(&self.env, &signature)
+    }
+
+    /// Build and sign a spend payload for the current contract and given token.
+    fn sign_payload_for(
+        &self,
+        token: &Address,
+        amount: i128,
+        protocol_toll: i128,
+        nonce: &BytesN<32>,
+        receiver_short_id: &BytesN<6>,
+        gateway: &Address,
+    ) -> BytesN<64> {
+        self.sign_payload_for_contract(
+            &self.contract_id,
+            token,
+            amount,
+            protocol_toll,
+            nonce,
+            receiver_short_id,
+            gateway,
+        )
     }
 
     /// Sign using Token A (backwards-compatible helper used by most existing tests).
@@ -699,4 +722,484 @@ fn test_withdraw_insufficient_balance() {
         deposit,
         "Vault balance must be unchanged after a failed over-draw"
     );
+}
+
+// ─── Advanced Security & Domain Separation Tests ─────────────────────────────
+
+/// Cross-contract domain separation:
+/// A signature generated for Contract A must trap when submitted to Contract B.
+#[test]
+#[should_panic]
+fn test_spend_offline_fails_on_different_contract() {
+    let ctx = setup_test();
+
+    // Deploy a second contract instance on the same network
+    let contract_2_id = ctx.env.register(PijinContract, (&ctx.admin, &ctx.treasury));
+    let client_2 = PijinContractClient::new(&ctx.env, &contract_2_id);
+    client_2.register_gateway(&ctx.admin, &ctx.gateway);
+    client_2.register_recipient(&ctx.admin, &ctx.receiver_short_id, &ctx.receiver);
+
+    // Deposit into Contract 2 for the sender
+    client_2.deposit(&ctx.sender, &ctx.token_a, &ctx.pubkey(), &DEPOSIT_AMOUNT);
+
+    let amount = 100_000_000;
+    let protocol_toll = 5_000_000;
+    let nonce = BytesN::from_array(&ctx.env, &[31; 32]);
+
+    // Sign for contract 1 (ctx.contract_id), NOT contract 2!
+    let signature_for_contract_1 = ctx.sign_payload_for_contract(
+        &ctx.contract_id,
+        &ctx.token_a,
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
+
+    // Attempting to spend on Contract 2 with a signature bound to Contract 1 must trap!
+    client_2.spend_offline(
+        &ctx.gateway,
+        &ctx.sender,
+        &ctx.token_a,
+        &ctx.receiver_short_id,
+        &amount,
+        &protocol_toll,
+        &nonce,
+        &signature_for_contract_1,
+    );
+}
+
+/// Swapped tokens attack:
+/// User signs for Token A (PHPC); attacker attempts to spend Token B (USDC) with that signature.
+#[test]
+#[should_panic]
+fn test_spend_offline_swapped_tokens_fails() {
+    let ctx = setup_test();
+
+    // Deposit both Token A and Token B into Sender vault
+    ctx.deposit_token(&ctx.token_a, DEPOSIT_AMOUNT);
+    ctx.deposit_token(&ctx.token_b, DEPOSIT_AMOUNT);
+
+    let amount = 100_000_000;
+    let protocol_toll = 5_000_000;
+    let nonce = BytesN::from_array(&ctx.env, &[32; 32]);
+
+    // Sign specifically for Token A
+    let sig_token_a = ctx.sign_payload_for(
+        &ctx.token_a,
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
+
+    // Attacker calls spend_offline attempting to debit Token B using Token A signature
+    ctx.client().spend_offline(
+        &ctx.gateway,
+        &ctx.sender,
+        &ctx.token_b, // Swapped!
+        &ctx.receiver_short_id,
+        &amount,
+        &protocol_toll,
+        &nonce,
+        &sig_token_a,
+    );
+}
+
+/// Unregistered key / unenrolled sender:
+/// Calling spend_offline on a sender that never registered an offline key must trap.
+#[test]
+#[should_panic]
+fn test_spend_offline_unregistered_key_fails() {
+    let ctx = setup_test();
+    let unenrolled_sender = Address::generate(&ctx.env);
+
+    let amount = 100_000_000;
+    let protocol_toll = 5_000_000;
+    let nonce = BytesN::from_array(&ctx.env, &[33; 32]);
+    let dummy_signature = BytesN::from_array(&ctx.env, &[0u8; 64]);
+
+    ctx.client().spend_offline(
+        &ctx.gateway,
+        &unenrolled_sender,
+        &ctx.token_a,
+        &ctx.receiver_short_id,
+        &amount,
+        &protocol_toll,
+        &nonce,
+        &dummy_signature,
+    );
+}
+
+/// Gateway impersonation / mismatch attack:
+/// Signature is bound to Gateway 1; a different whitelisted Gateway 2 attempts to submit it.
+#[test]
+#[should_panic]
+fn test_spend_offline_gateway_mismatch_fails() {
+    let ctx = setup_test();
+    ctx.deposit(DEPOSIT_AMOUNT);
+
+    // Register a second whitelisted gateway
+    let gateway_2 = Address::generate(&ctx.env);
+    ctx.client().register_gateway(&ctx.admin, &gateway_2);
+
+    let amount = 100_000_000;
+    let protocol_toll = 5_000_000;
+    let nonce = BytesN::from_array(&ctx.env, &[34; 32]);
+
+    // Signature explicitly authorizes ctx.gateway (Gateway 1)
+    let signature = ctx.sign_payload_for(
+        &ctx.token_a,
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
+
+    // Gateway 2 intercepts and tries to submit using Gateway 2's address -> must trap!
+    ctx.client().spend_offline(
+        &gateway_2,
+        &ctx.sender,
+        &ctx.token_a,
+        &ctx.receiver_short_id,
+        &amount,
+        &protocol_toll,
+        &nonce,
+        &signature,
+    );
+}
+
+/// Protocol toll manipulation:
+/// User signs for 0.50 PHPC toll; relayer attempts to strip the toll to 0.
+#[test]
+#[should_panic]
+fn test_spend_offline_tampered_toll_fails() {
+    let ctx = setup_test();
+    ctx.deposit(DEPOSIT_AMOUNT);
+
+    let amount = 100_000_000;
+    let signed_toll = 5_000_000;
+    let tampered_toll = 0;
+    let nonce = BytesN::from_array(&ctx.env, &[35; 32]);
+
+    let signature = ctx.sign_payload(
+        amount,
+        signed_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
+
+    ctx.client().spend_offline(
+        &ctx.gateway,
+        &ctx.sender,
+        &ctx.token_a,
+        &ctx.receiver_short_id,
+        &amount,
+        &tampered_toll,
+        &nonce,
+        &signature,
+    );
+}
+
+/// Key rotation invalidates previously signed vouchers:
+/// Sender rotates key to Key 2; vouchers signed with old Key 1 must fail.
+#[test]
+#[should_panic]
+fn test_spend_offline_invalidated_by_key_rotation() {
+    let ctx = setup_test();
+    ctx.deposit(DEPOSIT_AMOUNT);
+
+    let amount = 100_000_000;
+    let protocol_toll = 5_000_000;
+    let nonce = BytesN::from_array(&ctx.env, &[36; 32]);
+
+    // Sign voucher with Key 1
+    let signature_key_1 = ctx.sign_payload(
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
+
+    // Sender rotates key to Key 2
+    let replacement = SigningKey::generate(&mut OsRng);
+    let key_2 = BytesN::from_array(&ctx.env, &replacement.verifying_key().to_bytes());
+    ctx.client().set_offline_key(&ctx.sender, &key_2);
+
+    // Voucher signed with old Key 1 must now trap
+    ctx.client().spend_offline(
+        &ctx.gateway,
+        &ctx.sender,
+        &ctx.token_a,
+        &ctx.receiver_short_id,
+        &amount,
+        &protocol_toll,
+        &nonce,
+        &signature_key_1,
+    );
+}
+
+/// Zero and negative amount validation:
+/// spend_offline must reject amount <= 0 and protocol_toll < 0.
+#[test]
+fn test_spend_offline_rejects_zero_and_negative_amounts() {
+    let ctx = setup_test();
+    let nonce = BytesN::from_array(&ctx.env, &[37; 32]);
+    let dummy_sig = BytesN::from_array(&ctx.env, &[0u8; 64]);
+
+    // Zero amount
+    assert_eq!(
+        ctx.client().try_spend_offline(
+            &ctx.gateway,
+            &ctx.sender,
+            &ctx.token_a,
+            &ctx.receiver_short_id,
+            &0,
+            &5_000_000,
+            &nonce,
+            &dummy_sig,
+        ),
+        Err(Ok(ContractError::InvalidAmount))
+    );
+
+    // Negative amount
+    assert_eq!(
+        ctx.client().try_spend_offline(
+            &ctx.gateway,
+            &ctx.sender,
+            &ctx.token_a,
+            &ctx.receiver_short_id,
+            &-100,
+            &5_000_000,
+            &nonce,
+            &dummy_sig,
+        ),
+        Err(Ok(ContractError::InvalidAmount))
+    );
+
+    // Negative toll
+    assert_eq!(
+        ctx.client().try_spend_offline(
+            &ctx.gateway,
+            &ctx.sender,
+            &ctx.token_a,
+            &ctx.receiver_short_id,
+            &100,
+            &-1,
+            &nonce,
+            &dummy_sig,
+        ),
+        Err(Ok(ContractError::InvalidAmount))
+    );
+}
+
+/// Short ID validation in spend_offline:
+/// spend_offline must reject non-Base62 receiver short IDs before storage lookup.
+#[test]
+fn test_spend_offline_rejects_invalid_short_id() {
+    let ctx = setup_test();
+    let nonce = BytesN::from_array(&ctx.env, &[38; 32]);
+    let dummy_sig = BytesN::from_array(&ctx.env, &[0u8; 64]);
+
+    let invalid_ids = [
+        BytesN::from_array(&ctx.env, b"bad-id"),
+        BytesN::from_array(&ctx.env, b"123 45"),
+        BytesN::from_array(&ctx.env, b"a!cdef"),
+    ];
+
+    for bad_id in invalid_ids {
+        assert_eq!(
+            ctx.client().try_spend_offline(
+                &ctx.gateway,
+                &ctx.sender,
+                &ctx.token_a,
+                &bad_id,
+                &100,
+                &5,
+                &nonce,
+                &dummy_sig,
+            ),
+            Err(Ok(ContractError::InvalidShortId))
+        );
+    }
+}
+
+/// Early replay check optimization:
+/// Verify that an already-spent nonce is rejected BEFORE signature verification is executed.
+#[test]
+fn test_spend_offline_replayed_nonce_fails_before_signature_check() {
+    let ctx = setup_test();
+    let amount = 100_000_000;
+    let protocol_toll = 5_000_000;
+    let nonce = BytesN::from_array(&ctx.env, &[39; 32]);
+    let signature = ctx.sign_payload(
+        amount,
+        protocol_toll,
+        &nonce,
+        &ctx.receiver_short_id,
+        &ctx.gateway,
+    );
+
+    ctx.deposit(DEPOSIT_AMOUNT);
+
+    // Initial valid spend
+    ctx.client().spend_offline(
+        &ctx.gateway,
+        &ctx.sender,
+        &ctx.token_a,
+        &ctx.receiver_short_id,
+        &amount,
+        &protocol_toll,
+        &nonce,
+        &signature,
+    );
+
+    // Second spend with a completely BOGUS signature.
+    // Because Nonce check executes BEFORE ed25519_verify,
+    // this must return ContractError::NonceReplayed instead of trapping on invalid signature!
+    let bogus_signature = BytesN::from_array(&ctx.env, &[0u8; 64]);
+    assert_eq!(
+        ctx.client().try_spend_offline(
+            &ctx.gateway,
+            &ctx.sender,
+            &ctx.token_a,
+            &ctx.receiver_short_id,
+            &amount,
+            &protocol_toll,
+            &nonce,
+            &bogus_signature,
+        ),
+        Err(Ok(ContractError::NonceReplayed))
+    );
+}
+
+// ─── GSM-7 160-Character Boundary Suite ─────────────────────────────────────
+
+#[test]
+fn test_gsm7_sms_payload_boundary_validation() {
+    // Standard payload:
+    // {tokenIdStr}:{senderShortId}:{receiverShortId}:{amountBase62}:{nonceB64}:{signatureB64}
+    // Unpadded Base64: 32 bytes -> 43 chars, 64 bytes -> 86 chars
+    let _nonce_b64 = "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio"; // 43 chars
+    let _sig_b64 =
+        "ovbhRSySAy6FjrTEuyk8xe7Ni6YirlKDDEVZcjyEL51zs/TOnpNxReportK5mSk52A1/FyoRgD35zM0NroinAA"; // 86 chars
+
+    // Case 1: Minimum boundary (1-digit token "1", 1 stroop "1", 6-char IDs, 43-char nonce, 86-char sig)
+    // 1 + 1 + 6 + 1 + 6 + 1 + 1 + 1 + 43 + 1 + 86 = 148 chars
+    let min_payload = "1:aB3x9Q:Z9y8X7:1:KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio:ovbhRSySAy6FjrTEuyk8xe7Ni6YirlKDDEVZcjyEL51zs/TOnpNxReportK5mSk52A1/FyoRgD35zM0NroinAA";
+    assert_eq!(min_payload.len(), 148);
+    assert!(
+        min_payload.len() <= 160,
+        "Minimum payload must be <= 160 characters"
+    );
+
+    // Case 2: Nominal boundary (1-digit token "1", 500 PHP = 5,000,000,000 stroops = 6 chars in Base62 "5L7Vw8")
+    // 1 + 1 + 6 + 1 + 6 + 1 + 6 + 1 + 43 + 1 + 86 = 153 chars
+    let nominal_payload = "1:aB3x9Q:Z9y8X7:5L7Vw8:KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio:ovbhRSySAy6FjrTEuyk8xe7Ni6YirlKDDEVZcjyEL51zs/TOnpNxReportK5mSk52A1/FyoRgD35zM0NroinAA";
+    assert_eq!(nominal_payload.len(), 153);
+    assert!(
+        nominal_payload.len() <= 160,
+        "Nominal payload must be <= 160 characters"
+    );
+
+    // Case 3: Maximum allowed boundary (3-digit token "999", 11-char max u64 Base62 "LygHa16ahYg")
+    // 3 + 1 + 6 + 1 + 6 + 1 + 11 + 1 + 43 + 1 + 86 = 160 chars
+    let max_payload = "999:aB3x9Q:Z9y8X7:LygHa16ahYg:KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio:ovbhRSySAy6FjrTEuyk8xe7Ni6YirlKDDEVZcjyEL51zs/TOnpNxReportK5mSk52A1/FyoRgD35zM0NroinAA";
+    assert_eq!(
+        max_payload.len(),
+        160,
+        "Max allowed payload must be exactly 160 GSM-7 characters"
+    );
+
+    // Case 4: Overflow boundary (leaked Base64 padding '=' on nonce and '==' on signature)
+    // 3 + 1 + 6 + 1 + 6 + 1 + 11 + 1 + 44 + 1 + 88 = 163 chars > 160
+    let overflow_payload = "999:aB3x9Q:Z9y8X7:LygHa16ahYg:KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=:ovbhRSySAy6FjrTEuyk8xe7Ni6YirlKDDEVZcjyEL51zs/TOnpNxReportK5mSk52A1/FyoRgD35zM0NroinAA==";
+    assert_eq!(overflow_payload.len(), 163);
+    assert!(
+        overflow_payload.len() > 160,
+        "Padded Base64 must strictly exceed 160 GSM-7 limit"
+    );
+}
+
+// ─── Cross-Language Golden Vector Test ──────────────────────────────────────
+
+fn hex_char_to_val(c: u8) -> u8 {
+    match c {
+        b'0'..=b'9' => c - b'0',
+        b'a'..=b'f' => c - b'a' + 10,
+        b'A'..=b'F' => c - b'A' + 10,
+        _ => panic!("invalid hex"),
+    }
+}
+
+fn hex_to_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
+    let mut bytes = [0u8; N];
+    let hex_bytes = hex_str.as_bytes();
+    for i in 0..N {
+        let hi = hex_char_to_val(hex_bytes[i * 2]);
+        let lo = hex_char_to_val(hex_bytes[i * 2 + 1]);
+        bytes[i] = (hi << 4) | lo;
+    }
+    bytes
+}
+
+/// Verifies 1:1 cross-language serialization parity between TypeScript and Soroban Rust.
+#[test]
+fn test_cross_language_golden_vector() {
+    let env = Env::default();
+
+    let sender_raw_pubkey: [u8; 32] =
+        hex_to_bytes("8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c");
+    let golden_xdr: [u8; 232] = hex_to_bytes("0000001000000001000000070000000a00000000000000000000000005f5e1000000000a000000000000000000000000004c4b400000000d000000202a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000d0000000661423378395100000000001200000000000000008139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000001200000001030303030303030303030303030303030303030303030303030303030303030300000012000000010404040404040404040404040404040404040404040404040404040404040404");
+    let golden_signature: [u8; 64] = hex_to_bytes("a2f6e1452c92032e858eb4c4bb293cc5eecd8ba622ae5283004559723c842f9d73b3f4ce9e937171201cd22cb9992939d80d7f172a11803df9cccd0dae88a700");
+
+    let gateway = Address::from_string(&String::from_str(
+        &env,
+        "GCATS5YOVB6ROX2WUNKGNQ2MP3GMXDMKSG2O4N5CLX3A6W4PZGZZI55U",
+    ));
+    let token = Address::from_string(&String::from_str(
+        &env,
+        "CABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGCK3",
+    ));
+    let contract = Address::from_string(&String::from_str(
+        &env,
+        "CACAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAINCW",
+    ));
+
+    let amount: i128 = 100_000_000;
+    let protocol_toll: i128 = 5_000_000;
+    let nonce = BytesN::from_array(&env, &[0x2a; 32]);
+    let receiver_short_id = BytesN::from_array(&env, b"aB3x9Q");
+
+    // Construct the 7-tuple in Soroban Rust
+    let rust_tuple = (
+        amount,
+        protocol_toll,
+        nonce,
+        receiver_short_id,
+        gateway,
+        token,
+        contract,
+    );
+
+    let rust_xdr: Bytes = rust_tuple.to_xdr(&env);
+    let rust_xdr_slice = rust_xdr.to_buffer::<1024>();
+
+    // 1. Assert byte-for-byte serialization identity between TypeScript and Rust
+    assert_eq!(
+        rust_xdr_slice.as_slice(),
+        golden_xdr.as_slice(),
+        "Rust Soroban to_xdr MUST match TypeScript @stellar/stellar-sdk ScVal Vec serialization 1:1"
+    );
+
+    // 2. Assert Ed25519 signature generated by TypeScript verifies cleanly on Soroban host
+    let pubkey_bytes = BytesN::from_array(&env, &sender_raw_pubkey);
+    let sig_bytes = BytesN::from_array(&env, &golden_signature);
+    env.crypto()
+        .ed25519_verify(&pubkey_bytes, &rust_xdr, &sig_bytes);
 }

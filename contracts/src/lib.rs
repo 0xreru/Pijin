@@ -316,6 +316,8 @@ impl PijinContract {
             return Err(ContractError::InvalidAmount);
         }
 
+        validate_short_id(&receiver_short_id)?;
+
         gateway.require_auth();
 
         // ── Gateway Whitelist Firewall ────────────────────────────────────────
@@ -327,6 +329,12 @@ impl PijinContract {
         }
         extend_persistent_ttl(&env, &gateway_key);
         // ─────────────────────────────────────────────────────────────────────
+
+        let nonce_key = DataKey::Nonce(nonce.clone());
+        if env.storage().persistent().has(&nonce_key) {
+            extend_persistent_ttl(&env, &nonce_key);
+            return Err(ContractError::NonceReplayed);
+        }
 
         // Resolve the payment destination from authoritative contract storage.
         // The phone only needs the compact short ID when signing offline.
@@ -346,8 +354,10 @@ impl PijinContract {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::Unauthorized));
         extend_persistent_ttl(&env, &registered_key);
 
+        let contract = env.current_contract_address();
+
         // Signature payload:
-        // (amount, protocol_toll, nonce, receiver_short_id, gateway, token)
+        // (amount, protocol_toll, nonce, receiver_short_id, gateway, token, contract)
         let payload = (
             amount,
             protocol_toll,
@@ -355,16 +365,11 @@ impl PijinContract {
             receiver_short_id.clone(),
             gateway.clone(),
             token.clone(),
+            contract.clone(),
         )
             .to_xdr(&env);
         env.crypto()
             .ed25519_verify(&sender_pubkey, &payload, &signature);
-
-        let nonce_key = DataKey::Nonce(nonce.clone());
-        if env.storage().persistent().has(&nonce_key) {
-            extend_persistent_ttl(&env, &nonce_key);
-            return Err(ContractError::NonceReplayed);
-        }
 
         let total_deduction = amount
             .checked_add(protocol_toll)
