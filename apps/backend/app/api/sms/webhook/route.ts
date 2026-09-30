@@ -152,14 +152,14 @@ function verifyHmacSignature(rawBody: string, incomingSignature: string): boolea
 
     try {
         const expectedRaw = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
-        
+
         // Strip any "sha256=" prefix if it exists to normalize the hex string
         const cleanIncomingSig = incomingSignature.replace(/^sha256=/, '');
         const incomingBuf = Buffer.from(cleanIncomingSig, 'hex');
         const expectedRawBuf = Buffer.from(expectedRaw, 'hex');
 
         if (incomingBuf.length === expectedRawBuf.length && crypto.timingSafeEqual(incomingBuf, expectedRawBuf)) return true;
-        
+
         // Attempt parsing fallback just in case Android added invisible spaces
         let expectedParsed = '';
         try {
@@ -195,22 +195,22 @@ function extractSmsPayload(body: UnknownObject): SmsWebhookPayload | null {
 
     const senderPhone =
         typeof candidate.sender === 'string' ? candidate.sender.trim() :
-        typeof candidate.from === 'string' ? candidate.from.trim() :
-        typeof candidate.phone === 'string' ? candidate.phone.trim() :
-        '';
+            typeof candidate.from === 'string' ? candidate.from.trim() :
+                typeof candidate.phone === 'string' ? candidate.phone.trim() :
+                    '';
 
     const message =
         typeof candidate.message === 'string' ? candidate.message.trim() :
-        typeof candidate.text === 'string' ? candidate.text.trim() :
-        typeof candidate.body === 'string' ? candidate.body.trim() :
-        '';
+            typeof candidate.text === 'string' ? candidate.text.trim() :
+                typeof candidate.body === 'string' ? candidate.body.trim() :
+                    '';
 
     const eventType =
         typeof body.event === 'string' ? body.event :
-        typeof body.type === 'string' ? body.type :
-        typeof candidate.event === 'string' ? candidate.event :
-        typeof candidate.type === 'string' ? candidate.type :
-        'UNKNOWN';
+            typeof body.type === 'string' ? body.type :
+                typeof candidate.event === 'string' ? candidate.event :
+                    typeof candidate.type === 'string' ? candidate.type :
+                        'UNKNOWN';
 
     return senderPhone && message ? { senderPhone, message, eventType } : null;
 }
@@ -266,9 +266,15 @@ export async function POST(req: Request) {
         rawBodyLength: rawBody.length,
     });
 
+    // Block if payload is too large
+    if (Buffer.byteLength(rawBody, 'utf8') > 2048) {
+        console.warn(`[SMS Webhook] Blocked: Payload exceeds the body limit. traceId=${traceId}`);
+        return NextResponse.json({ error: 'Payload too large', traceId }, { status: 413 });
+    }
+
     // ── Tier 1: Dual-Layer Ingress Shield ─────────────────────────────────────
     const incomingSignature = req.headers.get('x-signature') || req.headers.get('x-textbee-signature') || '';
-    
+
     // Extract the secret from the URL query params (e.g. ?secret=...)
     const url = new URL(req.url);
     const incomingSecretUrl = url.searchParams.get('secret');
@@ -281,11 +287,6 @@ export async function POST(req: Request) {
     if (incomingSignature && verifyHmacSignature(rawBody, incomingSignature)) {
         isAuthorized = true;
         authorizationMethod = 'hmac-sha256';
-    } 
-    // Shield Layer B: Fallback to HTTPS URL Secret
-    else if (incomingSecretUrl && incomingSecretUrl === expectedSecret) {
-        isAuthorized = true;
-        authorizationMethod = 'url-secret';
     }
 
     logOfflineTransactionDebug(traceId, 'receive:auth', {
@@ -296,8 +297,8 @@ export async function POST(req: Request) {
     });
 
     if (!isAuthorized) {
-        console.warn(`[SMS Webhook] Blocked: Invalid HMAC and missing URL secret. traceId=${traceId}`);
-        return NextResponse.json({ error: 'Unauthorized', traceId }, { status: 401 });
+        console.warn(`[SMS Webhook] Blocked: Invalid HMAC and missing signature. traceId=${traceId}`);
+        return NextResponse.json({ error: 'Unauthorized, Invalid HMAC Signature', traceId }, { status: 401 });
     }
 
     // ── Parse Body ────────────────────────────────────────────────────────────
