@@ -373,7 +373,6 @@ export async function resolveOfflineTransactionNames(): Promise<void> {
                 .update(transactions)
                 .set({ title: newTitle })
                 .where(eq(transactions.id, tx.id));
-              console.log(`[transactionDb] Resolved ${shortId} to ${data.displayName}`);
             }
           }
         } catch (lookupErr) {

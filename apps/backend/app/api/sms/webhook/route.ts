@@ -284,7 +284,6 @@ export async function POST(req: Request) {
     } 
     // Shield Layer B: Fallback to HTTPS URL Secret
     else if (incomingSecretUrl && incomingSecretUrl === expectedSecret) {
-        console.log('[SMS Webhook] Authorized via URL Secret.');
         isAuthorized = true;
         authorizationMethod = 'url-secret';
     }
@@ -321,7 +320,6 @@ export async function POST(req: Request) {
     if (!isLegacyEvent && !isNewTypeEvent) {
         // Only reject if we can positively identify a non-inbound event type
         if (isDeliveryReceipt) {
-            console.log(`[SMS Webhook] Ignored event type: ${body.event}`);
             return NextResponse.json({ success: true, status: 'Ignored' });
         }
         // Unknown schema — log it and continue optimistically
@@ -390,7 +388,6 @@ export async function POST(req: Request) {
             target: settleUrl,
             qstashResult,
         });
-        console.log('[SMS Webhook] QStash accepted settlement job:', JSON.stringify(qstashResult));
     } catch (err) {
         console.error('[SMS Webhook] QStash publish failed. SMS was NOT buffered:', err);
         return NextResponse.json({ error: 'Failed to buffer settlement' }, { status: 500 });
@@ -403,9 +400,7 @@ export async function POST(req: Request) {
         console.warn('[SMS Webhook] Ack SMS failed after QStash buffer:', err);
     });
 
-    console.log(
-        `[SMS Webhook] Buffered → QStash | deduplicationId=${deduplicationId} | target=${settleUrl}`
-    );
+
 
     return NextResponse.json({ success: true, status: 'Buffered', traceId });
 }

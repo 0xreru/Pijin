@@ -93,9 +93,8 @@ function amountToStroops(amount: number): bigint {
 
 async function executeDeposit(input: { customerPublicKey: string; amount: number }): Promise<string | undefined> {
   const startedAt = Date.now();
-  const markStage = (stage: string, details?: unknown): void => {
-    const suffix = details === undefined ? '' : ` details=${stringifyForDepositLog(details)}`;
-    console.log(`[deposit] stage=${stage} elapsedMs=${Date.now() - startedAt}${suffix}`);
+  const markStage = (_stage: string, _details?: unknown): void => {
+    // Stage tracking suppressed for production
   };
 
   const { Keypair, StrKey, TransactionBuilder } = require('@stellar/stellar-sdk');

@@ -50,6 +50,4 @@ export async function sendSmsNotification(to: string, message: string): Promise<
         const errText = await response.text().catch(() => '');
         throw new Error(`[SMS] Textbee responded ${response.status}: ${errText}`);
     }
-
-    console.log(`[SMS] Notification sent to ${formattedTo}`);
 }

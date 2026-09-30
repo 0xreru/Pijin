@@ -26,6 +26,7 @@ import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { confirmOnlineTransfer } from '../services/api/transactions';
+import { getApiBaseUrl } from '../constants/api';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 56;
@@ -33,9 +34,7 @@ const TRACK_WIDTH = SCREEN_WIDTH - 40;
 const MAX_SWIPE = TRACK_WIDTH - BUTTON_WIDTH - 8;
 const STROOPS_PER_UNIT = 10_000_000;
 const PAYMENT_RAIL_PROTOCOL = 2;
-const API_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app')
-  .trim()
-  .replace(/^['"]|['"]$/g, '');
+const API_URL = getApiBaseUrl();
 
 function amountToStroops(amount: number): bigint {
   if (!Number.isFinite(amount) || amount <= 0) {

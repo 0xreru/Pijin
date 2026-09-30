@@ -50,7 +50,7 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Base URL of the Pijin anchor backend (no trailing slash). */
-export const ANCHOR_DOMAIN = 'pijin-api.vercel.app';
+export const ANCHOR_DOMAIN = process.env.EXPO_PUBLIC_ANCHOR_DOMAIN || 'pijin-api.vercel.app';
 export const ANCHOR_BASE_URL = `https://${ANCHOR_DOMAIN}`;
 
 /** Stellar network we are targeting. */
@@ -533,7 +533,7 @@ function signChallenge(challengeXdr: string, keypair: Keypair): string {
       txBase64 = Buffer.from(rawXdr).toString('base64');
     }
 
-    console.log('[SEP-10] Signed Challenge Base64 snippet:', txBase64.substring(0, 30) + '...');
+
 
     return txBase64;
   } catch (err) {

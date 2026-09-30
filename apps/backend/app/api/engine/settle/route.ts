@@ -190,9 +190,7 @@ async function handler(req: Request): Promise<Response> {
         signature: signatureBuffer,
     } = voucher;
 
-    console.log(
-        `[Settle] Processing | traceId=${traceId} | msgId=${qstashMessageId} | tokenId=${tokenId} | sender=${senderShortId} | receiver=${receiverShortId} | amountStroops=${amountStroops} | nonce=${nonce}`
-    );
+
 
     // Create or resume a PENDING settlement record (idempotency guard).
     // QStash retries must be able to continue after an infra failure that
@@ -213,7 +211,6 @@ async function handler(req: Request): Promise<Response> {
             },
         });
         settlementId = record.id;
-        console.log(`[Settle] DB record created | settlementId=${settlementId}`);
         logOfflineTransactionDebug(traceId, 'db:pending-created', {
             settlement: {
                 id: record.id,
@@ -574,7 +571,7 @@ async function handler(req: Request): Promise<Response> {
             txHash: txHash ?? null,
         });
 
-        console.log(`[Settle] SETTLED | settlementId=${settlementId} | txHash=${txHash ?? 'n/a'}`);
+
 
         // 🔥 ARCHITECT FIX: Non-blocking parallel SMS dispatch
         // We use Promise.allSettled so that if one SMS fails or Textbee times out, 

@@ -90,8 +90,6 @@ class SyncService {
   start(): void {
     if (this.subscription) return;
 
-    console.log('[SyncService] Starting...');
-
     this.subscription = connectionService.state$.pipe(
       // Only react when isOnlineMode actually changes value
       distinctUntilKeyChanged('isOnlineMode'),
@@ -103,7 +101,6 @@ class SyncService {
       // mid-flush (e.g. connection drops while syncing)
       switchMap(() => {
         if (this.isFlushInProgress) {
-          console.log('[SyncService] Flush already in progress. Skipping automatic trigger.');
           return EMPTY;
         }
         return from(this.flush()).pipe(
@@ -114,8 +111,6 @@ class SyncService {
         );
       })
     ).subscribe();
-
-    console.log('[SyncService] Listening for online transitions.');
   }
 
   /**
@@ -124,7 +119,6 @@ class SyncService {
   stop(): void {
     this.subscription?.unsubscribe();
     this.subscription = null;
-    console.log('[SyncService] Stopped.');
   }
 
   /**
@@ -150,7 +144,6 @@ class SyncService {
    */
   async flush(): Promise<void> {
     if (this.isFlushInProgress) {
-      console.log('[SyncService] Flush already in progress. Skipping manual trigger.');
       return;
     }
 
@@ -166,11 +159,8 @@ class SyncService {
       const pending = await loadPendingQueue(account?.shortId);
 
       if (pending.length === 0) {
-        console.log('[SyncService] No pending items to sync.');
         return;
       }
-
-      console.log(`[SyncService] Flushing ${pending.length} pending item(s)...`);
 
       // Fetch user settlements from backend for comparison
       let settledNonces = new Set<string>();
@@ -182,7 +172,6 @@ class SyncService {
               .map(s => s.nonce ? s.nonce.replace(/=+$/, '') : null)
               .filter(Boolean) as string[]
           );
-          console.log(`[SyncService] Reconciling with ${settledNonces.size} server settlements.`);
         }
       } catch (err) {
         console.warn('[SyncService] Could not fetch server settlements. Defaulting to direct sync.', err);
@@ -197,7 +186,6 @@ class SyncService {
 
           // If already settled, update local status only
           if (shortNonce && settledNonces.has(shortNonce)) {
-            console.log(`[SyncService] Item ${item.id} already settled on backend (Nonce: ${shortNonce}). Marking synced.`);
             await markSynced(item.id, item.txHash, 'SETTLED');
             successCount++;
             totalAmount += item.amount;
@@ -214,8 +202,6 @@ class SyncService {
           }
 
           if (isFailed) {
-            console.log(`[SyncService] Item ${item.id} permanently failed: ${errorMessage}. Dropping from queue...`);
-            
             // Mark as synced with FAILED status to stop retrying and drop from pending queue
             await markSynced(item.id, null, 'FAILED');
             // Local balance will automatically correct because the pending amount decreases.
@@ -225,8 +211,6 @@ class SyncService {
           await markSynced(item.id, result!.txHash, result!.status);
           successCount++;
           totalAmount += item.amount;
-
-          console.log(`[SyncService] Item ${item.id} synced. txHash: ${result!.txHash}`);
         } catch (err: any) {
           const message = err?.message ?? 'Unknown error';
           await markSyncError(item.id, message);
@@ -234,15 +218,6 @@ class SyncService {
           // Continue processing remaining items — do not abort the whole flush
         }
       }
-
-      // If at least one item synced successfully, log a success message (UI handles its own fetching)
-      if (successCount > 0) {
-        console.log(`[SyncService] Successfully settled ${successCount} items on the Stellar network.`);
-      }
-
-      console.log(
-        `[SyncService] Flush complete. Success: ${successCount}/${pending.length}`
-      );
     } finally {
       this.isFlushInProgress = false;
     }
@@ -254,8 +229,6 @@ class SyncService {
    */
   async syncTransactions(shortId: string, publicKey: string): Promise<void> {
     try {
-      console.log(`[SyncService] Starting smart sync for account ${shortId}...`);
-      
       const serverHistory = await getWalletHistory(shortId, publicKey);
       
       // Keep only latest 50 records
@@ -263,7 +236,6 @@ class SyncService {
 
       // Upsert into local SQLite
       await upsertHistoryTransactions(latest50, shortId, publicKey);
-      console.log(`[SyncService] Smart sync complete. Upserted ${latest50.length} records.`);
     } catch (err) {
       console.warn('[SyncService] Smart sync failed:', err);
     }

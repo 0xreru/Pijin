@@ -128,7 +128,6 @@ export async function submitOfflineVoucher(
     // so the frontend can deduct the mock Offline Vault from sessionStorage.
     // ─────────────────────────────────────────────────────────────────
     if (process.env.NODE_ENV === 'development') {
-      console.log("Local Dev Detected: Bypassing Qstash localhost restriction...");
       return {
         success: true as const,
         debug: {

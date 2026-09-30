@@ -83,7 +83,6 @@ export async function depositToVault(input: {
   const startedAt = Date.now();
   const markStage = (stage: DepositStage): void => {
     input.onStage?.(stage);
-    console.log(`[deposit] stage=${stage} elapsedMs=${Date.now() - startedAt}`);
   };
 
   const server = new rpc.Server(SOROBAN_RPC_URL, { allowHttp: true });

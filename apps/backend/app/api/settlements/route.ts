@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (existing) {
-      console.log(`[Settlements API] Nonce ${nonce} already processed. Returning 409 Conflict.`);
+
       return NextResponse.json(
         { txHash: existing.txHash, status: existing.status },
         { status: 409 }

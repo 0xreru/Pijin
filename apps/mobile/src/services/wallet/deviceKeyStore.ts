@@ -28,7 +28,6 @@ export async function getOrGenerateDeviceKeypair(): Promise<Keypair> {
 
     const newKeypair = Keypair.random();
     await SecureStore.setItemAsync(DEVICE_SECRET_KEY, newKeypair.secret());
-    console.log('[DeviceKeyStore] Generated fresh Device Keypair for offline signing.');
 
     return newKeypair;
   } catch (error) {

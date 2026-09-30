@@ -1,11 +1,8 @@
-const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '') ?? '';
+const apiBaseUrl =
+  process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/^['"]|['"]$/g, '').replace(/\/$/, '') ||
+  'https://pijin-api.vercel.app';
 
 export function getApiBaseUrl(): string {
-  if (!apiBaseUrl) {
-    throw new Error(
-      'Missing EXPO_PUBLIC_API_BASE_URL. Set it in apps/mobile/.env (use ngrok URL or LAN URL reachable from phone).'
-    );
-  }
   return apiBaseUrl;
 }
 
