@@ -51,3 +51,5 @@ export async function sendSmsNotification(to: string, message: string): Promise<
         throw new Error(`[SMS] Textbee responded ${response.status}: ${errText}`);
     }
 }
+
+export const sendSms = sendSmsNotification;

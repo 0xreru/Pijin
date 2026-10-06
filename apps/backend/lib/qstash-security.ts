@@ -229,3 +229,80 @@ export function normalizeSettlementFailure(err: unknown): string {
 
     return message.slice(0, 500);
 }
+
+/**
+ * Normalises a settlement failure into a concise, user-friendly SMS message
+ * suitable for delivery to end users via SMS.
+ *
+ * Strips all internal contract error codes, raw RPC payloads, and stack traces.
+ * Returns an empty string if the error cannot be safely mapped to a specific
+ * user-actionable message, allowing the caller to use a safe default fallback.
+ */
+export function normalizeSettlementUserFailure(err: unknown): string {
+    if (!err) return '';
+    const message = err instanceof Error ? err.message : String(err);
+
+    // ContractError enum mapping:
+    // 1: AlreadyInitialized, 2: Unauthorized, 3: InvalidAmount, 4: ExpiredVoucher,
+    // 5: NonceReplayed, 6: InsufficientBalance, 7: RecipientNotFound, 8: MathOverflow,
+    // 9: NotWhitelistedGateway, 10: ShortIdAlreadyRegistered, 11: RegistrarNotConfigured,
+    // 12: InvalidShortId
+    const contractErrorMatch = message.match(/Error\s*\(\s*Contract\s*,\s*(\d+)\s*\)/i);
+    if (contractErrorMatch) {
+        const code = Number(contractErrorMatch[1]);
+        switch (code) {
+            case 6:
+                return 'Insufficient balance.';
+            case 5:
+                return 'Voucher has already been used.';
+            case 4:
+                return 'Voucher has expired.';
+            case 3:
+                return 'Invalid transaction amount.';
+            case 7:
+                return 'Recipient was not found.';
+            case 2:
+                return 'Unauthorized transaction.';
+            case 12:
+                return 'Invalid recipient ID.';
+            case 9:
+                return 'Unauthorized relayer.';
+            default:
+                return 'Transaction rejected by contract.';
+        }
+    }
+
+    if (/insufficientbalance/i.test(message) || /insufficient balance/i.test(message)) {
+        return 'Insufficient balance.';
+    }
+
+    if (/noncereplayed/i.test(message) || /nonce replayed/i.test(message)) {
+        return 'Voucher has already been used.';
+    }
+
+    if (/expiredvoucher/i.test(message) || /expired voucher/i.test(message)) {
+        return 'Voucher has expired.';
+    }
+
+    if (
+        message.includes('verify_sig_ed25519') ||
+        message.includes('failed ED25519 verification') ||
+        /invalid.*signature/i.test(message)
+    ) {
+        return 'Invalid voucher signature.';
+    }
+
+    if (/offline device key/i.test(message)) {
+        return 'Offline device key is not enrolled.';
+    }
+
+    if (/trustline/i.test(message)) {
+        return 'Missing token trustline.';
+    }
+
+    if (/recipient.*not found/i.test(message)) {
+        return 'Recipient was not found.';
+    }
+
+    return '';
+}

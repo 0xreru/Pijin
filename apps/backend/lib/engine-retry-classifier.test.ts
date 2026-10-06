@@ -9,7 +9,11 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isRetryableSettlementError, normalizeSettlementFailure } from './qstash-security';
+import {
+    isRetryableSettlementError,
+    normalizeSettlementFailure,
+    normalizeSettlementUserFailure,
+} from './qstash-security';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Retryable Error Classification Tests (Expect true -> HTTP 500)
@@ -95,4 +99,59 @@ test('normalizeSettlementFailure: formats contract error messages', () => {
     const err = new Error('HostError: Error(Contract, 6) triggered during spend_offline');
     const reason = normalizeSettlementFailure(err);
     assert.match(reason, /Contract rejection: HostError: Error\(Contract, 6\)/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User SMS Failure Normalization Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('normalizeSettlementUserFailure: produces user-friendly messages for contract errors', () => {
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('HostError: Error(Contract, 6) triggered during spend_offline')),
+        'Insufficient balance.',
+    );
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('HostError: Error(Contract, 5)')),
+        'Voucher has already been used.',
+    );
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('HostError: Error(Contract, 4)')),
+        'Voucher has expired.',
+    );
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('HostError: Error(Contract, 7)')),
+        'Recipient was not found.',
+    );
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('HostError: Error(Contract, 2)')),
+        'Unauthorized transaction.',
+    );
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('HostError: Error(Contract, 12)')),
+        'Invalid recipient ID.',
+    );
+});
+
+test('normalizeSettlementUserFailure: produces friendly messages for offline key and signature errors', () => {
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('failed ED25519 verification: verify_sig_ed25519 failed')),
+        'Invalid voucher signature.',
+    );
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('Offline device key is not enrolled. Sign in online to synchronize this device.')),
+        'Offline device key is not enrolled.',
+    );
+});
+
+test('normalizeSettlementUserFailure: produces friendly messages for missing trustline errors', () => {
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('trustline entry is missing for account GBZXN7PIRZGNMHGA7MUUUF4FCGLUK25P2WSMW7G7SV2ACD35W5LO6U3A')),
+        'Missing token trustline.',
+    );
+});
+
+test('normalizeSettlementUserFailure: returns empty string for unclassified or raw errors without leaking codes', () => {
+    assert.equal(normalizeSettlementUserFailure(new Error('Random internal stack trace')), '');
+    assert.equal(normalizeSettlementUserFailure(null), '');
+    assert.equal(normalizeSettlementUserFailure(undefined), '');
 });

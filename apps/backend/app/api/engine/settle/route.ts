@@ -85,13 +85,14 @@ import {
     verifyQStashSignature,
     isRetryableSettlementError,
     normalizeSettlementFailure,
+    normalizeSettlementUserFailure,
 } from '@/lib/qstash-security';
 import {
     readBoundedRequestBody,
     maskPhoneNumber,
 } from '@/lib/sms-security';
 import { contractConfig, pijinContract } from '@/lib/pijin-contract';
-import { sendSmsNotification } from '@/lib/sms';
+import { sendSmsNotification, sendSms } from '@/lib/sms';
 import { Horizon } from '@stellar/stellar-sdk';
 import {
     buildOfflineSignatureXdr,
@@ -185,7 +186,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         ? body.traceId.trim()
         : fallbackTraceId;
     const smsPayload = body?.smsPayload ?? '';
-    const senderPhone = body?.senderPhone ?? '';
+    let senderPhone = body?.senderPhone ?? '';
 
     logOfflineTransactionDebug(traceId, 'settle:received', {
         url: sanitizeOfflineDebugUrl(req.url),
@@ -208,7 +209,13 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             smsPayload,
             reason,
         });
-        return NextResponse.json({ error: reason, traceId }, { status: 200 });
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Malformed payment payload.`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+        }
+        return NextResponse.json({ success: false, status: 'FAILED', error: reason, traceId }, { status: 200 });
     }
 
     logOfflineVoucherDecompression(traceId, smsPayload, voucher);
@@ -326,7 +333,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
     // Hydrate Stellar public keys + Token record (parallel)
     const [senderAccount, receiverAccount, token] = await Promise.all([
         prisma.account.findUnique({ where: { shortId: senderShortId } }),
-        prisma.account.findUnique({ where: { shortId: receiverShortId } }),
+        findRecipientByShortId(receiverShortId),
         prisma.token.findUnique({ where: { id: tokenId } }),
     ]).catch(async (err) => {
         console.error('[Settle] DB hydration failed (infra error):', err);
@@ -340,6 +347,10 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         { stellarPublicKey: string; offlineDeviceKey: string | null; phoneNumber?: string | null } | null,
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
+
+    if (!senderPhone && senderAccount?.phoneNumber) {
+        senderPhone = senderAccount.phoneNumber;
+    }
 
     logOfflineTransactionDebug(traceId, 'db:hydrated', {
         settlementId,
@@ -378,7 +389,13 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             data: { status: 'FAILED', failReason },
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Unsupported token.`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+        }
+        return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
 
     if (!token.isActive) {
@@ -389,20 +406,59 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             data: { status: 'FAILED', failReason },
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Token is inactive.`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+        }
+        return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
 
     // Validate Accounts
-    if (!senderAccount || !receiverAccount) {
-        const missing = !senderAccount ? senderShortId : receiverShortId;
-        const failReason = `Account not found: ${missing}`;
+    const recipient = receiverAccount;
+    if (!recipient) {
+        const failReason = `Recipient not found: ${receiverShortId}`;
         console.warn(`[Settle] ${failReason}`);
         await prisma.settlement.update({
             where: { id: settlementId },
             data: { status: 'FAILED', failReason },
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Recipient ID ${receiverShortId} was not found.`
+            ).catch((err) => console.error('[Settle] Failed to send recipient not found SMS:', err));
+        }
+
+        return NextResponse.json(
+            { success: false, status: 'FAILED', reason: `Recipient not found: ${receiverShortId}`, traceId },
+            { status: 200 },
+        );
+    }
+
+    if (!senderAccount) {
+        const failReason = `Account not found: ${senderShortId}`;
+        console.warn(`[Settle] ${failReason}`);
+        await prisma.settlement.update({
+            where: { id: settlementId },
+            data: { status: 'FAILED', failReason },
+        });
+        logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
+
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Sender account not found.`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+        }
+
+        return NextResponse.json(
+            { success: false, status: 'FAILED', reason: failReason, traceId },
+            { status: 200 },
+        );
     }
 
     const { stellarPublicKey: senderPublicKey } = senderAccount;
@@ -470,7 +526,13 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
                 data: { status: 'FAILED', failReason },
             });
             logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-            return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+            if (senderPhone) {
+                await sendSms(
+                    senderPhone,
+                    `Pijin: Transaction failed. Offline device key is not enrolled.`
+                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+            }
+            return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
         const signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
         logOfflineTransactionDebug(traceId, 'verify:ed25519', {
@@ -494,14 +556,13 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
 
             if (senderPhone) {
-                // Ensure SMS goes out but don't crash if Textbee is slow
-                await sendSmsNotification(
+                await sendSms(
                     senderPhone,
-                    `Transaction failed: Invalid cryptographic signature.`
-                ).catch(console.error);
+                    `Pijin: Transaction failed. Invalid voucher signature.`
+                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
             }
 
-            return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+            return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
         // ─────────────────────────────────────────────────────────────────────────
 
@@ -674,16 +735,18 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             return NextResponse.json({ error: 'RPC unavailable', traceId }, { status: 500 });
         }
 
+        const normalizedFailureMessage = normalizeSettlementUserFailure(err);
+
         // Notify sender of permanent business-logic failure (e.g. insufficient balance).
         if (senderPhone) {
-            await sendSmsNotification(
+            await sendSms(
                 senderPhone,
-                `Transaction failed: ${failReason.slice(0, 120)}`,
-            ).catch(console.error);
+                `Pijin: Transaction failed. ${normalizedFailureMessage || 'Please check your balance or voucher.'}`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
         }
 
         return NextResponse.json(
-            { status: 'FAILED', reason: failReason, traceId },
+            { success: false, status: 'FAILED', reason: failReason, traceId },
             { status: 200 },
         );
     }
@@ -741,5 +804,12 @@ async function assertClassicTrustline(
     if (!hasTrustline) {
         throw new Error(`${label} account ${publicKey} is missing ${assetCode}:${issuer} trustline`);
     }
+}
+
+/**
+ * Looks up an account by its 6-character Base62 short ID.
+ */
+async function findRecipientByShortId(shortId: string) {
+    return prisma.account.findUnique({ where: { shortId } });
 }
 
