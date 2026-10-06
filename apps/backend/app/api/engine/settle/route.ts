@@ -167,13 +167,13 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
     }
 
     // ── Parse body ────────────────────────────────────────────────────────────
-    let body: { smsPayload?: string; senderPhone?: string; traceId?: string };
+    let body: Record<string, unknown>;
     try {
         const parsedBody: unknown = JSON.parse(rawBody);
         if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
             throw new TypeError('Settlement body must be a JSON object');
         }
-        body = parsedBody as { smsPayload?: string; senderPhone?: string; traceId?: string };
+        body = parsedBody as Record<string, unknown>;
     } catch {
         console.error(`[Settle] Could not parse JSON body | traceId=${fallbackTraceId}`);
         logOfflineTransactionDebug(fallbackTraceId, 'settle:rejected', {
@@ -182,11 +182,39 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         return NextResponse.json({ error: 'Bad payload', traceId: fallbackTraceId }, { status: 200 });
     }
 
-    const traceId = typeof body.traceId === 'string' && body.traceId.trim()
-        ? body.traceId.trim()
-        : fallbackTraceId;
-    const smsPayload = body?.smsPayload ?? '';
-    let senderPhone = body?.senderPhone ?? '';
+    const candidate = (body.data && typeof body.data === 'object' && !Array.isArray(body.data))
+        ? (body.data as Record<string, unknown>)
+        : body;
+
+    const traceId = (typeof body.traceId === 'string' && body.traceId.trim())
+        || (typeof candidate.traceId === 'string' && candidate.traceId.trim())
+        || fallbackTraceId;
+
+    const rawSmsPayload =
+        (typeof body.smsPayload === 'string' && body.smsPayload) ||
+        (typeof candidate.smsPayload === 'string' && candidate.smsPayload) ||
+        (typeof body.message === 'string' && body.message) ||
+        (typeof candidate.message === 'string' && candidate.message) ||
+        (typeof body.text === 'string' && body.text) ||
+        (typeof candidate.text === 'string' && candidate.text) ||
+        (typeof body.body === 'string' && body.body) ||
+        (typeof candidate.body === 'string' && candidate.body) ||
+        '';
+    const smsPayload = rawSmsPayload.trim();
+
+    const rawSenderPhone =
+        (typeof body.senderPhone === 'string' && body.senderPhone) ||
+        (typeof candidate.senderPhone === 'string' && candidate.senderPhone) ||
+        (typeof body.sender === 'string' && body.sender) ||
+        (typeof candidate.sender === 'string' && candidate.sender) ||
+        (typeof body.phone === 'string' && body.phone) ||
+        (typeof candidate.phone === 'string' && candidate.phone) ||
+        (typeof body.from === 'string' && body.from) ||
+        (typeof candidate.from === 'string' && candidate.from) ||
+        (typeof body.phoneNumber === 'string' && body.phoneNumber) ||
+        (typeof candidate.phoneNumber === 'string' && candidate.phoneNumber) ||
+        '';
+    let senderPhone = rawSenderPhone.trim();
 
     logOfflineTransactionDebug(traceId, 'settle:received', {
         url: sanitizeOfflineDebugUrl(req.url),
@@ -449,10 +477,13 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
 
         if (senderPhone) {
+            console.log(`[Settle] Attempting to send unregistered sender SMS to: ${maskPhoneNumber(senderPhone)}`);
             await sendSms(
                 senderPhone,
                 `Pijin: Transaction failed. Sender account ${senderShortId} is not registered.`
             ).catch(console.error);
+        } else {
+            console.warn('[Settle] Skipped sending unregistered sender SMS: senderPhone is empty');
         }
 
         return NextResponse.json(

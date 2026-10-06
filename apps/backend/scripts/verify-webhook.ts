@@ -6,7 +6,7 @@ const WEBHOOK_SECRET = process.env.TEXTBEE_WEBHOOK_SECRET || 'my-super-secret-pa
 // NOTE!! If testing locally, we MUST use an ngrok URL so QStash can reach /api/engine/settle route.
 const WEBHOOK_URL =
   process.env.WEBHOOK_URL ||
-  'https://pijin-20z7lcv36-xrerus-projects.vercel.app/api/sms/webhook';
+  'https://pijin-rigfcidn5-xrerus-projects.vercel.app/api/sms/webhook';
 const SETTLE_URL =
   process.env.SETTLE_URL ||
   WEBHOOK_URL.replace(/\/api\/sms\/webhook\/?$/, '/api/engine/settle');
