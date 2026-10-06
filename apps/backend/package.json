@@ -12,7 +12,9 @@
     "demo:verify": "tsx scripts/verify-demo-pool.ts",
     "demo:test-leasing": "tsx scripts/test-demo-leasing.ts",
     "demo:test-qa": "tsx scripts/test-demo-qa.ts",
-    "demo:test": "tsx --test lib/demo/*.test.ts"
+    "demo:test": "tsx --test lib/demo/*.test.ts",
+    "test:security": "tsx --test lib/*.test.ts",
+    "test": "tsx --test lib/*.test.ts lib/demo/*.test.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

@@ -80,8 +80,16 @@
  *                   type: string
  */
 import { NextResponse } from 'next/server';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
+import {
+    verifyQStashSignature,
+    isRetryableSettlementError,
+    normalizeSettlementFailure,
+} from '@/lib/qstash-security';
+import {
+    readBoundedRequestBody,
+    maskPhoneNumber,
+} from '@/lib/sms-security';
 import { contractConfig, pijinContract } from '@/lib/pijin-contract';
 import { sendSmsNotification } from '@/lib/sms';
 import { Horizon } from '@stellar/stellar-sdk';
@@ -122,18 +130,44 @@ export const dynamic = 'force-dynamic';
 // Stellar RPC unreachable) so QStash will automatically retry the job.
 // ---------------------------------------------------------------------------
 
-async function handler(req: Request): Promise<Response> {
+// POST /api/engine/settle — exported directly (QStash verification is inline).
+export async function POST(req: Request, params?: unknown): Promise<Response> {
     // Extract tracking ID from broker headers
     const qstashMessageId = req.headers.get('upstash-message-id') ?? 'unknown';
     const fallbackTraceId = qstashMessageId !== 'unknown'
         ? `qstash-${qstashMessageId}`
         : createOfflineTransactionTraceId();
 
-    // Parse body
+    // ── Shield: Single-stream bounded body read ───────────────────────────────
+    // readBoundedRequestBody reads the body once. rawBody is passed to ALL
+    // downstream validators (QStash verify, JSON parse) — never re-read req.body.
     let rawBody = '';
+    try {
+        const readResult = await readBoundedRequestBody(req, 65_536); // 64 KB max for settle
+        if (readResult.exceeded) {
+            console.error(`[Settle] Request body exceeded 64 KB limit | traceId=${fallbackTraceId}`);
+            return NextResponse.json({ error: 'Payload too large', traceId: fallbackTraceId }, { status: 413 });
+        }
+        rawBody = readResult.rawBody;
+    } catch (readErr) {
+        console.error(`[Settle] Failed to read request body | traceId=${fallbackTraceId}`, readErr);
+        return NextResponse.json({ error: 'Failed to read request body' }, { status: 400 });
+    }
+
+    // ── Shield: QStash HMAC signature verification ────────────────────────────
+    // Uses the pre-read rawBody — QStash Receiver must see the exact signed bytes.
+    const sigResult = await verifyQStashSignature(req, rawBody);
+    if (!sigResult.valid) {
+        console.warn(`[Settle] QStash signature rejected: ${sigResult.error} | traceId=${fallbackTraceId}`);
+        return NextResponse.json(
+            { error: sigResult.error ?? 'Unauthorized' },
+            { status: 401 },
+        );
+    }
+
+    // ── Parse body ────────────────────────────────────────────────────────────
     let body: { smsPayload?: string; senderPhone?: string; traceId?: string };
     try {
-        rawBody = await req.text();
         const parsedBody: unknown = JSON.parse(rawBody);
         if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
             throw new TypeError('Settlement body must be a JSON object');
@@ -143,7 +177,6 @@ async function handler(req: Request): Promise<Response> {
         console.error(`[Settle] Could not parse JSON body | traceId=${fallbackTraceId}`);
         logOfflineTransactionDebug(fallbackTraceId, 'settle:rejected', {
             reason: 'Could not parse JSON body',
-            rawBody,
         });
         return NextResponse.json({ error: 'Bad payload', traceId: fallbackTraceId }, { status: 200 });
     }
@@ -159,10 +192,10 @@ async function handler(req: Request): Promise<Response> {
         method: req.method,
         headers: sanitizeOfflineDebugHeaders(req.headers),
         qstashMessageId,
-        rawBody,
         rawBodyLength: rawBody.length,
-        smsPayload,
-        senderPhone,
+        smsPayloadLength: smsPayload.length,
+        // Mask phone for PII safety; omit rawBody to avoid logging payment metadata.
+        senderPhone: senderPhone ? maskPhoneNumber(senderPhone) : '',
     });
 
     let voucher;
@@ -614,7 +647,7 @@ async function handler(req: Request): Promise<Response> {
         );
 
     } catch (err: unknown) {
-        const isInfraError = isNetworkOrRpcError(err);
+        const isInfraError = isRetryableSettlementError(err);
         const failReason = normalizeSettlementFailure(err);
 
         console.error(
@@ -686,24 +719,6 @@ async function signWithRelayer(
     };
 }
 
-/**
- * Heuristic to distinguish catastrophic network / RPC failures (which QStash
- * should retry) from business-logic contract rejections (which it should not).
- */
-function isNetworkOrRpcError(err: unknown): boolean {
-    if (!(err instanceof Error)) return false;
-    const msg = err.message.toLowerCase();
-    return (
-        msg.includes('network') ||
-        msg.includes('econnrefused') ||
-        msg.includes('etimedout') ||
-        msg.includes('fetch failed') ||
-        msg.includes('socket hang up') ||
-        msg.includes('failed to fetch') ||
-        msg.includes('connection refused')
-    );
-}
-
 async function assertClassicTrustline(
     publicKey: string,
     assetCode: string,
@@ -728,19 +743,3 @@ async function assertClassicTrustline(
     }
 }
 
-function normalizeSettlementFailure(err: unknown): string {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('verify_sig_ed25519') || message.includes('failed ED25519 verification')) {
-        return 'Offline device key mismatch: this voucher is valid for the database key, but the vault has a different Ed25519 key registered on-chain. Re-sync it with an authenticated set_offline_key call or make a new deposit using the current device key.';
-    }
-    const trustlineMatch = message.match(/trustline entry is missing for account["\s,]+(G[A-Z2-7]{55})/);
-    if (trustlineMatch?.[1]) {
-        return `Missing token trustline for account ${trustlineMatch[1]}. Create a PHPC trustline before retrying settlement.`;
-    }
-    return message;
-}
-
-// ---------------------------------------------------------------------------
-// Export - wrapped with QStash signature verification
-// ---------------------------------------------------------------------------
-export const POST = verifySignatureAppRouter(handler);

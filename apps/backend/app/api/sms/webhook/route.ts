@@ -9,13 +9,20 @@
  *       Receives inbound SMS messages from the **Textbee Android gateway** and
  *       enqueues them to **Upstash QStash** for durable, retryable settlement processing.
  *
- *       #### Dual-Layer Authentication Shield
- *       Every request must pass **at least one** of:
- *       1. **Layer A — HMAC-SHA256** (`x-signature` or `x-textbee-signature` header):
- *          Server recomputes the HMAC of the raw body against `TEXTBEE_WEBHOOK_SECRET`
- *          and compares using `crypto.timingSafeEqual` (prevents timing attacks).
- *       2. **Layer B — URL Secret** (`?secret=<TEXTBEE_WEBHOOK_SECRET>` query param):
- *          Fallback for Android SMS apps that may alter whitespace/encoding in the body.
+ *       #### Security Shield (in order of evaluation)
+ *       1. **Body size guard**: Rejects bodies > 2 KB with HTTP 413 before JSON parsing,
+ *          using streaming to avoid buffering oversized payloads into memory.
+ *       2. **Timestamp drift** (optional): If `x-timestamp` or `x-textbee-timestamp` is
+ *          present, drift must be within ±300 s. If the header is absent, this check is
+ *          skipped so legacy gateways are not broken.
+ *       3. **HMAC-SHA256** (`x-signature` or `x-textbee-signature`): Server recomputes
+ *          the HMAC of the raw body against `TEXTBEE_WEBHOOK_SECRET` and compares using
+ *          `crypto.timingSafeEqual` (prevents timing attacks). Signature must be exactly
+ *          64 hex characters; malformed values are rejected without buffer operations.
+ *       4. **Rate Limiting**: Sliding window — 3 req / 60 s per sender phone.
+ *       5. **Nonce deduplication** (Redis, fail-open): Early Redis nonce cache prevents
+ *          replayed vouchers from reaching QStash. Falls back gracefully if Redis is down.
+ *       6. **Payload validation**: 6-part colon-delimited format with Base62/Base64 checks.
  *
  *       #### Rate Limiting
  *       **Sliding window — 3 requests per 60 seconds** per sender phone number.
@@ -39,7 +46,7 @@
  *         required: false
  *         schema:
  *           type: string
- *         description: URL-based fallback secret (equals `TEXTBEE_WEBHOOK_SECRET`). Used when HMAC header is unavailable.
+ *         description: Deprecated URL-based fallback secret. Kept for backward compatibility but HMAC is preferred.
  *     requestBody:
  *       required: true
  *       content:
@@ -73,7 +80,7 @@
  *                   type: boolean
  *                 status:
  *                   type: string
- *                   enum: [Buffered, Ignored, Rate Limited]
+ *                   enum: [Buffered, Ignored, Rate Limited, Duplicate Replay]
  *                 traceId:
  *                   type: string
  *                   description: Correlates webhook and settlement-worker debug logs.
@@ -87,7 +94,7 @@
  *                 error:
  *                   type: string
  *       '401':
- *         description: Both HMAC verification and URL secret check failed.
+ *         description: HMAC verification failed.
  *         content:
  *           application/json:
  *             schema:
@@ -96,14 +103,29 @@
  *                 error:
  *                   type: string
  *                   example: "Unauthorized"
+ *       '413':
+ *         description: Request body exceeds the 2 KB limit.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Payload too large"
  */
 import { NextResponse } from 'next/server';
-import crypto from 'node:crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Client } from '@upstash/qstash';
 import { sendSmsNotification } from '@/lib/sms';
 import { parseOfflineVoucher } from '@/lib/offline-voucher';
+import {
+    readBoundedRequestBody,
+    verifyTextbeeHmac,
+    verifyTimestampDrift,
+    maskPhoneNumber,
+} from '@/lib/sms-security';
 import {
     createOfflineTransactionTraceId,
     isOfflineTransactionDebugEnabled,
@@ -118,6 +140,11 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// Maximum SMS message body length (generous upper bound for any valid Pijin voucher).
+const MAX_SMS_BODY_CHARS = 300;
+// Nonce deduplication TTL in Redis (24 hours).
+const NONCE_TTL_SECONDS = 86_400;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tier 2 – Rate Limiter (Sliding Window: 3 req / 60 s per sender phone)
@@ -142,37 +169,6 @@ type SmsWebhookPayload = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Tier 1 – HMAC-SHA256 Signature Verification
- */
-function verifyHmacSignature(rawBody: string, incomingSignature: string): boolean {
-    const secret = process.env.TEXTBEE_WEBHOOK_SECRET;
-    if (!secret) return false;
-
-    try {
-        const expectedRaw = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
-
-        // Strip any "sha256=" prefix if it exists to normalize the hex string
-        const cleanIncomingSig = incomingSignature.replace(/^sha256=/, '');
-        const incomingBuf = Buffer.from(cleanIncomingSig, 'hex');
-        const expectedRawBuf = Buffer.from(expectedRaw, 'hex');
-
-        if (incomingBuf.length === expectedRawBuf.length && crypto.timingSafeEqual(incomingBuf, expectedRawBuf)) return true;
-
-        // Attempt parsing fallback just in case Android added invisible spaces
-        let expectedParsed = '';
-        try {
-            expectedParsed = crypto.createHmac('sha256', secret).update(JSON.stringify(JSON.parse(rawBody)), 'utf8').digest('hex');
-            const expectedParsedBuf = Buffer.from(expectedParsed, 'hex');
-            if (incomingBuf.length === expectedParsedBuf.length && crypto.timingSafeEqual(incomingBuf, expectedParsedBuf)) return true;
-        } catch { }
-
-        return false;
-    } catch {
-        return false;
-    }
-}
 
 type UnknownObject = Record<string, unknown>;
 
@@ -215,8 +211,29 @@ function extractSmsPayload(body: UnknownObject): SmsWebhookPayload | null {
     return senderPhone && message ? { senderPhone, message, eventType } : null;
 }
 
+/**
+ * Early Redis nonce deduplication (fail-open).
+ * Sets `pijin:sms:nonce:<nonce>` with 24h TTL if not already present.
+ * Returns `true` if the nonce was already seen (replay), `false` if it is new.
+ * Never throws — Redis errors are logged and treated as cache misses.
+ */
+async function checkAndSetNonceReplay(nonce: string, traceId: string): Promise<boolean> {
+    try {
+        const redis = Redis.fromEnv();
+        const key = `pijin:sms:nonce:${nonce}`;
+        // SET NX EX: returns 1 if key was set (new), null if key already existed.
+        const result = await redis.set(key, '1', { nx: true, ex: NONCE_TTL_SECONDS });
+        // result === null means the key already existed → replay detected.
+        return result === null;
+    } catch (err) {
+        // Refinement #3: fail-open on Redis connection errors.
+        console.warn(`[SMS Webhook] Redis nonce check failed (fail-open). traceId=${traceId}`, err instanceof Error ? err.message : err);
+        return false;
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/sms/webhook  – Ingress Shield
+// GET /api/sms/webhook — health probe
 // ─────────────────────────────────────────────────────────────────────────────
 export async function GET() {
     return NextResponse.json({
@@ -234,6 +251,9 @@ export async function GET() {
     });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/sms/webhook — Ingress Shield
+// ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
     const traceId = createOfflineTransactionTraceId();
 
@@ -243,62 +263,64 @@ export async function POST(req: Request) {
         headers: sanitizeOfflineDebugHeaders(req.headers),
     });
 
-    let rawBody = '';
+    // ── Shield Layer 0: Strict streaming body read with 2 KB cap ─────────────
+    // readBoundedRequestBody reads the body once. This rawBody string is passed
+    // to ALL downstream validators — never re-read req.body.
+    let rawBody: string;
     try {
-        rawBody = await req.text();
+        const result = await readBoundedRequestBody(req, 2048);
+
+        if (result.exceeded) {
+            console.warn(`[SMS Webhook] Blocked: Payload exceeds 2 KB body limit. traceId=${traceId}`);
+            return NextResponse.json({ error: 'Payload too large', traceId }, { status: 413 });
+        }
+
+        rawBody = result.rawBody;
     } catch (err) {
-        console.error('############################################################');
-        console.error('### SMS WEBHOOK BODY READ FAILED - REQUEST DID HIT VERCEL ###');
-        console.error('############################################################');
         console.error('[SMS WEBHOOK BODY READ ERROR]', {
             traceId,
             url: sanitizeOfflineDebugUrl(req.url),
-            method: req.method,
             errorName: err instanceof Error ? err.name : 'UnknownError',
             errorMessage: err instanceof Error ? err.message : String(err),
-            errorStack: err instanceof Error ? err.stack : undefined,
         });
         return NextResponse.json({ error: 'Failed to read request body', traceId }, { status: 400 });
     }
 
     logOfflineTransactionDebug(traceId, 'receive:raw-body', {
-        rawBody,
         rawBodyLength: rawBody.length,
+        // Omit rawBody content from debug logs to avoid logging SMS payment metadata.
     });
 
-    // Block if payload is too large
-    if (Buffer.byteLength(rawBody, 'utf8') > 2048) {
-        console.warn(`[SMS Webhook] Blocked: Payload exceeds the body limit. traceId=${traceId}`);
-        return NextResponse.json({ error: 'Payload too large', traceId }, { status: 413 });
+    // ── Shield Layer 1a: Conditional Timestamp Drift ──────────────────────────
+    // Refinement #2: Validate only when the header is present; skip silently if absent.
+    const timestampHeader =
+        req.headers.get('x-timestamp') ??
+        req.headers.get('x-textbee-timestamp');
+
+    const driftResult = verifyTimestampDrift(timestampHeader);
+    if (!driftResult.valid) {
+        console.warn(`[SMS Webhook] Blocked: Timestamp drift rejected. traceId=${traceId} reason=${driftResult.reason}`);
+        return NextResponse.json({ error: `Request timestamp rejected: ${driftResult.reason}`, traceId }, { status: 401 });
     }
 
-    // ── Tier 1: Dual-Layer Ingress Shield ─────────────────────────────────────
-    const incomingSignature = req.headers.get('x-signature') || req.headers.get('x-textbee-signature') || '';
+    // ── Shield Layer 1b: HMAC-SHA256 Verification ────────────────────────────
+    const incomingSignature =
+        req.headers.get('x-signature') ??
+        req.headers.get('x-textbee-signature') ??
+        '';
 
-    // Extract the secret from the URL query params (e.g. ?secret=...)
-    const url = new URL(req.url);
-    const incomingSecretUrl = url.searchParams.get('secret');
-    const expectedSecret = process.env.TEXTBEE_WEBHOOK_SECRET;
-
-    let isAuthorized = false;
-    let authorizationMethod = 'none';
-
-    // Shield Layer A: Check HMAC Math
-    if (incomingSignature && verifyHmacSignature(rawBody, incomingSignature)) {
-        isAuthorized = true;
-        authorizationMethod = 'hmac-sha256';
-    }
+    const expectedSecret = process.env.TEXTBEE_WEBHOOK_SECRET ?? '';
+    const hmacValid = verifyTextbeeHmac(rawBody, incomingSignature || null, expectedSecret);
 
     logOfflineTransactionDebug(traceId, 'receive:auth', {
-        authorized: isAuthorized,
-        authorizationMethod,
+        hmacValid,
         hmacHeaderPresent: Boolean(incomingSignature),
-        urlSecretPresent: Boolean(incomingSecretUrl),
+        timestampHeaderPresent: Boolean(timestampHeader),
     });
 
-    if (!isAuthorized) {
-        console.warn(`[SMS Webhook] Blocked: Invalid HMAC and missing signature. traceId=${traceId}`);
-        return NextResponse.json({ error: 'Unauthorized, Invalid HMAC Signature', traceId }, { status: 401 });
+    if (!hmacValid) {
+        console.warn(`[SMS Webhook] Blocked: Invalid HMAC signature. traceId=${traceId}`);
+        return NextResponse.json({ error: 'Unauthorized: Invalid HMAC Signature', traceId }, { status: 401 });
     }
 
     // ── Parse Body ────────────────────────────────────────────────────────────
@@ -313,60 +335,72 @@ export async function POST(req: Request) {
     // ── Event Filtering ───────────────────────────────────────────────────────
     // Accept both payload schemas:
     //   • Old Textbee:  { event: "MESSAGE_RECEIVED", data: { sender, message } }
-    //   • New Textbee:  { type: "RECEIVED", sender, message }  ← confirmed from live payload
+    //   • New Textbee:  { type: "RECEIVED", sender, message }
     const isLegacyEvent = body.event === 'MESSAGE_RECEIVED';
     const isNewTypeEvent = body.type === 'RECEIVED';
     const isDeliveryReceipt = body.event && body.event !== 'MESSAGE_RECEIVED';
 
     if (!isLegacyEvent && !isNewTypeEvent) {
-        // Only reject if we can positively identify a non-inbound event type
         if (isDeliveryReceipt) {
             return NextResponse.json({ success: true, status: 'Ignored' });
         }
-        // Unknown schema — log it and continue optimistically
-        console.warn('[SMS Webhook] Unknown event schema. Attempting to process anyway:', JSON.stringify(body));
+        // Unknown schema — log and continue optimistically.
+        console.warn('[SMS Webhook] Unknown event schema. Attempting to process anyway.');
     }
 
     // ── Extract Data Payload ──────────────────────────────────────────────────
     const sms = extractSmsPayload(body);
 
     if (!sms) {
-        console.warn('[SMS Webhook] Missing sender/message in payload:', JSON.stringify(body));
+        console.warn('[SMS Webhook] Missing sender/message in payload.');
         return NextResponse.json({ error: 'Missing sender or message field' }, { status: 400 });
     }
 
     const { senderPhone, message } = sms;
 
+    // Enforce SMS body character limit (protects downstream parsers from huge strings).
+    if (message.length > MAX_SMS_BODY_CHARS) {
+        console.warn(`[SMS Webhook] Blocked: SMS body too long (${message.length} chars). traceId=${traceId}`);
+        return NextResponse.json({ error: 'SMS body exceeds maximum length', traceId }, { status: 400 });
+    }
+
     logOfflineTransactionDebug(traceId, 'receive:extracted-sms', {
         eventType: sms.eventType,
-        senderPhone,
-        smsBody: message,
+        // Mask phone for PII safety.
+        senderPhone: maskPhoneNumber(senderPhone),
         smsBodyCharLength: message.length,
     });
 
     // ── Tier 2: Rate Limiting (keyed on sender phone) ─────────────────────────
     const { success: withinLimit } = await ratelimit.limit(senderPhone);
     if (!withinLimit) {
-        console.warn(`[SMS Webhook] Rate limit exceeded for sender ${senderPhone}`);
+        console.warn(`[SMS Webhook] Rate limit exceeded for sender ${maskPhoneNumber(senderPhone)}`);
         return NextResponse.json({ success: true, status: 'Rate Limited' });
     }
 
-    // ── Deduplication via Nonce ────────────────────────────────────────────────
+    // ── Parse Voucher & Deduplication ──────────────────────────────────────────
     let voucher;
     try {
         voucher = parseOfflineVoucher(message);
     } catch (error) {
         const reason = error instanceof Error ? error.message : 'Malformed payload';
-        logOfflineTransactionDebug(traceId, 'decompress:rejected', {
-            smsBody: message,
-            reason,
-        });
+        logOfflineTransactionDebug(traceId, 'decompress:rejected', { reason });
         return NextResponse.json({ error: reason, traceId }, { status: 400 });
     }
 
     logOfflineVoucherDecompression(traceId, message, voucher);
 
     const { senderShortId, nonceB64: nonce } = voucher;
+
+    // ── Shield Layer 3: Early Redis nonce deduplication (fail-open) ───────────
+    // Refinement #3: Redis errors are caught inside checkAndSetNonceReplay —
+    // they log a warning and return false (not replay), allowing QStash
+    // deduplication and contract-level nonce checks to handle it downstream.
+    const isReplay = await checkAndSetNonceReplay(nonce, traceId);
+    if (isReplay) {
+        console.warn(`[SMS Webhook] Early nonce replay detected. traceId=${traceId} senderShortId=${senderShortId}`);
+        return NextResponse.json({ success: true, status: 'Duplicate Replay', traceId });
+    }
 
     const deduplicationId = `${senderShortId}_${nonce}`;
 
@@ -387,7 +421,7 @@ export async function POST(req: Request) {
         logOfflineTransactionDebug(traceId, 'queue:published', {
             deduplicationId,
             target: settleUrl,
-            qstashResult,
+            qstashMessageId: qstashResult,
         });
     } catch (err) {
         console.error('[SMS Webhook] QStash publish failed. SMS was NOT buffered:', err);
@@ -400,8 +434,6 @@ export async function POST(req: Request) {
     ).catch((err) => {
         console.warn('[SMS Webhook] Ack SMS failed after QStash buffer:', err);
     });
-
-
 
     return NextResponse.json({ success: true, status: 'Buffered', traceId });
 }
