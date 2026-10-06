@@ -414,9 +414,15 @@ export async function POST(req: Request) {
 
     const deduplicationId = `${senderShortId}_${nonce}`;
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '');
+    // Dynamically resolve the host so Vercel Previews route to themselves.
+    const host = req.headers.get('host');
+    const protocol = host?.includes('localhost') ? 'http' : 'https';
+    const appUrl = host 
+        ? `${protocol}://${host}` 
+        : process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '');
+
     if (!appUrl) {
-        console.error('[SMS Webhook] Missing NEXT_PUBLIC_APP_URL. Cannot publish settlement job.');
+        console.error('[SMS Webhook] Missing host header and NEXT_PUBLIC_APP_URL. Cannot publish settlement job.');
         return NextResponse.json({ error: 'Webhook misconfigured' }, { status: 500 });
     }
 
