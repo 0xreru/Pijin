@@ -22,8 +22,8 @@ export function normalizeSmsRecipient(to: string): string | null {
 export async function sendSmsNotification(to: string, message: string): Promise<void> {
     const formattedTo = normalizeSmsRecipient(to);
     if (!formattedTo) {
-        console.info('[SMS] Skipped notification for non-phone recipient');
-        return;
+        console.warn(`[SMS] Skipped notification: invalid phone recipient "${to}"`);
+        throw new Error(`[SMS] Invalid phone recipient: "${to}"`);
     }
 
     const gatewayUrl = process.env.TEXTBEE_GATEWAY_URL;
@@ -31,7 +31,7 @@ export async function sendSmsNotification(to: string, message: string): Promise<
 
     if (!gatewayUrl || !apiKey) {
         console.error('[SMS] Missing Textbee config (TEXTBEE_GATEWAY_URL / TEXTBEE_API_KEY)');
-        return;
+        throw new Error('[SMS] Missing Textbee config (TEXTBEE_GATEWAY_URL / TEXTBEE_API_KEY)');
     }
 
     const response = await fetch(gatewayUrl, {
@@ -47,7 +47,9 @@ export async function sendSmsNotification(to: string, message: string): Promise<
     });
 
     if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        throw new Error(`[SMS] Textbee responded ${response.status}: ${errText}`);
+        const errorText = await response.text().catch(() => '');
+        throw new Error(`Textbee API Error: ${response.status} - ${errorText}`);
     }
 }
+
+export const sendSms = sendSmsNotification;

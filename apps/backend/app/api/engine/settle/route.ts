@@ -80,10 +80,19 @@
  *                   type: string
  */
 import { NextResponse } from 'next/server';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { prisma } from '@/lib/prisma';
+import {
+    verifyQStashSignature,
+    isRetryableSettlementError,
+    normalizeSettlementFailure,
+    normalizeSettlementUserFailure,
+} from '@/lib/qstash-security';
+import {
+    readBoundedRequestBody,
+    maskPhoneNumber,
+} from '@/lib/sms-security';
 import { contractConfig, pijinContract } from '@/lib/pijin-contract';
-import { sendSmsNotification } from '@/lib/sms';
+import { sendSmsNotification, sendSms } from '@/lib/sms';
 import { Horizon } from '@stellar/stellar-sdk';
 import {
     buildOfflineSignatureXdr,
@@ -122,47 +131,100 @@ export const dynamic = 'force-dynamic';
 // Stellar RPC unreachable) so QStash will automatically retry the job.
 // ---------------------------------------------------------------------------
 
-async function handler(req: Request): Promise<Response> {
+// POST /api/engine/settle — exported directly (QStash verification is inline).
+export async function POST(req: Request, params?: unknown): Promise<Response> {
     // Extract tracking ID from broker headers
     const qstashMessageId = req.headers.get('upstash-message-id') ?? 'unknown';
     const fallbackTraceId = qstashMessageId !== 'unknown'
         ? `qstash-${qstashMessageId}`
         : createOfflineTransactionTraceId();
 
-    // Parse body
+    // ── Shield: Single-stream bounded body read ───────────────────────────────
+    // readBoundedRequestBody reads the body once. rawBody is passed to ALL
+    // downstream validators (QStash verify, JSON parse) — never re-read req.body.
     let rawBody = '';
-    let body: { smsPayload?: string; senderPhone?: string; traceId?: string };
     try {
-        rawBody = await req.text();
+        const readResult = await readBoundedRequestBody(req, 65_536); // 64 KB max for settle
+        if (readResult.exceeded) {
+            console.error(`[Settle] Request body exceeded 64 KB limit | traceId=${fallbackTraceId}`);
+            return NextResponse.json({ error: 'Payload too large', traceId: fallbackTraceId }, { status: 413 });
+        }
+        rawBody = readResult.rawBody;
+    } catch (readErr) {
+        console.error(`[Settle] Failed to read request body | traceId=${fallbackTraceId}`, readErr);
+        return NextResponse.json({ error: 'Failed to read request body' }, { status: 400 });
+    }
+
+    // ── Shield: QStash HMAC signature verification ────────────────────────────
+    // Uses the pre-read rawBody — QStash Receiver must see the exact signed bytes.
+    const sigResult = await verifyQStashSignature(req, rawBody);
+    if (!sigResult.valid) {
+        console.warn(`[Settle] QStash signature rejected: ${sigResult.error} | traceId=${fallbackTraceId}`);
+        return NextResponse.json(
+            { error: sigResult.error ?? 'Unauthorized' },
+            { status: 401 },
+        );
+    }
+
+    // ── Parse body ────────────────────────────────────────────────────────────
+    let body: Record<string, unknown>;
+    try {
         const parsedBody: unknown = JSON.parse(rawBody);
         if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
             throw new TypeError('Settlement body must be a JSON object');
         }
-        body = parsedBody as { smsPayload?: string; senderPhone?: string; traceId?: string };
+        body = parsedBody as Record<string, unknown>;
     } catch {
         console.error(`[Settle] Could not parse JSON body | traceId=${fallbackTraceId}`);
         logOfflineTransactionDebug(fallbackTraceId, 'settle:rejected', {
             reason: 'Could not parse JSON body',
-            rawBody,
         });
         return NextResponse.json({ error: 'Bad payload', traceId: fallbackTraceId }, { status: 200 });
     }
 
-    const traceId = typeof body.traceId === 'string' && body.traceId.trim()
-        ? body.traceId.trim()
-        : fallbackTraceId;
-    const smsPayload = body?.smsPayload ?? '';
-    const senderPhone = body?.senderPhone ?? '';
+    const candidate = (body.data && typeof body.data === 'object' && !Array.isArray(body.data))
+        ? (body.data as Record<string, unknown>)
+        : body;
+
+    const traceId = (typeof body.traceId === 'string' && body.traceId.trim())
+        || (typeof candidate.traceId === 'string' && candidate.traceId.trim())
+        || fallbackTraceId;
+
+    const rawSmsPayload =
+        (typeof body.smsPayload === 'string' && body.smsPayload) ||
+        (typeof candidate.smsPayload === 'string' && candidate.smsPayload) ||
+        (typeof body.message === 'string' && body.message) ||
+        (typeof candidate.message === 'string' && candidate.message) ||
+        (typeof body.text === 'string' && body.text) ||
+        (typeof candidate.text === 'string' && candidate.text) ||
+        (typeof body.body === 'string' && body.body) ||
+        (typeof candidate.body === 'string' && candidate.body) ||
+        '';
+    const smsPayload = rawSmsPayload.trim();
+
+    const rawSenderPhone =
+        (typeof body.senderPhone === 'string' && body.senderPhone) ||
+        (typeof candidate.senderPhone === 'string' && candidate.senderPhone) ||
+        (typeof body.sender === 'string' && body.sender) ||
+        (typeof candidate.sender === 'string' && candidate.sender) ||
+        (typeof body.phone === 'string' && body.phone) ||
+        (typeof candidate.phone === 'string' && candidate.phone) ||
+        (typeof body.from === 'string' && body.from) ||
+        (typeof candidate.from === 'string' && candidate.from) ||
+        (typeof body.phoneNumber === 'string' && body.phoneNumber) ||
+        (typeof candidate.phoneNumber === 'string' && candidate.phoneNumber) ||
+        '';
+    let senderPhone = rawSenderPhone.trim();
 
     logOfflineTransactionDebug(traceId, 'settle:received', {
         url: sanitizeOfflineDebugUrl(req.url),
         method: req.method,
         headers: sanitizeOfflineDebugHeaders(req.headers),
         qstashMessageId,
-        rawBody,
         rawBodyLength: rawBody.length,
-        smsPayload,
-        senderPhone,
+        smsPayloadLength: smsPayload.length,
+        // Mask phone for PII safety; omit rawBody to avoid logging payment metadata.
+        senderPhone: senderPhone ? maskPhoneNumber(senderPhone) : '',
     });
 
     let voucher;
@@ -175,7 +237,13 @@ async function handler(req: Request): Promise<Response> {
             smsPayload,
             reason,
         });
-        return NextResponse.json({ error: reason, traceId }, { status: 200 });
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Malformed payment payload.`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+        }
+        return NextResponse.json({ success: false, status: 'FAILED', error: reason, traceId }, { status: 200 });
     }
 
     logOfflineVoucherDecompression(traceId, smsPayload, voucher);
@@ -293,7 +361,7 @@ async function handler(req: Request): Promise<Response> {
     // Hydrate Stellar public keys + Token record (parallel)
     const [senderAccount, receiverAccount, token] = await Promise.all([
         prisma.account.findUnique({ where: { shortId: senderShortId } }),
-        prisma.account.findUnique({ where: { shortId: receiverShortId } }),
+        findRecipientByShortId(receiverShortId),
         prisma.token.findUnique({ where: { id: tokenId } }),
     ]).catch(async (err) => {
         console.error('[Settle] DB hydration failed (infra error):', err);
@@ -307,6 +375,10 @@ async function handler(req: Request): Promise<Response> {
         { stellarPublicKey: string; offlineDeviceKey: string | null; phoneNumber?: string | null } | null,
         { contractId: string; isActive: boolean; symbol: string; decimals: number } | null,
     ] | readonly [null, null, null];
+
+    if (!senderPhone && senderAccount?.phoneNumber) {
+        senderPhone = senderAccount.phoneNumber;
+    }
 
     logOfflineTransactionDebug(traceId, 'db:hydrated', {
         settlementId,
@@ -345,7 +417,13 @@ async function handler(req: Request): Promise<Response> {
             data: { status: 'FAILED', failReason },
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Unsupported token.`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+        }
+        return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
 
     if (!token.isActive) {
@@ -356,20 +434,62 @@ async function handler(req: Request): Promise<Response> {
             data: { status: 'FAILED', failReason },
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Token is inactive.`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+        }
+        return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
 
     // Validate Accounts
-    if (!senderAccount || !receiverAccount) {
-        const missing = !senderAccount ? senderShortId : receiverShortId;
-        const failReason = `Account not found: ${missing}`;
+    const recipient = receiverAccount;
+    if (!recipient) {
+        const failReason = `Recipient not found: ${receiverShortId}`;
         console.warn(`[Settle] ${failReason}`);
         await prisma.settlement.update({
             where: { id: settlementId },
             data: { status: 'FAILED', failReason },
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-        return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+
+        if (senderPhone) {
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Recipient ID ${receiverShortId} was not found.`
+            ).catch((err) => console.error('[Settle] Failed to send recipient not found SMS:', err));
+        }
+
+        return NextResponse.json(
+            { success: false, status: 'FAILED', reason: `Recipient not found: ${receiverShortId}`, traceId },
+            { status: 200 },
+        );
+    }
+
+    if (!senderAccount) {
+        const failReason = `Account not found: ${senderShortId}`;
+        console.warn(`[Settle] ${failReason}`);
+        await prisma.settlement.update({
+            where: { id: settlementId },
+            data: { status: 'FAILED', failReason },
+        });
+        logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
+
+        if (senderPhone) {
+            console.log(`[Settle] Attempting to send unregistered sender SMS to: ${maskPhoneNumber(senderPhone)}`);
+            await sendSms(
+                senderPhone,
+                `Pijin: Transaction failed. Sender account ${senderShortId} is not registered.`
+            ).catch(console.error);
+        } else {
+            console.warn('[Settle] Skipped sending unregistered sender SMS: senderPhone is empty');
+        }
+
+        return NextResponse.json(
+            { success: false, status: 'FAILED', reason: failReason, traceId },
+            { status: 200 },
+        );
     }
 
     const { stellarPublicKey: senderPublicKey } = senderAccount;
@@ -437,7 +557,13 @@ async function handler(req: Request): Promise<Response> {
                 data: { status: 'FAILED', failReason },
             });
             logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
-            return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+            if (senderPhone) {
+                await sendSms(
+                    senderPhone,
+                    `Pijin: Transaction failed. Offline device key is not enrolled.`
+                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+            }
+            return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
         const signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
         logOfflineTransactionDebug(traceId, 'verify:ed25519', {
@@ -461,14 +587,13 @@ async function handler(req: Request): Promise<Response> {
             logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
 
             if (senderPhone) {
-                // Ensure SMS goes out but don't crash if Textbee is slow
-                await sendSmsNotification(
+                await sendSms(
                     senderPhone,
-                    `Transaction failed: Invalid cryptographic signature.`
-                ).catch(console.error);
+                    `Pijin: Transaction failed. Invalid voucher signature.`
+                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
             }
 
-            return NextResponse.json({ status: 'FAILED', reason: failReason, traceId }, { status: 200 });
+            return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
         // ─────────────────────────────────────────────────────────────────────────
 
@@ -614,7 +739,7 @@ async function handler(req: Request): Promise<Response> {
         );
 
     } catch (err: unknown) {
-        const isInfraError = isNetworkOrRpcError(err);
+        const isInfraError = isRetryableSettlementError(err);
         const failReason = normalizeSettlementFailure(err);
 
         console.error(
@@ -641,16 +766,18 @@ async function handler(req: Request): Promise<Response> {
             return NextResponse.json({ error: 'RPC unavailable', traceId }, { status: 500 });
         }
 
+        const normalizedFailureMessage = normalizeSettlementUserFailure(err);
+
         // Notify sender of permanent business-logic failure (e.g. insufficient balance).
         if (senderPhone) {
-            await sendSmsNotification(
+            await sendSms(
                 senderPhone,
-                `Transaction failed: ${failReason.slice(0, 120)}`,
-            ).catch(console.error);
+                `Pijin: Transaction failed. ${normalizedFailureMessage || 'Please check your balance or voucher.'}`
+            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
         }
 
         return NextResponse.json(
-            { status: 'FAILED', reason: failReason, traceId },
+            { success: false, status: 'FAILED', reason: failReason, traceId },
             { status: 200 },
         );
     }
@@ -686,24 +813,6 @@ async function signWithRelayer(
     };
 }
 
-/**
- * Heuristic to distinguish catastrophic network / RPC failures (which QStash
- * should retry) from business-logic contract rejections (which it should not).
- */
-function isNetworkOrRpcError(err: unknown): boolean {
-    if (!(err instanceof Error)) return false;
-    const msg = err.message.toLowerCase();
-    return (
-        msg.includes('network') ||
-        msg.includes('econnrefused') ||
-        msg.includes('etimedout') ||
-        msg.includes('fetch failed') ||
-        msg.includes('socket hang up') ||
-        msg.includes('failed to fetch') ||
-        msg.includes('connection refused')
-    );
-}
-
 async function assertClassicTrustline(
     publicKey: string,
     assetCode: string,
@@ -728,19 +837,10 @@ async function assertClassicTrustline(
     }
 }
 
-function normalizeSettlementFailure(err: unknown): string {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('verify_sig_ed25519') || message.includes('failed ED25519 verification')) {
-        return 'Offline device key mismatch: this voucher is valid for the database key, but the vault has a different Ed25519 key registered on-chain. Re-sync it with an authenticated set_offline_key call or make a new deposit using the current device key.';
-    }
-    const trustlineMatch = message.match(/trustline entry is missing for account["\s,]+(G[A-Z2-7]{55})/);
-    if (trustlineMatch?.[1]) {
-        return `Missing token trustline for account ${trustlineMatch[1]}. Create a PHPC trustline before retrying settlement.`;
-    }
-    return message;
+/**
+ * Looks up an account by its 6-character Base62 short ID.
+ */
+async function findRecipientByShortId(shortId: string) {
+    return prisma.account.findUnique({ where: { shortId } });
 }
 
-// ---------------------------------------------------------------------------
-// Export - wrapped with QStash signature verification
-// ---------------------------------------------------------------------------
-export const POST = verifySignatureAppRouter(handler);
