@@ -150,6 +150,17 @@ test('normalizeSettlementUserFailure: produces friendly messages for missing tru
     );
 });
 
+test('normalizeSettlementUserFailure: produces friendly messages for missing sender or recipient account errors', () => {
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('Account not found: aB3x9Q')),
+        'Sender account aB3x9Q is not registered.',
+    );
+    assert.equal(
+        normalizeSettlementUserFailure(new Error('Recipient not found: Zx7mNk')),
+        'Recipient was not found.',
+    );
+});
+
 test('normalizeSettlementUserFailure: returns empty string for unclassified or raw errors without leaking codes', () => {
     assert.equal(normalizeSettlementUserFailure(new Error('Random internal stack trace')), '');
     assert.equal(normalizeSettlementUserFailure(null), '');

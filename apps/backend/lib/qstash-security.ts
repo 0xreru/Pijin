@@ -304,5 +304,14 @@ export function normalizeSettlementUserFailure(err: unknown): string {
         return 'Recipient was not found.';
     }
 
+    const senderMatch = message.match(/account not found:\s*([a-zA-Z0-9]+)/i);
+    if (senderMatch?.[1]) {
+        return `Sender account ${senderMatch[1]} is not registered.`;
+    }
+
+    if (/sender account.*not registered/i.test(message) || /account not found/i.test(message)) {
+        return 'Sender account is not registered.';
+    }
+
     return '';
 }

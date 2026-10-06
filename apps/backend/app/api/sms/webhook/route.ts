@@ -118,7 +118,6 @@ import { NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Client } from '@upstash/qstash';
-import { sendSmsNotification } from '@/lib/sms';
 import { parseOfflineVoucher } from '@/lib/offline-voucher';
 import {
     readBoundedRequestBody,
@@ -332,6 +331,17 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Invalid JSON body', traceId }, { status: 400 });
     }
 
+    // ── Delivery Receipt Filtering (Quiet Drop) ───────────────────────────────
+    // Textbee sends delivery receipts (e.g. {"webhookEvent":"MESSAGE_SENT"} or {"status":"sent"})
+    // for outbound SMS dispatches. Drop them quietly before any logging or validation.
+    if (
+        body.webhookEvent === 'MESSAGE_SENT' ||
+        body.status === 'sent' ||
+        body.event === 'MESSAGE_SENT'
+    ) {
+        return NextResponse.json({ success: true, message: 'Delivery receipt ignored' });
+    }
+
     // ── Event Filtering ───────────────────────────────────────────────────────
     // Accept both payload schemas:
     //   • Old Textbee:  { event: "MESSAGE_RECEIVED", data: { sender, message } }
@@ -427,13 +437,6 @@ export async function POST(req: Request) {
         console.error('[SMS Webhook] QStash publish failed. SMS was NOT buffered:', err);
         return NextResponse.json({ error: 'Failed to buffer settlement' }, { status: 500 });
     }
-
-    await sendSmsNotification(
-        senderPhone,
-        'Pijin: Payload received. Processing transaction... Please wait'
-    ).catch((err) => {
-        console.warn('[SMS Webhook] Ack SMS failed after QStash buffer:', err);
-    });
 
     return NextResponse.json({ success: true, status: 'Buffered', traceId });
 }

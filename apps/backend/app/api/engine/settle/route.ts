@@ -451,8 +451,8 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         if (senderPhone) {
             await sendSms(
                 senderPhone,
-                `Pijin: Transaction failed. Sender account not found.`
-            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+                `Pijin: Transaction failed. Sender account ${senderShortId} is not registered.`
+            ).catch(console.error);
         }
 
         return NextResponse.json(
