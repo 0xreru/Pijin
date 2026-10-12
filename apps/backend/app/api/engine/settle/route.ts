@@ -96,6 +96,10 @@ import { sendSmsNotification, sendSms } from '@/lib/sms';
 import { Horizon, rpc } from '@stellar/stellar-sdk';
 import { executeTwoPhaseSettlement } from '@/lib/stellar-transaction-manager';
 import {
+    reconcileExistingSettlement,
+    verifyOrRegisterRecipientOnChain,
+} from '@/lib/stellar-reconciliation';
+import {
     buildOfflineSignatureXdr,
     parseOfflineVoucher,
     verifyOfflineVoucherSignature,
@@ -336,30 +340,21 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
                 return NextResponse.json({ status: 'DUPLICATE_SKIPPED', txHash: existing.txHash, traceId }, { status: 200 });
             }
 
-            // Reconciliation check: if an existing record already has a txHash, check Soroban RPC before re-running
-            if (existing.txHash) {
-                try {
-                    const checkTx = await sorobanRpcServer.getTransaction(existing.txHash);
-                    if (checkTx.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-                        await prisma.settlement.update({
-                            where: { id: existing.id },
-                            data: { status: 'SETTLED' },
-                        });
-                        logOfflineTransactionDebug(traceId, 'db:reconciled-from-rpc', {
-                            settlementId: existing.id,
-                            txHash: existing.txHash,
-                        });
-                        console.info(`[Settle] Reconciled existing settlement from Soroban RPC | id=${existing.id} | txHash=${existing.txHash}`);
-                        return NextResponse.json({
-                            status: 'SETTLED',
-                            txHash: existing.txHash,
-                            amountStroops: existing.amountStroops.toString(),
-                            traceId,
-                        }, { status: 200 });
-                    }
-                } catch (rpcCheckErr) {
-                    console.warn(`[Settle] RPC query for existing txHash ${existing.txHash} threw:`, rpcCheckErr);
-                }
+            // Reconciliation check: use reconcileExistingSettlement to verify previous attempt
+            const reconciliation = await reconcileExistingSettlement(existing, traceId);
+            if (reconciliation.status === 'SETTLED') {
+                logOfflineTransactionDebug(traceId, 'db:reconciled-duplicate', {
+                    settlementId: existing.id,
+                    txHash: reconciliation.txHash,
+                    source: reconciliation.source,
+                });
+                console.info(`[Settle] Reconciled existing settlement | id=${existing.id} | txHash=${reconciliation.txHash} | source=${reconciliation.source}`);
+                return NextResponse.json({
+                    status: 'SETTLED',
+                    txHash: reconciliation.txHash,
+                    amountStroops: existing.amountStroops.toString(),
+                    traceId,
+                }, { status: 200 });
             }
 
             const resumed = await prisma.settlement.update({
@@ -527,6 +522,42 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
     try {
         const gatewayPublicKey = process.env.RELAYER_PUBLIC_KEY?.trim();
         if (!gatewayPublicKey) throw new Error('Server is missing RELAYER_PUBLIC_KEY');
+
+        // ─── PHASE 2.4: PRE-FLIGHT ON-CHAIN REGISTRY CHECK ──────────────────────
+        const registryCheck = await verifyOrRegisterRecipientOnChain({
+            shortId: receiverShortId,
+            stellarPublicKey: recipient.stellarPublicKey,
+            autoRegister: true,
+            registrarSecretKey: process.env.REGISTRAR_SECRET_KEY,
+            traceId,
+        });
+
+        if (!registryCheck.exists) {
+            const failReason = `Pre-Flight Registry Check Failed: Receiver ${receiverShortId} is not registered on-chain (${registryCheck.error ?? 'unregistered'}). Dropped to protect gas.`;
+            console.warn(`[Settle] ${failReason}`);
+            await prisma.settlement.update({
+                where: { id: settlementId },
+                data: { status: 'FAILED', failReason },
+            });
+            logOfflineTransactionDebug(traceId, 'registry:check-failed', {
+                settlementId,
+                receiverShortId,
+                error: registryCheck.error,
+            });
+
+            if (senderPhone) {
+                await sendSms(
+                    senderPhone,
+                    `Pijin: Transaction failed. Recipient short ID ${receiverShortId} is not registered on-chain.`
+                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+            }
+
+            return NextResponse.json(
+                { success: false, status: 'FAILED', reason: failReason, traceId },
+                { status: 200 },
+            );
+        }
+        // ─────────────────────────────────────────────────────────────────────────
 
         // TOLL CALCULATION 
         const tollStroops = token.symbol === 'PHPC' ? 5000000n : 0n;
@@ -731,28 +762,54 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         );
 
     } catch (err: unknown) {
-        // Disambiguate NonceReplayed: if the error is NonceReplayed, check if an earlier attempt succeeded on-chain
-        if (err instanceof Error && (err.message.includes('Error(Contract, 5)') || /noncereplayed/i.test(err.message))) {
+        // Disambiguate NonceReplayed: if Soroban throws NonceReplayed, trigger the reconciler
+        const isNonceReplayed =
+            (err instanceof Error && (err.message.includes('Error(Contract, 5)') || /noncereplayed/i.test(err.message))) ||
+            (typeof err === 'string' && (err.includes('Error(Contract, 5)') || /noncereplayed/i.test(err)));
+
+        if (isNonceReplayed) {
+            console.warn(`[Settle] NonceReplayed encountered for settlementId=${settlementId}. Triggering retry reconciliation.`);
             const currentRecord = await prisma.settlement.findUnique({ where: { id: settlementId } });
-            if (currentRecord?.txHash) {
-                try {
-                    const rpcCheck = await sorobanRpcServer.getTransaction(currentRecord.txHash);
-                    if (rpcCheck.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-                        await prisma.settlement.update({
-                            where: { id: settlementId },
-                            data: { status: 'SETTLED', failReason: null },
-                        });
-                        logOfflineTransactionDebug(traceId, 'db:reconciled-from-rpc-on-error', {
-                            settlementId,
-                            txHash: currentRecord.txHash,
-                        });
-                        return NextResponse.json(
-                            { status: 'SETTLED', txHash: currentRecord.txHash, amountStroops: amountStroops.toString(), traceId },
-                            { status: 200 },
+            if (currentRecord) {
+                const reconciliation = await reconcileExistingSettlement(currentRecord, traceId);
+                if (reconciliation.status === 'SETTLED') {
+                    logOfflineTransactionDebug(traceId, 'db:reconciled-from-nonce-replayed', {
+                        settlementId,
+                        txHash: reconciliation.txHash,
+                        source: reconciliation.source,
+                    });
+                    console.info(`[Settle] NonceReplayed reconciled to SETTLED via ${reconciliation.source} | id=${settlementId} | txHash=${reconciliation.txHash}`);
+
+                    // Dispatch notifications if phone numbers exist
+                    const humanAmount = Number(amountStroops) / 10_000_000;
+                    const tokenSymbol = token.symbol;
+                    const shortRef = reconciliation.txHash ? reconciliation.txHash.substring(0, 8) : settlementId.toString();
+
+                    const smsPromises: Promise<void>[] = [];
+                    if (senderAccount.phoneNumber) {
+                        smsPromises.push(
+                            sendSmsNotification(
+                                senderAccount.phoneNumber,
+                                `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
+                            ),
                         );
                     }
-                } catch (rpcErr) {
-                    console.warn('[Settle] RPC verification on NonceReplayed failed:', rpcErr);
+                    if (receiverAccount.phoneNumber) {
+                        smsPromises.push(
+                            sendSmsNotification(
+                                receiverAccount.phoneNumber,
+                                `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
+                            ),
+                        );
+                    }
+                    if (smsPromises.length > 0) {
+                        await Promise.allSettled(smsPromises);
+                    }
+
+                    return NextResponse.json(
+                        { status: 'SETTLED', txHash: reconciliation.txHash, amountStroops: amountStroops.toString(), traceId },
+                        { status: 200 },
+                    );
                 }
             }
         }
