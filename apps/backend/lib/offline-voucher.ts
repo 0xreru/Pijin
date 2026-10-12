@@ -1,6 +1,12 @@
 import { Address, Keypair, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 import { requireShortId, shortIdToBuffer } from '@/lib/short-id';
 
+// Soroban i128 maximum: 2^127 − 1
+const I128_MAX = 170_141_183_460_469_231_731_687_303_715_884_105_727n;
+
+// Strict Base64 alphabet: standard (+/) and URL-safe (-_), with optional padding.
+const BASE64_PATTERN = /^[A-Za-z0-9+/\-_]+=*$/;
+
 const BASE62_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 const BASE62 = 62n;
 
@@ -48,6 +54,20 @@ export function parseOfflineVoucher(smsPayload: string): ParsedOfflineVoucher {
   const receiverShortId = requireShortId(rawReceiverShortId, 'receiverShortId');
   const amountStroops = decodeBase62(amountBase62);
   if (amountStroops <= 0n) throw new Error('Amount must be greater than zero');
+  if (amountStroops > I128_MAX) {
+    throw new Error(`Amount ${amountStroops} exceeds i128::MAX — invalid voucher`);
+  }
+
+  // Validate Base64 alphabet strictly before decoding so that invalid characters
+  // are rejected with a clear error instead of silently producing garbage bytes.
+  const nonceB64Stripped = nonceB64.replace(/=+$/, '');
+  const signatureB64Stripped = signatureB64.replace(/=+$/, '');
+  if (!BASE64_PATTERN.test(nonceB64Stripped) && nonceB64Stripped.length > 0) {
+    throw new Error('Nonce contains invalid Base64 characters');
+  }
+  if (!BASE64_PATTERN.test(signatureB64Stripped) && signatureB64Stripped.length > 0) {
+    throw new Error('Signature contains invalid Base64 characters');
+  }
 
   const nonce = Buffer.from(restoreBase64Padding(nonceB64), 'base64');
   const signature = Buffer.from(restoreBase64Padding(signatureB64), 'base64');
