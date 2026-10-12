@@ -14,12 +14,18 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import {
+  Address,
   Asset,
+  Contract,
   Horizon,
   Keypair,
   Networks,
   Operation,
+  Transaction,
   TransactionBuilder,
+  nativeToScVal,
+  rpc,
+  xdr,
 } from '@stellar/stellar-sdk';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -34,7 +40,7 @@ import {
 
 const WEBHOOK_URL =
   process.env.WEBHOOK_URL ||
-  'https://pijin-qb4nf2604-xrerus-projects.vercel.app/api/sms/webhook';
+  'https://pijin-finjytarh-xrerus-projects.vercel.app/api/sms/webhook';
 
 const WEBHOOK_SECRET = process.env.TEXTBEE_WEBHOOK_SECRET ?? '';
 if (!WEBHOOK_SECRET) {
@@ -53,6 +59,9 @@ if (!PHPC_DISTRIBUTOR_SECRET) {
 
 const HORIZON_URL =
   process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
+
+const SOROBAN_RPC_URL =
+  process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
 
 const NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
@@ -146,6 +155,68 @@ async function establishTrustline(
   return result.hash;
 }
 
+/**
+ * Simulates, attaches Soroban footprint, signs, and submits a contract transaction,
+ * polling until SUCCESS or FAILED.
+ */
+async function submitSorobanTransaction(
+  sourceKeypair: Keypair,
+  operation: xdr.Operation,
+  sorobanRpc: rpc.Server,
+  label: string,
+): Promise<string> {
+  console.log(`[Soroban] Loading account for ${label} (${sourceKeypair.publicKey()})...`);
+  const account = await sorobanRpc.getAccount(sourceKeypair.publicKey());
+
+  const baseTx = new TransactionBuilder(account, {
+    fee: '10000',
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(operation)
+    .setTimeout(300)
+    .build();
+
+  console.log(`[Soroban] Simulating and preparing footprint for ${label}...`);
+  const preparedTx = (await sorobanRpc.prepareTransaction(baseTx)) as Transaction;
+
+  preparedTx.sign(sourceKeypair);
+
+  console.log(`[Soroban] Submitting prepared transaction for ${label}...`);
+  const sendRes = await sorobanRpc.sendTransaction(preparedTx);
+
+  if (sendRes.status === 'ERROR') {
+    const errDetails = sendRes.errorResult
+      ? typeof sendRes.errorResult === 'string'
+        ? sendRes.errorResult
+        : sendRes.errorResult.toXDR('base64')
+      : (sendRes as any).errorResultXdr || 'unknown error';
+    throw new Error(`Soroban sendTransaction failed for ${label}: ${errDetails}`);
+  }
+
+  const txHash = sendRes.hash;
+  console.log(`[Soroban] Broadcast accepted (${label})! Hash: ${txHash}. Waiting for confirmation...`);
+
+  const maxAttempts = 25;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const txRes = await sorobanRpc.getTransaction(txHash);
+
+    if (txRes.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+      console.log(`[Soroban] Transaction SUCCESS for ${label}! (confirmed on ledger ${txRes.latestLedger})`);
+      return txHash;
+    }
+
+    if (txRes.status === rpc.Api.GetTransactionStatus.FAILED) {
+      const errXdr = txRes.resultXdr?.toXDR('base64') || 'no result XDR';
+      throw new Error(`Soroban transaction FAILED on-chain for ${label}: ${errXdr}`);
+    }
+
+    console.log(`[Soroban] Polling ${label} (${attempt}/${maxAttempts}): status=${txRes.status}`);
+  }
+
+  throw new Error(`Soroban transaction timed out polling for ${label}: ${txHash}`);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Pipeline
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,6 +233,7 @@ async function main() {
   console.log(`PHPC Contract ID: ${PHPC_CONTRACT_ID}`);
 
   const horizon = new Horizon.Server(HORIZON_URL);
+  const sorobanRpc = new rpc.Server(SOROBAN_RPC_URL);
   const phpcAsset = new Asset('PHPC', PHPC_ISSUER_PUBKEY);
 
   // ── Step 1: Account Generation & Base XLM Funding ──────────────────────────
@@ -213,6 +285,43 @@ async function main() {
   fundingTx.sign(distributorKeypair);
   const fundingResult = await horizon.submitTransaction(fundingTx);
   console.log(`[Payment] Distributed 100 PHPC to Sender & Receiver! (txHash: ${fundingResult.hash})`);
+
+  // ── Step 3.5: Sender On-Chain Onboarding (Ed25519 Key & Vault Deposit) ─
+  console.log('\n--- Step 3.5: Sender On-Chain Onboarding (Ed25519 Key & Vault Deposit) ---');
+  const pijinContract = new Contract(PIJIN_CONTRACT_ADDRESS);
+
+  // 3.5a: Register Sender's raw Ed25519 public key on-chain
+  console.log(`[Onboarding] Registering raw Ed25519 key on-chain for Sender (${senderKeypair.publicKey()})...`);
+  const setKeyOp = pijinContract.call(
+    'set_offline_key',
+    Address.fromString(senderKeypair.publicKey()).toScVal(),
+    xdr.ScVal.scvBytes(senderKeypair.rawPublicKey()),
+  );
+  const setKeyTxHash = await submitSorobanTransaction(
+    senderKeypair,
+    setKeyOp,
+    sorobanRpc,
+    'set_offline_key',
+  );
+  console.log(`[Onboarding] Sender offline key successfully registered on-chain! (txHash: ${setKeyTxHash})`);
+
+  // 3.5b: Deposit 50 PHPC (500_000_000 stroops) into Pijin Contract Vault
+  const depositAmountStroops = 500_000_000n; // 50 PHPC
+  console.log(`[Onboarding] Depositing ${Number(depositAmountStroops) / 10_000_000} PHPC into Pijin Omni-Vault...`);
+  const depositOp = pijinContract.call(
+    'deposit',
+    Address.fromString(senderKeypair.publicKey()).toScVal(),
+    Address.fromString(PHPC_CONTRACT_ID).toScVal(),
+    xdr.ScVal.scvBytes(senderKeypair.rawPublicKey()),
+    nativeToScVal(depositAmountStroops, { type: 'i128' }),
+  );
+  const depositTxHash = await submitSorobanTransaction(
+    senderKeypair,
+    depositOp,
+    sorobanRpc,
+    'deposit',
+  );
+  console.log(`[Onboarding] Sender deposited 50 PHPC into contract vault! (txHash: ${depositTxHash})`);
 
   // ── Step 4: Database Registration ──────────────────────────────────────────
   console.log('\n--- Step 4: Registering Accounts and PHPC Token in PostgreSQL ---');
