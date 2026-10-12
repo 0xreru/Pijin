@@ -11,12 +11,17 @@
  */
 
 import {
+  Account,
+  Address,
+  Contract,
   Keypair,
   Transaction,
   TransactionBuilder,
+  nativeToScVal,
   rpc,
+  xdr,
 } from '@stellar/stellar-sdk';
-import { contractConfig, pijinContract, sorobanRpcServer } from '@/lib/pijin-contract';
+import { contractConfig, sorobanRpcServer } from '@/lib/pijin-contract';
 import { prisma } from '@/lib/prisma';
 import { logOfflineTransactionDebug } from '@/lib/offline-transaction-debug';
 
@@ -49,8 +54,10 @@ export interface TransactionPollResult {
 /**
  * Builds and signs a `spend_offline` Soroban transaction.
  *
- * Extracts the deterministic 64-character SHA-256 transaction hash
- * PRIOR to network submission.
+ * 1. Simulates the transaction and attaches the Soroban footprint (ledger read/write keys and resource fees)
+ *    via `sorobanRpcServer.prepareTransaction(baseTx)`.
+ * 2. Signs the prepared transaction with the relayer keypair.
+ * 3. Extracts the deterministic 64-character SHA-256 transaction hash PRIOR to network submission.
  */
 export async function buildAndSignSpendOfflineTx(
   args: SpendOfflineContractArgs,
@@ -60,29 +67,77 @@ export async function buildAndSignSpendOfflineTx(
   const relayerKeypair = Keypair.fromSecret(relayerSecretKey);
   const gatewayPublicKey = relayerKeypair.publicKey();
 
-  // 1. Simulate and assemble the Soroban invocation
-  const assembledTx = await pijinContract.spend_offline(
-    {
-      ...args,
-      gateway: gatewayPublicKey,
-    },
-    { publicKey: gatewayPublicKey },
+  const contractAddress =
+    contractConfig.contractId ||
+    process.env.CONTRACT_ID?.trim() ||
+    process.env.NEXT_PUBLIC_CONTRACT_ID?.trim();
+
+  if (!contractAddress) {
+    throw new Error('Missing CONTRACT_ID for Soroban spend_offline invocation.');
+  }
+
+  // 1. Fetch source account from Soroban RPC to get latest sequence number
+  let account: Account;
+  try {
+    account = await sorobanRpcServer.getAccount(gatewayPublicKey);
+  } catch (accErr: unknown) {
+    if (process.env.NODE_ENV === 'test') {
+      account = new Account(gatewayPublicKey, '0');
+    } else {
+      console.error(`[TransactionManager] Failed to load relayer account ${gatewayPublicKey}:`, accErr);
+      throw accErr;
+    }
+  }
+
+  // 2. Build base invocation operation
+  const contract = new Contract(contractAddress);
+  const receiverShortIdBuffer = Buffer.isBuffer(args.receiver_short_id)
+    ? args.receiver_short_id
+    : Buffer.from(args.receiver_short_id, 'ascii');
+  const nonceBuffer = Buffer.isBuffer(args.nonce) ? args.nonce : Buffer.from(args.nonce);
+  const signatureBuffer = Buffer.isBuffer(args.signature) ? args.signature : Buffer.from(args.signature);
+
+  const callOp = contract.call(
+    'spend_offline',
+    Address.fromString(gatewayPublicKey).toScVal(),
+    Address.fromString(args.sender).toScVal(),
+    Address.fromString(args.token).toScVal(),
+    xdr.ScVal.scvBytes(receiverShortIdBuffer),
+    nativeToScVal(args.amount, { type: 'i128' }),
+    nativeToScVal(args.protocol_toll, { type: 'i128' }),
+    xdr.ScVal.scvBytes(nonceBuffer),
+    xdr.ScVal.scvBytes(signatureBuffer),
   );
 
-  const unsignedXdr = assembledTx.toXDR();
+  const baseTx = new TransactionBuilder(account, {
+    fee: '100',
+    networkPassphrase,
+  })
+    .addOperation(callOp)
+    .setTimeout(300)
+    .build();
 
-  // 2. Sign with the relayer keypair
-  const transaction = TransactionBuilder.fromXDR(unsignedXdr, networkPassphrase) as Transaction;
-  transaction.sign(relayerKeypair);
+  // 3. Simulate and attach footprint via prepareTransaction
+  let preparedTx: Transaction;
+  try {
+    preparedTx = (await sorobanRpcServer.prepareTransaction(baseTx)) as Transaction;
+  } catch (simErr: unknown) {
+    const errMsg = simErr instanceof Error ? simErr.message : String(simErr);
+    console.error(`[TransactionManager] Simulation failed during prepareTransaction: ${errMsg}`);
+    throw new Error(`Soroban simulation failed during transaction preparation: ${errMsg}`);
+  }
 
-  const signedTxXdr = transaction.toXDR();
-  const txHash = transaction.hash().toString('hex');
+  // 4. Sign the prepared transaction (containing footprint) with relayer keypair
+  preparedTx.sign(relayerKeypair);
+
+  const signedTxXdr = preparedTx.toXDR();
+  const txHash = preparedTx.hash().toString('hex');
 
   return {
     txHash,
     signedTxXdr,
     signerAddress: gatewayPublicKey,
-    transaction,
+    transaction: preparedTx,
   };
 }
 
@@ -103,7 +158,9 @@ export async function submitSignedTransaction(
   if (response.status === 'ERROR') {
     const errorDetails = response.errorResult
       ? `errorResult=${typeof response.errorResult === 'string' ? response.errorResult : response.errorResult.toXDR('base64')}`
-      : 'no error XDR provided';
+      : (response as any).errorResultXdr
+        ? `errorResult=${(response as any).errorResultXdr}`
+        : 'no error XDR provided';
     throw new Error(`Soroban sendTransaction failed: status=ERROR ${errorDetails}`);
   }
 

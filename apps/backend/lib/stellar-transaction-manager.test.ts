@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Keypair, TransactionBuilder, Networks, xdr } from '@stellar/stellar-sdk';
 import {
+  buildAndSignSpendOfflineTx,
   pollTransactionConfirmation,
   submitSignedTransaction,
 } from './stellar-transaction-manager';
@@ -163,3 +164,85 @@ test('pollTransactionConfirmation: returns NOT_FOUND when max attempts are excee
     sorobanRpcServer.getTransaction = originalGet;
   }
 });
+
+test('buildAndSignSpendOfflineTx: builds base tx, prepares footprint, and extracts deterministic hash', async () => {
+  const originalGetAccount = sorobanRpcServer.getAccount;
+  const originalPrepare = sorobanRpcServer.prepareTransaction;
+
+  try {
+    const relayerKeypair = Keypair.random();
+    const senderKeypair = Keypair.random();
+    let prepareCalled = false;
+
+    sorobanRpcServer.getAccount = async (pubKey: string) => {
+      return new (require('@stellar/stellar-sdk').Account)(pubKey, '100');
+    };
+
+    sorobanRpcServer.prepareTransaction = async (baseTx: any) => {
+      prepareCalled = true;
+      // In real Soroban, prepareTransaction attaches footprint and updates transaction
+      return baseTx;
+    };
+
+    const dummyArgs = {
+      gateway: relayerKeypair.publicKey(),
+      sender: senderKeypair.publicKey(),
+      token: 'CD26OANM4I4GF2GBC47UYTSP3FUBZRQ7WGMGECEQHMZ2D6QV2LXJTNIS',
+      receiver_short_id: Buffer.from('rcv123', 'ascii'),
+      amount: 10_000_000n,
+      protocol_toll: 5_000_000n,
+      nonce: Buffer.alloc(32, 1),
+      signature: Buffer.alloc(64, 2),
+    };
+
+    const prepared = await buildAndSignSpendOfflineTx(dummyArgs, relayerKeypair.secret());
+
+    assert.equal(prepareCalled, true, 'sorobanRpcServer.prepareTransaction must be called');
+    assert.equal(prepared.signerAddress, relayerKeypair.publicKey());
+    assert.equal(prepared.txHash.length, 64);
+    assert.match(prepared.txHash, /^[a-f0-9]{64}$/);
+    assert.ok(prepared.signedTxXdr.length > 50);
+    assert.equal(prepared.transaction.hash().toString('hex'), prepared.txHash);
+  } finally {
+    sorobanRpcServer.getAccount = originalGetAccount;
+    sorobanRpcServer.prepareTransaction = originalPrepare;
+  }
+});
+
+test('buildAndSignSpendOfflineTx: cleanly handles simulation failure during prepareTransaction', async () => {
+  const originalGetAccount = sorobanRpcServer.getAccount;
+  const originalPrepare = sorobanRpcServer.prepareTransaction;
+
+  try {
+    const relayerKeypair = Keypair.random();
+    const senderKeypair = Keypair.random();
+
+    sorobanRpcServer.getAccount = async (pubKey: string) => {
+      return new (require('@stellar/stellar-sdk').Account)(pubKey, '100');
+    };
+
+    sorobanRpcServer.prepareTransaction = async () => {
+      throw new Error('HostError: Error(Contract, #6)');
+    };
+
+    const dummyArgs = {
+      gateway: relayerKeypair.publicKey(),
+      sender: senderKeypair.publicKey(),
+      token: 'CD26OANM4I4GF2GBC47UYTSP3FUBZRQ7WGMGECEQHMZ2D6QV2LXJTNIS',
+      receiver_short_id: Buffer.from('rcv123', 'ascii'),
+      amount: 10_000_000n,
+      protocol_toll: 5_000_000n,
+      nonce: Buffer.alloc(32, 1),
+      signature: Buffer.alloc(64, 2),
+    };
+
+    await assert.rejects(
+      async () => buildAndSignSpendOfflineTx(dummyArgs, relayerKeypair.secret()),
+      /Soroban simulation failed during transaction preparation: HostError: Error\(Contract, #6\)/,
+    );
+  } finally {
+    sorobanRpcServer.getAccount = originalGetAccount;
+    sorobanRpcServer.prepareTransaction = originalPrepare;
+  }
+});
+
