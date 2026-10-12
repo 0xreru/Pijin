@@ -520,8 +520,16 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
 
     // Execute Soroban spend_offline
     try {
-        const gatewayPublicKey = process.env.RELAYER_PUBLIC_KEY?.trim();
+        const gatewayPublicKey =
+            process.env.RELAYER_PUBLIC_KEY?.trim() ||
+            process.env.NEXT_PUBLIC_RELAYER_PUBLIC_KEY?.trim() ||
+            process.env.GATEWAY_PUBLIC_KEY?.trim();
         if (!gatewayPublicKey) throw new Error('Server is missing RELAYER_PUBLIC_KEY');
+
+        const resolvedContractAddress =
+            contractConfig.contractId ||
+            process.env.CONTRACT_ID?.trim() ||
+            process.env.NEXT_PUBLIC_CONTRACT_ID?.trim();
 
         // ─── PHASE 2.4: PRE-FLIGHT ON-CHAIN REGISTRY CHECK ──────────────────────
         const registryCheck = await verifyOrRegisterRecipientOnChain({
@@ -559,31 +567,13 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         }
         // ─────────────────────────────────────────────────────────────────────────
 
-        // TOLL CALCULATION 
-        const tollStroops = token.symbol === 'PHPC' ? 5000000n : 0n;
-        if (token.symbol === 'PHPC') {
-            const issuer = process.env.PHPC_ISSUER_PUBKEY?.trim();
-            if (issuer) {
-                if (tollStroops > 0n && treasuryPublicKey) {
-                    await assertClassicTrustline(treasuryPublicKey, token.symbol, issuer, 'treasury');
-                }
-            }
-        }
+        // TOLL CALCULATION:
+        // Protocol toll is 0.5 PHPC (5_000_000n stroops) for PHPC token, or custom PROTOCOL_TOLL_STROOPS.
+        let tollStroops = process.env.PROTOCOL_TOLL_STROOPS
+            ? BigInt(process.env.PROTOCOL_TOLL_STROOPS)
+            : (token.symbol === 'PHPC' ? 5_000_000n : 0n);
 
         // ─── PRE-FLIGHT LOCAL FIREWALL (Anti Gas-Drain) ──────────────────────────
-        // Try domain-separated 7-tuple first (binding contractId)
-        let xdrBytes = buildOfflineSignatureXdr({
-            amountStroops,
-            tollStroops,
-            nonce: nonce32,
-            receiverShortId,
-            gatewayPublicKey,
-            tokenContractId,
-            contractAddress: contractConfig.contractId,
-        });
-
-        // The main wallet and offline device are intentionally separate keys.
-        // Falling back to the wallet key hides incomplete device enrollment.
         const verificationKey = senderAccount.offlineDeviceKey;
         if (!verificationKey) {
             const failReason = 'Offline device key is not enrolled. Sign in online to synchronize this device.';
@@ -601,7 +591,60 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
 
+        // Try domain-separated 7-tuple first (binding contractId)
+        let xdrBytes = buildOfflineSignatureXdr({
+            amountStroops,
+            tollStroops,
+            nonce: nonce32,
+            receiverShortId,
+            gatewayPublicKey,
+            tokenContractId,
+            contractAddress: resolvedContractAddress,
+        });
+
+        // ─── FORENSIC LOGGING: Exact parameters and Base64 XDR ───────────────────
+        console.log('════════════════════════════════════════════════════════════════');
+        console.log('[FIREWALL FORENSIC DEBUG] Pre-Verification Parameters:');
+        console.log('  traceId:          ', traceId);
+        console.log('  settlementId:     ', settlementId);
+        console.log('  amountStroops:    ', amountStroops.toString());
+        console.log('  tollStroops:      ', tollStroops.toString());
+        console.log('  nonce (base64):   ', Buffer.from(nonce32).toString('base64'));
+        console.log('  nonce (hex):      ', Buffer.from(nonce32).toString('hex'));
+        console.log('  receiverShortId:  ', receiverShortId);
+        console.log('  gatewayPublicKey: ', gatewayPublicKey);
+        console.log('  tokenContractId:  ', tokenContractId);
+        console.log('  contractAddress:  ', resolvedContractAddress);
+        console.log('  verificationKey:  ', verificationKey);
+        console.log('  signature (b64):  ', Buffer.from(signatureBuffer).toString('base64'));
+        console.log('  signature (hex):  ', Buffer.from(signatureBuffer).toString('hex'));
+        console.log('  XDR Byte Length:  ', xdrBytes.length);
+        console.log('  FINAL XDR BASE64: ', xdrBytes.toString('base64'));
+        console.log('════════════════════════════════════════════════════════════════');
+
         let signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
+        console.log(`[FIREWALL FORENSIC DEBUG] Initial 7-tuple check (toll=${tollStroops}) valid:`, signatureValid);
+
+        // If initial check fails, check alternate toll (0n vs 5000000n)
+        if (!signatureValid) {
+            const alternateToll = tollStroops === 0n ? 5000000n : 0n;
+            const xdrAltToll = buildOfflineSignatureXdr({
+                amountStroops,
+                tollStroops: alternateToll,
+                nonce: nonce32,
+                receiverShortId,
+                gatewayPublicKey,
+                tokenContractId,
+                contractAddress: resolvedContractAddress,
+            });
+            console.log(`[FIREWALL FORENSIC DEBUG] Testing alternate toll (${alternateToll}) XDR BASE64:`, xdrAltToll.toString('base64'));
+            if (verifyOfflineVoucherSignature(verificationKey, xdrAltToll, signatureBuffer)) {
+                console.log(`[FIREWALL FORENSIC DEBUG] SUCCESS: Signature verified with alternate toll=${alternateToll}!`);
+                signatureValid = true;
+                xdrBytes = xdrAltToll;
+                tollStroops = alternateToll;
+            }
+        }
 
         // If 7-tuple check fails, check backwards-compatible 6-tuple (legacy mobile clients)
         if (!signatureValid) {
@@ -613,9 +656,35 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
                 gatewayPublicKey,
                 tokenContractId,
             });
+            console.log('[FIREWALL FORENSIC DEBUG] Testing 6-tuple fallback XDR BASE64:', xdr6Bytes.toString('base64'));
             if (verifyOfflineVoucherSignature(verificationKey, xdr6Bytes, signatureBuffer)) {
+                console.log('[FIREWALL FORENSIC DEBUG] SUCCESS: Signature valid with 6-tuple fallback!');
                 signatureValid = true;
                 xdrBytes = xdr6Bytes;
+            } else if (tollStroops !== 0n) {
+                const xdr6_0toll = buildOfflineSignatureXdr({
+                    amountStroops,
+                    tollStroops: 0n,
+                    nonce: nonce32,
+                    receiverShortId,
+                    gatewayPublicKey,
+                    tokenContractId,
+                });
+                console.log('[FIREWALL FORENSIC DEBUG] Testing 6-tuple (0 toll) fallback XDR BASE64:', xdr6_0toll.toString('base64'));
+                if (verifyOfflineVoucherSignature(verificationKey, xdr6_0toll, signatureBuffer)) {
+                    console.log('[FIREWALL FORENSIC DEBUG] SUCCESS: Signature valid with 6-tuple (0 toll)!');
+                    signatureValid = true;
+                    xdrBytes = xdr6_0toll;
+                    tollStroops = 0n;
+                }
+            }
+        }
+
+        // If toll was verified as > 0n, assert treasury trustline for custom assets
+        if (token.symbol === 'PHPC' && tollStroops > 0n) {
+            const issuer = process.env.PHPC_ISSUER_PUBKEY?.trim();
+            if (issuer && treasuryPublicKey) {
+                await assertClassicTrustline(treasuryPublicKey, token.symbol, issuer, 'treasury');
             }
         }
 

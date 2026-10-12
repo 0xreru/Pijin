@@ -6,6 +6,7 @@ const sorobanRpcUrl =
 
 const contractId =
   process.env.CONTRACT_ID?.trim() ||
+  process.env.NEXT_PUBLIC_CONTRACT_ID?.trim() ||
   (process.env.NODE_ENV === "test" || !process.env.NODE_ENV
     ? PijinClient.networks.testnet.contractId
     : undefined);

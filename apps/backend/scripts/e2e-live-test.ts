@@ -34,7 +34,7 @@ import {
 
 const WEBHOOK_URL =
   process.env.WEBHOOK_URL ||
-  'https://pijin-4621epw44-xrerus-projects.vercel.app/api/sms/webhook';
+  'https://pijin-qb4nf2604-xrerus-projects.vercel.app/api/sms/webhook';
 
 const WEBHOOK_SECRET = process.env.TEXTBEE_WEBHOOK_SECRET ?? '';
 if (!WEBHOOK_SECRET) {
@@ -293,7 +293,7 @@ async function main() {
     // ── Step 5: Construct & Send Voucher ─────────────────────────────────────
     console.log('\n--- Step 5: Constructing and Signing PHPC Offline Voucher ---');
     const amountStroops = 100_000_000n; // 10 PHPC (7 decimals)
-    const tollStroops = 0n;    // 0.5 PHPC protocol toll for PHPC transfers
+    const tollStroops = 5_000_000n;    // 0.5 PHPC protocol toll for PHPC transfers
     const nonce = crypto.randomBytes(32);
 
     // Build domain-separated 7-tuple XDR payload
@@ -311,6 +311,23 @@ async function main() {
     // Sign the XDR using Sender's secret key
     const rawSignature = senderKeypair.sign(xdrBytes);
     console.log(`Generated Ed25519 signature: ${rawSignature.length} bytes`);
+
+    console.log('════════════════════════════════════════════════════════════════');
+    console.log('[E2E TEST FORENSIC DEBUG] Script-Side Parameters & XDR:');
+    console.log('  amountStroops:    ', amountStroops.toString());
+    console.log('  tollStroops:      ', tollStroops.toString());
+    console.log('  nonce (base64):   ', nonce.toString('base64'));
+    console.log('  nonce (hex):      ', nonce.toString('hex'));
+    console.log('  receiverShortId:  ', RECEIVER_SHORT_ID);
+    console.log('  gatewayPublicKey: ', GATEWAY_PUBLIC_KEY);
+    console.log('  tokenContractId:  ', PHPC_CONTRACT_ID);
+    console.log('  contractAddress:  ', PIJIN_CONTRACT_ADDRESS);
+    console.log('  senderPublicKey:  ', senderKeypair.publicKey());
+    console.log('  signature (b64):  ', rawSignature.toString('base64'));
+    console.log('  signature (hex):  ', rawSignature.toString('hex'));
+    console.log('  XDR Byte Length:  ', xdrBytes.length);
+    console.log('  FINAL XDR BASE64: ', xdrBytes.toString('base64'));
+    console.log('════════════════════════════════════════════════════════════════');
 
     // Local firewall pre-flight sanity verification
     const localVerification = verifyOfflineVoucherSignature(
