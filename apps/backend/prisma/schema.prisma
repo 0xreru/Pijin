@@ -123,6 +123,7 @@ model Settlement {
   tokenId         Int              @map("token_id")
   amountStroops   BigInt           @map("amount_stroops")             // Stellar stroops (7-decimal integer)
   txHash          String?          @map("tx_hash")
+  signedTxXdr     String?          @map("signed_tx_xdr")
   status          SettlementStatus @map("status")
   failReason      String?          @map("fail_reason")
   createdAt       DateTime         @default(now()) @map("created_at")

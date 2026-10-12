@@ -98,15 +98,22 @@ export function buildOfflineSignatureXdr(input: {
   receiverShortId: string;
   gatewayPublicKey: string;
   tokenContractId: string;
+  contractAddress?: string;
 }): Buffer {
-  const tuple = xdr.ScVal.scvVec([
+  const elements = [
     nativeToScVal(input.amountStroops, { type: 'i128' }),
     nativeToScVal(input.tollStroops, { type: 'i128' }),
     xdr.ScVal.scvBytes(Buffer.from(input.nonce)),
     xdr.ScVal.scvBytes(shortIdToBuffer(input.receiverShortId, 'receiverShortId')),
     Address.fromString(input.gatewayPublicKey).toScVal(),
     Address.fromString(input.tokenContractId).toScVal(),
-  ]);
+  ];
+
+  if (input.contractAddress) {
+    elements.push(Address.fromString(input.contractAddress).toScVal());
+  }
+
+  const tuple = xdr.ScVal.scvVec(elements);
   return Buffer.from(tuple.toXDR());
 }
 

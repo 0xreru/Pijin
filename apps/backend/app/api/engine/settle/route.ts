@@ -91,9 +91,10 @@ import {
     readBoundedRequestBody,
     maskPhoneNumber,
 } from '@/lib/sms-security';
-import { contractConfig, pijinContract } from '@/lib/pijin-contract';
+import { contractConfig, pijinContract, sorobanRpcServer } from '@/lib/pijin-contract';
 import { sendSmsNotification, sendSms } from '@/lib/sms';
-import { Horizon } from '@stellar/stellar-sdk';
+import { Horizon, rpc } from '@stellar/stellar-sdk';
+import { executeTwoPhaseSettlement } from '@/lib/stellar-transaction-manager';
 import {
     buildOfflineSignatureXdr,
     parseOfflineVoucher,
@@ -335,6 +336,32 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
                 return NextResponse.json({ status: 'DUPLICATE_SKIPPED', txHash: existing.txHash, traceId }, { status: 200 });
             }
 
+            // Reconciliation check: if an existing record already has a txHash, check Soroban RPC before re-running
+            if (existing.txHash) {
+                try {
+                    const checkTx = await sorobanRpcServer.getTransaction(existing.txHash);
+                    if (checkTx.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+                        await prisma.settlement.update({
+                            where: { id: existing.id },
+                            data: { status: 'SETTLED' },
+                        });
+                        logOfflineTransactionDebug(traceId, 'db:reconciled-from-rpc', {
+                            settlementId: existing.id,
+                            txHash: existing.txHash,
+                        });
+                        console.info(`[Settle] Reconciled existing settlement from Soroban RPC | id=${existing.id} | txHash=${existing.txHash}`);
+                        return NextResponse.json({
+                            status: 'SETTLED',
+                            txHash: existing.txHash,
+                            amountStroops: existing.amountStroops.toString(),
+                            traceId,
+                        }, { status: 200 });
+                    }
+                } catch (rpcCheckErr) {
+                    console.warn(`[Settle] RPC query for existing txHash ${existing.txHash} threw:`, rpcCheckErr);
+                }
+            }
+
             const resumed = await prisma.settlement.update({
                 where: { id: existing.id },
                 data: {
@@ -513,40 +540,17 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         }
 
         // ─── PRE-FLIGHT LOCAL FIREWALL (Anti Gas-Drain) ──────────────────────────
-        const xdrBytes = buildOfflineSignatureXdr({
+        // Try domain-separated 7-tuple first (binding contractId)
+        let xdrBytes = buildOfflineSignatureXdr({
             amountStroops,
             tollStroops,
             nonce: nonce32,
             receiverShortId,
             gatewayPublicKey,
             tokenContractId,
+            contractAddress: contractConfig.contractId,
         });
 
-        logOfflineTransactionDebug(traceId, 'verify:xdr-reconstructed', {
-            settlementId,
-            tupleOrder: [
-                'amountStroops',
-                'tollStroops',
-                'nonce',
-                'receiverShortId',
-                'gatewayPublicKey',
-                'tokenContractId',
-            ],
-            tuple: {
-                amountStroops,
-                tollStroops,
-                nonceB64: nonce,
-                nonceHex: nonce32.toString('hex'),
-                nonceByteLength: nonce32.length,
-                receiverShortId,
-                gatewayPublicKey,
-                tokenContractId,
-            },
-            signatureXdrByteLength: xdrBytes.length,
-            signatureXdrBase64: xdrBytes.toString('base64'),
-            signatureXdrHex: xdrBytes.toString('hex'),
-        });
-        
         // The main wallet and offline device are intentionally separate keys.
         // Falling back to the wallet key hides incomplete device enrollment.
         const verificationKey = senderAccount.offlineDeviceKey;
@@ -565,7 +569,25 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             }
             return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
-        const signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
+
+        let signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
+
+        // If 7-tuple check fails, check backwards-compatible 6-tuple (legacy mobile clients)
+        if (!signatureValid) {
+            const xdr6Bytes = buildOfflineSignatureXdr({
+                amountStroops,
+                tollStroops,
+                nonce: nonce32,
+                receiverShortId,
+                gatewayPublicKey,
+                tokenContractId,
+            });
+            if (verifyOfflineVoucherSignature(verificationKey, xdr6Bytes, signatureBuffer)) {
+                signatureValid = true;
+                xdrBytes = xdr6Bytes;
+            }
+        }
+
         logOfflineTransactionDebug(traceId, 'verify:ed25519', {
             settlementId,
             offlineDevicePublicKey: verificationKey,
@@ -634,66 +656,36 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             },
         });
 
-        const assembledTx = await pijinContract.spend_offline(
-            contractArguments,
-            { publicKey: gatewayPublicKey },
-        );
+        const relayerSecretKey = process.env.RELAYER_SECRET_KEY?.trim();
+        if (!relayerSecretKey) throw new Error('Server is missing RELAYER_SECRET_KEY');
 
-        let assembledTransactionJson: unknown;
-        try {
-            assembledTransactionJson = JSON.parse(assembledTx.toJSON());
-        } catch (serializationError) {
-            assembledTransactionJson = {
-                serializationError: serializationError instanceof Error
-                    ? serializationError.message
-                    : String(serializationError),
-            };
+        const { txHash, pollResult, sendResponse } = await executeTwoPhaseSettlement({
+            settlementId,
+            args: contractArguments,
+            relayerSecretKey,
+            traceId,
+        });
+
+        if (pollResult.status === 'FAILED') {
+            throw new Error(`Soroban transaction confirmed as FAILED on-chain: txHash=${txHash} ${pollResult.errorResultXdr ?? ''}`);
         }
-        const assembledTransactionXdr = assembledTx.toXDR();
-        logOfflineTransactionDebug(traceId, 'soroban:assembled', {
-            settlementId,
-            assembledTransactionXdr,
-            assembledTransactionXdrCharLength: assembledTransactionXdr.length,
-            assembledTransactionJson,
-        });
 
-        const { sendTransactionResponse } = await assembledTx.signAndSend({
-            signTransaction: async (unsignedTxXdr, signOptions) => {
-                logOfflineTransactionDebug(traceId, 'soroban:signing-input', {
-                    settlementId,
-                    unsignedTxXdr,
-                    unsignedTxXdrCharLength: unsignedTxXdr.length,
-                    networkPassphrase: signOptions?.networkPassphrase ?? contractConfig.networkPassphrase,
-                });
-                const signed = await signWithRelayer(unsignedTxXdr, signOptions);
-                logOfflineTransactionDebug(traceId, 'soroban:signed', {
-                    settlementId,
-                    signerAddress: signed.signerAddress,
-                    signedTxXdr: signed.signedTxXdr,
-                    signedTxXdrCharLength: signed.signedTxXdr.length,
-                });
-                return signed;
-            },
-        });
-
-        const txHash: string | undefined = sendTransactionResponse?.hash;
-
-        logOfflineTransactionDebug(traceId, 'soroban:submitted', {
-            settlementId,
-            txHash,
-            sendTransactionResponse,
-        });
+        if (pollResult.status === 'NOT_FOUND') {
+            // Transaction was accepted into mempool by sendTransaction, but didn't reach SUCCESS in the polling window.
+            // Throw retryable error so QStash retries; on retry, the reconciler will find txHash in DB!
+            throw new Error(`Transaction pending or polling timeout (status: 504): txHash=${txHash}`);
+        }
 
         await prisma.settlement.update({
             where: { id: settlementId },
-            data: { status: 'SETTLED', txHash: txHash ?? null },
+            data: { status: 'SETTLED', txHash },
         });
 
         logOfflineTransactionDebug(traceId, 'db:settled', {
             settlementId,
             previousStatus: 'PENDING',
             status: 'SETTLED',
-            txHash: txHash ?? null,
+            txHash,
         });
 
 
@@ -739,6 +731,32 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         );
 
     } catch (err: unknown) {
+        // Disambiguate NonceReplayed: if the error is NonceReplayed, check if an earlier attempt succeeded on-chain
+        if (err instanceof Error && (err.message.includes('Error(Contract, 5)') || /noncereplayed/i.test(err.message))) {
+            const currentRecord = await prisma.settlement.findUnique({ where: { id: settlementId } });
+            if (currentRecord?.txHash) {
+                try {
+                    const rpcCheck = await sorobanRpcServer.getTransaction(currentRecord.txHash);
+                    if (rpcCheck.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+                        await prisma.settlement.update({
+                            where: { id: settlementId },
+                            data: { status: 'SETTLED', failReason: null },
+                        });
+                        logOfflineTransactionDebug(traceId, 'db:reconciled-from-rpc-on-error', {
+                            settlementId,
+                            txHash: currentRecord.txHash,
+                        });
+                        return NextResponse.json(
+                            { status: 'SETTLED', txHash: currentRecord.txHash, amountStroops: amountStroops.toString(), traceId },
+                            { status: 200 },
+                        );
+                    }
+                } catch (rpcErr) {
+                    console.warn('[Settle] RPC verification on NonceReplayed failed:', rpcErr);
+                }
+            }
+        }
+
         const isInfraError = isRetryableSettlementError(err);
         const failReason = normalizeSettlementFailure(err);
 

@@ -4,7 +4,11 @@ import { rpc } from "@stellar/stellar-sdk";
 const sorobanRpcUrl =
   process.env.SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
 
-const contractId = process.env.CONTRACT_ID?.trim();
+const contractId =
+  process.env.CONTRACT_ID?.trim() ||
+  (process.env.NODE_ENV === "test" || !process.env.NODE_ENV
+    ? PijinClient.networks.testnet.contractId
+    : undefined);
 if (!contractId) {
   throw new Error(
     "Missing CONTRACT_ID. Refusing to fall back to an arbitrary deployed contract.",

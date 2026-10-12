@@ -11,7 +11,13 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseOfflineVoucher, decodeBase62, restoreBase64Padding } from './offline-voucher';
+import {
+    parseOfflineVoucher,
+    decodeBase62,
+    restoreBase64Padding,
+    buildOfflineSignatureXdr,
+    verifyOfflineVoucherSignature,
+} from './offline-voucher';
 
 // 32-byte dummy nonce and 64-byte dummy signature encoded in Base64
 const VALID_NONCE_B64 = Buffer.alloc(32, 0xaa).toString('base64');
@@ -111,3 +117,69 @@ test('parseOfflineVoucher: rejects signature with wrong byte count (!= 64 bytes)
         /Signature must decode to 64 bytes, got 32/,
     );
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// XDR Serialization & Domain Separation Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('buildOfflineSignatureXdr: produces exact byte-for-byte 7-tuple matching golden vector', () => {
+    const amountStroops = 100_000_000n;
+    const tollStroops = 5_000_000n;
+    const nonce = Buffer.alloc(32, 0x2a); // 42 in hex
+    const receiverShortId = 'aB3x9Q';
+    const gatewayPublicKey = 'GCATS5YOVB6ROX2WUNKGNQ2MP3GMXDMKSG2O4N5CLX3A6W4PZGZZI55U';
+    const tokenContractAddress = 'CABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGCK3';
+    const contractAddress = 'CACAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAINCW';
+    const senderPublicKey = 'GCFIRY65OQE7DFP5KLNS2PF2LVZMUZYJX4OZIEQ36N2IQANUB5XVYOJR';
+    const expectedXdrHex =
+        '0000001000000001000000070000000a00000000000000000000000005f5e1000000000a000000000000000000000000004c4b400000000d000000202a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000d0000000661423378395100000000001200000000000000008139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3940000001200000001030303030303030303030303030303030303030303030303030303030303030300000012000000010404040404040404040404040404040404040404040404040404040404040404';
+    const expectedSignatureHex =
+        'a2f6e1452c92032e858eb4c4bb293cc5eecd8ba622ae5283004559723c842f9d73b3f4ce9e937171201cd22cb9992939d80d7f172a11803df9cccd0dae88a700';
+
+    const xdrBuffer = buildOfflineSignatureXdr({
+        amountStroops,
+        tollStroops,
+        nonce,
+        receiverShortId,
+        gatewayPublicKey,
+        tokenContractId: tokenContractAddress,
+        contractAddress,
+    });
+
+    assert.equal(xdrBuffer.toString('hex'), expectedXdrHex);
+
+    // Verify signature verification using the Ed25519 public key
+    const sigBytes = Buffer.from(expectedSignatureHex, 'hex');
+    const valid = verifyOfflineVoucherSignature(senderPublicKey, xdrBuffer, sigBytes);
+    assert.equal(valid, true);
+
+    // Tampering contractAddress must fail verification
+    const wrongContract = 'CABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGCK3'; // using token contract as wrong contract
+    const tamperedXdr = buildOfflineSignatureXdr({
+        amountStroops,
+        tollStroops,
+        nonce,
+        receiverShortId,
+        gatewayPublicKey,
+        tokenContractId: tokenContractAddress,
+        contractAddress: wrongContract,
+    });
+    assert.notEqual(tamperedXdr.toString('hex'), expectedXdrHex);
+    assert.equal(verifyOfflineVoucherSignature(senderPublicKey, tamperedXdr, sigBytes), false);
+});
+
+test('buildOfflineSignatureXdr: builds backwards-compatible 6-tuple when contractAddress is omitted', () => {
+    const xdrBuffer = buildOfflineSignatureXdr({
+        amountStroops: 100_000_000n,
+        tollStroops: 5_000_000n,
+        nonce: Buffer.alloc(32, 1),
+        receiverShortId: 'aB3x9Q',
+        gatewayPublicKey: 'GCATS5YOVB6ROX2WUNKGNQ2MP3GMXDMKSG2O4N5CLX3A6W4PZGZZI55U',
+        tokenContractId: 'CABQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGCK3',
+    });
+
+    // 6 elements in Vec (header specifies length 6)
+    // 00000010 = ScValType vec, 00000001 = present, 00000006 = length 6
+    assert.equal(xdrBuffer.subarray(0, 12).toString('hex'), '000000100000000100000006');
+});
+
