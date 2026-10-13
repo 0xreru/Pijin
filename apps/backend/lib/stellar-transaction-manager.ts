@@ -24,6 +24,7 @@ import {
 import { contractConfig, sorobanRpcServer } from '@/lib/pijin-contract';
 import { prisma } from '@/lib/prisma';
 import { logOfflineTransactionDebug } from '@/lib/offline-transaction-debug';
+import { acquireRelayerLock, releaseRelayerLock } from '@/lib/redis-lock';
 
 export interface SpendOfflineContractArgs {
   gateway: string;
@@ -227,27 +228,45 @@ export async function executeTwoPhaseSettlement(params: {
 }> {
   const { settlementId, args, relayerSecretKey, traceId = 'trace' } = params;
 
-  // Phase 1: Build & Sign -> Extract Deterministic Hash
-  const prepared = await buildAndSignSpendOfflineTx(args, relayerSecretKey);
+  // Wait loop: Mutex lock on single relayer account to prevent sequence collisions
+  const maxWaitMs = 20_000;
+  const startWait = Date.now();
+  while (!(await acquireRelayerLock())) {
+    if (Date.now() - startWait > maxWaitMs) {
+      throw new Error(`Timeout waiting for relayer lock after ${maxWaitMs}ms (settlementId=${settlementId})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200)); // check every 200ms
+  }
 
-  // Persist txHash & signedTxXdr to DB BEFORE network broadcast
-  await prisma.settlement.update({
-    where: { id: settlementId },
-    data: {
+  let prepared: PreparedRelayerTransaction;
+  let sendResponse: rpc.Api.SendTransactionResponse;
+
+  try {
+    // Phase 1: Build & Sign -> Extract Deterministic Hash
+    // (Fetches latest sequence number inside here)
+    prepared = await buildAndSignSpendOfflineTx(args, relayerSecretKey);
+
+    // Persist txHash & signedTxXdr to DB BEFORE network broadcast
+    await prisma.settlement.update({
+      where: { id: settlementId },
+      data: {
+        txHash: prepared.txHash,
+        signedTxXdr: prepared.signedTxXdr,
+        status: 'PENDING',
+      },
+    });
+
+    logOfflineTransactionDebug(traceId, 'soroban:pre-hash-persisted', {
+      settlementId,
       txHash: prepared.txHash,
-      signedTxXdr: prepared.signedTxXdr,
-      status: 'PENDING',
-    },
-  });
+      signerAddress: prepared.signerAddress,
+    });
 
-  logOfflineTransactionDebug(traceId, 'soroban:pre-hash-persisted', {
-    settlementId,
-    txHash: prepared.txHash,
-    signerAddress: prepared.signerAddress,
-  });
-
-  // Phase 2: Broadcast to Soroban RPC
-  const sendResponse = await submitSignedTransaction(prepared.transaction);
+    // Phase 2: Broadcast to Soroban RPC
+    sendResponse = await submitSignedTransaction(prepared.transaction);
+  } finally {
+    await releaseRelayerLock();
+  }
 
   logOfflineTransactionDebug(traceId, 'soroban:submitted', {
     settlementId,

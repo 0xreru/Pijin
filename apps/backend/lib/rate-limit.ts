@@ -46,3 +46,5 @@ export async function enforceLimit(limiter: Ratelimit, key: string): Promise<Nex
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
+
+export { acquireRelayerLock, releaseRelayerLock } from "./redis-lock";
