@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Image } from 'expo-image';
 import {
   StyleSheet,
@@ -26,12 +26,10 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { db } from '../db/client';
 import { paymentQueue as paymentQueueTable } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
-import { getApiBaseUrl } from '../constants/api';
-import { apiFetch } from '../services/api/client';
+import { isPhoneQuery, lookupUser } from '../services/api/userLookup';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
-const API_URL = getApiBaseUrl();
 const SHORT_ID_PATTERN = /^[0-9A-Za-z]{6}$/;
 
 // ---------------------------------------------------------------------------
@@ -164,6 +162,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
   };
 
   // ── Live lookup: call /api/users/lookup?shortId=… ─────────────────────────
+  const lookupSeqRef = useRef(0);
   const lookupRecipient = useCallback(async (query: string) => {
     const q = query.trim();
     if (!q) {
@@ -171,12 +170,12 @@ export function SendMoneyScreen({ route, navigation }: any) {
       setSearchError(null);
       return;
     }
+    const seq = ++lookupSeqRef.current;
     setIsSearching(true);
     setSearchError(null);
     setSearchResult(null);
     try {
-      const isPhone = /^\d+$/.test(q) && q.length >= 7;
-      const paramKey = isPhone ? 'phone' : 'shortId';
+      const isPhone = isPhoneQuery(q);
 
       if (!isOnline) {
         if (isPhone) {
@@ -196,31 +195,19 @@ export function SendMoneyScreen({ route, navigation }: any) {
         return;
       }
 
-      const res = await apiFetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`, { retries: 0 });
-      if (res.status === 404) {
+      const user = await lookupUser(q);
+      if (lookupSeqRef.current !== seq) return; // a newer search superseded this one
+      if (!user) {
         setSearchError('No account found with that Short ID or phone number.');
         return;
       }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).error ?? `Lookup failed (HTTP ${res.status})`);
-      }
-      const data = await res.json();
-      if (!data.found) {
-        setSearchError('No account found with that Short ID or phone number.');
-        return;
-      }
-      setSearchResult({
-        shortId: data.shortId,
-        stellarPublicKey: data.stellarPublicKey,
-        offlineDeviceKey: data.offlineDeviceKey ?? null,
-        displayName: data.displayName,
-      });
+      setSearchResult(user);
     } catch (e: any) {
+      if (lookupSeqRef.current !== seq) return;
       console.error('[SendMoney] Recipient lookup error:', e);
       setSearchError(e?.message ?? 'Failed to look up recipient. Check your connection.');
     } finally {
-      setIsSearching(false);
+      if (lookupSeqRef.current === seq) setIsSearching(false);
     }
   }, [isOnline]);
 
@@ -258,7 +245,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
       setIsResolving(true);
       try {
         const q = normalizedRecipientId;
-        const isPhone = /^\d+$/.test(q) && q.length >= 7;
+        const isPhone = isPhoneQuery(q);
         
         if (!isOnline) {
           if (isPhone) {
@@ -279,26 +266,14 @@ export function SendMoneyScreen({ route, navigation }: any) {
           };
           setResolvedRecipient(currentRecipient);
         } else {
-          // Online lookup
-          const paramKey = isPhone ? 'phone' : 'shortId';
-          const res = await apiFetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`);
-          if (res.status === 404 || !res.ok) {
+          // Online lookup (cached: usually already resolved by the search modal)
+          const user = await lookupUser(q);
+          if (!user) {
             setRecipientShortIdError('No account found with that Short ID or phone number.');
             setIsResolving(false);
             return;
           }
-          const data = await res.json();
-          if (!data.found) {
-            setRecipientShortIdError('No account found with that Short ID or phone number.');
-            setIsResolving(false);
-            return;
-          }
-          currentRecipient = {
-            shortId: data.shortId,
-            stellarPublicKey: data.stellarPublicKey,
-            offlineDeviceKey: data.offlineDeviceKey ?? null,
-            displayName: data.displayName,
-          };
+          currentRecipient = user;
           setResolvedRecipient(currentRecipient);
         }
       } catch (err) {

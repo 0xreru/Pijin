@@ -12,7 +12,7 @@ export interface TransactionItemProps {
   timestamp?: string;
 }
 
-export function TransactionItem({
+function TransactionItemBase({
   title,
   subtitle,
   amount,
@@ -114,3 +114,5 @@ const styles = StyleSheet.create({
   },
 });
 
+
+export const TransactionItem = React.memo(TransactionItemBase);

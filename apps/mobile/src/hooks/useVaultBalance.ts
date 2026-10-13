@@ -3,6 +3,28 @@ import { getVaultBalance } from '../services/api/vault';
 import { stroopsToXlm } from '../constants/stellar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+type VaultBalance = Awaited<ReturnType<typeof getVaultBalance>>;
+
+/** Mount-time reads reuse a result younger than this; explicit refresh() always refetches. */
+const BALANCE_TTL_MS = 20_000;
+
+const balanceCache = new Map<string, { result: VaultBalance; at: number }>();
+const balanceInFlight = new Map<string, Promise<VaultBalance>>();
+
+/** One network read per account at a time, shared by every hook instance (Dashboard + SendMoney). */
+function fetchBalanceShared(key: string, params: Parameters<typeof getVaultBalance>[0]): Promise<VaultBalance> {
+  const pending = balanceInFlight.get(key);
+  if (pending) return pending;
+  const request = getVaultBalance(params)
+    .then((result) => {
+      balanceCache.set(key, { result, at: Date.now() });
+      return result;
+    })
+    .finally(() => balanceInFlight.delete(key));
+  balanceInFlight.set(key, request);
+  return request;
+}
+
 export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
   const [balancePhp, setBalancePhp] = useState<number | null>(null);
   const [balanceXlm, setBalanceXlm] = useState<number | null>(null);
@@ -12,12 +34,28 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
   const [error, setError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const applyResult = useCallback((result: VaultBalance) => {
+    setBalancePhp(result.balancePHP);
+    setBalanceXlm(stroopsToXlm(result.balanceStroops));
+    setResolvedShortId(result.shortId);
+    setOfflineBalancePhp(result.offlineBalancePHP ?? 0);
+  }, []);
+
+  const load = useCallback(async (force: boolean) => {
     if (!shortId && !stellarPublicKey) {
       setBalancePhp(null);
       setBalanceXlm(null);
       setResolvedShortId(null);
       setOfflineBalancePhp(null);
+      setError(null);
+      setIsOffline(false);
+      return;
+    }
+
+    const cacheKey = stellarPublicKey ?? shortId!;
+    const cached = balanceCache.get(cacheKey);
+    if (!force && cached && Date.now() - cached.at < BALANCE_TTL_MS) {
+      applyResult(cached.result);
       setError(null);
       setIsOffline(false);
       return;
@@ -30,13 +68,8 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
 
     try {
       const queryParams = stellarPublicKey ? { stellarPublicKey } : { shortId: shortId! };
-      const result = await getVaultBalance(queryParams);
-      const duration = Date.now() - startTime;
-
-      setBalancePhp(result.balancePHP);
-      setBalanceXlm(stroopsToXlm(result.balanceStroops));
-      setResolvedShortId(result.shortId);
-      setOfflineBalancePhp(result.offlineBalancePHP ?? 0);
+      const result = await fetchBalanceShared(cacheKey, queryParams);
+      applyResult(result);
     } catch (err) {
       const duration = Date.now() - startTime;
       const errorMessage = err instanceof Error ? err.message : 'Unable to load vault balance.';
@@ -67,11 +100,14 @@ export function useVaultBalance(shortId?: string, stellarPublicKey?: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [shortId, stellarPublicKey]);
+  }, [shortId, stellarPublicKey, applyResult]);
+
+  // Explicit refresh (pull-to-refresh, after a payment) always hits the network.
+  const refresh = useCallback(() => load(true), [load]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    load(false);
+  }, [load]);
 
   return { balancePhp, balanceXlm, resolvedShortId, offlineBalancePhp, isLoading, error, refresh, isOffline };
 }

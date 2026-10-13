@@ -149,23 +149,27 @@
 - [x] `ConnectionWatcher` effect split – also fixed a real bug: showing the banner re-ran the effect and its cleanup cancelled the 3s redirect and countdown, so the redirect never fired.
 - [x] `App.tsx`: `ensureMigration()` → `runMigrations()` → `syncService.start()` in order; splash held until DB ready; "Pijin couldn't start" screen with **Try again** on failure.
 
-### 3.2 Security (P0/P1)
-- [ ] `EXPO_PUBLIC_SMS_SIMULATE_SECRET` ships inside the app bundle (anything `EXPO_PUBLIC_*` is public). Remove from release builds / make it dev-only.
-- [ ] `TREASURY_PUBLIC_KEY` in the mobile `.env.example` (non-public prefix is ignored – clean up).
-- [ ] `.env` files: verify `.env` (backend & mobile) are git-ignored and **rotate any real secrets** if ever committed (RELAYER/REGISTRAR/DISTRIBUTOR/TextBee/Upstash keys).
-- [ ] PIN: stored via `saveUserPin` **and** `saveUserPinSecure` – remove the non-secure copy (AsyncStorage) after migration; add attempt lockout locally.
-- [ ] Mnemonic copy-to-clipboard: clear clipboard after ~60s; block screenshots (`FLAG_SECURE`) on seed screens.
-- [ ] Release build: ensure `__DEV__` secret logging is excluded (it is guarded, keep verified), strip `console.*` via babel plugin in production.
-- [ ] Certificate/URL allow-list for WebView (`Sep24WebviewScreen`): restrict `originWhitelist` and validate navigation to anchor domain only.
+### 3.2 Security (P0/P1) — 🟢 code-complete, pending APK build
 
-### 3.3 Performance (P1/P2)
-- [ ] Large screens (`DashboardScreen` 25 KB, `SendMoneyConfirmScreen` 42 KB, `LoadOffline/OnlineFundsScreen` ~34 KB, `OnboardingScreen` 46 KB): split into components/hooks; `React.memo`, `useCallback`, `FlatList` tuning for `TransactionList` (`getItemLayout`, `windowSize`, `keyExtractor`).
-- [ ] Debounce lookup (`SendMoneyScreen` calls `/api/users/lookup` per query; add 300–400ms debounce + cancel stale requests + cache results).
-- [ ] Cache balances with TTL; avoid refetch on every tab focus; pull-to-refresh as the explicit refresh.
-- [ ] Hermes enabled + `expo-image` caching for assets; compress onboarding PNGs (several large illustrations).
-- [ ] Heavy crypto (`deriveKeysFromMnemonic`) blocks JS thread – current 50ms yield is OK; consider showing progress UI.
-- [ ] Android: build with `preview`/release profile for the test (dev client is much slower).
-- [ ] Stale expo versions (Expo 52, RN 0.76) – OK for test, don't upgrade before the test.
+> **Status:** implemented on `rixdev` (uncommitted). Adds one native dep (`expo-screen-capture`) → needs a **new EAS build**, not an OTA/reload.
+- [x] `EXPO_PUBLIC_SMS_SIMULATE_SECRET` is now dev-only (`__DEV__ ? env : ''` in `constants/api.ts`); release bundles carry an empty string. `.env.example` marked dev-only. **Manual:** make sure it is unset in the EAS `preview`/`production` profiles (not present in `eas.json` today).
+- [x] `TREASURY_PUBLIC_KEY` removed from the mobile `.env.example` (backend-only; the backend returns the treasury address per withdrawal).
+- [x] `.env` files verified git-ignored (`.gitignore` L21/40/56) and **never present in git history** (`git log --all` for `.env` paths is empty; only `.env.example` files are tracked). No rotation needed on that basis. *(Values the team pasted elsewhere, e.g. chat, are out of scope.)*
+- [x] PIN: SecureStore is now the only local copy (`saveUserPin`/`getUserPin`; `*Secure` variants removed). Legacy AsyncStorage PINs are moved into SecureStore on first read and deleted. Local lockout added (5 wrong → 15 min, `getPinLockoutRemainingMs`/`recordPinFailure`/`resetPinAttempts`) on `SignInScreen` and `ChangePinScreen`.
+- [x] Mnemonic: copy goes through `utils/secureClipboard.ts` (clears after 60s, only if the clipboard still holds the phrase); `useSecureScreen` (`expo-screen-capture`, Android `FLAG_SECURE`) on onboarding steps 6–7 and `RestoreWalletScreen`.
+- [x] Release builds strip `console.log/info/debug/warn` via `babel-plugin-transform-remove-console` (production env only; `console.error` kept for `reportError`). Verified with a direct Babel transform. `__DEV__` secret logging unchanged.
+- [x] `Sep24WebviewScreen`: `onShouldStartLoadWithRequest` blocks any non-https / non-anchor-host navigation; bridge messages are accepted only from the anchor origin; `originWhitelist` uses the bare host. **Not done:** TLS certificate pinning (needs a native module; out of scope for testnet).
+
+### 3.3 Performance (P1/P2) — 🟡 partly done (static changes, **not yet measured on a device**)
+
+> Everything below is a static, code-level change. Per the measure-first rule, record baselines (§8.6) on a preview APK before/after; revert anything that doesn't beat noise.
+- [~] Large screens split: **not done** (high regression risk without a device/profiler; overlaps §8.2 R1/R7 and the onboarding state-machine pass). **Done:** `TransactionItem` is `React.memo`; `TransactionList` has stable `renderItem`/`keyExtractor` and no redundant `key`/`removeClippedSubviews`/`windowSize` (the list is a non-scrolling ≤5-row preview — `HomeTab` already slices to 5 — so virtualization tuning/`getItemLayout` would be no-ops).
+- [x] Lookup: it is triggered by the Search button / keyboard submit, **not per keystroke**, so a debounce would add nothing. Instead `services/api/userLookup.ts` gives one shared lookup with a 60s cache and in-flight de-dupe (search modal → Continue now costs one request, double-taps cost one), and `SendMoneyScreen` ignores stale responses. Side effect: a non-404 error on the Continue path now says "Failed to look up recipient" instead of "No account found".
+- [x] Balances: `useVaultBalance` shares one in-flight request per account across all hook instances and reuses a result < 20s old on mount (Dashboard → SendMoney no longer refetches). Explicit `refresh()` (pull-to-refresh, after deposit/send) always hits the network.
+- [x] Hermes verified on (`android/gradle.properties`); New Arch on. `expo-image` already used for illustrations. Compressed the three identical launcher/splash icons (1254px, 1654 KB each) to lossless 1024px (762 KB each): **−2.7 MB** of assets. Onboarding illustrations were already 8-bit palette PNGs (160–350 KB); a 256-colour test on the icon visibly banded, so I did not lossy-compress anything else.
+- [ ] Heavy crypto progress UI — belongs to the onboarding state-machine pass (§3.1).
+- [x] Android: `eas.json` `preview` profile is a release APK (no dev client) — use it for the test; nothing to change.
+- [x] Expo 52 / RN 0.76: left as is, per the plan.
 
 ### 3.4 UX for Test Day (P1)
 - [ ] In-app **status/maintenance banner** (driven by `/api/health` or a remote flag) – e.g. "On/Off ramp temporarily locked".
@@ -196,6 +200,15 @@
 - [ ] Runbook: how to flip kill switches, rotate TextBee device, top up relayer, reset a stuck user, re-queue failed settlements.
 - [ ] Backups: Neon branch/snapshot before test day.
 - [ ] Freeze: **code freeze** 24h before test; tag build; distribute one APK (EAS `preview`).
+
+---
+
+### 5.1 Pre-APK build checklist (EAS `preview`)
+
+1. [ ] **Deploy the backend first** (§1.1/§1.2 code). The new APK calls `/api/auth/pin/verify` and sends the OTP verification token; against the old backend, PIN sign-in on a new device fails and the plaintext-PIN leak stays open.
+2. [ ] **Commit all changes** (incl. new untracked files `useSecureScreen.ts`, `userLookup.ts`, `secureClipboard.ts`) so EAS builds exactly what was reviewed.
+3. [ ] **Check your env.** `EXPO_PUBLIC_SMS_SIMULATE_SECRET` must **not** be set in the EAS `preview` profile (it isn't in `eas.json` today; release builds ignore it anyway), and `REQUIRE_OTP_TOKEN` must stay `false` on the backend until the new APK is rolled out to all testers — only then flip it to `true`.
+4. [ ] Build: `eas build --platform android --profile preview` from `apps/mobile` (new native module `expo-screen-capture` → not OTA-able).
 
 ---
 

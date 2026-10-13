@@ -40,7 +40,11 @@ export function getAnchorDomain(): string {
   return apiBaseUrl.replace(/^https?:\/\//, '');
 }
 
-export const SMS_SIMULATE_SECRET =
-  process.env.EXPO_PUBLIC_SMS_SIMULATE_SECRET ?? 'dev-simulate';
+// Dev-only: EXPO_PUBLIC_* values are inlined into the shipped bundle, so release
+// builds must never carry this secret. The `__DEV__` ternary lets Metro's minifier
+// drop the env reference entirely when building for release.
+export const SMS_SIMULATE_SECRET: string = __DEV__
+  ? (process.env.EXPO_PUBLIC_SMS_SIMULATE_SECRET ?? 'dev-simulate')
+  : '';
 
 export const SMS_GATEWAY_NUMBER = process.env.EXPO_PUBLIC_SMS_GATEWAY_NUMBER ?? '';

@@ -16,11 +16,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import {
   getMainWalletSecret,
+  getPinLockoutRemainingMs,
   getUserPin,
-  getUserPinSecure,
   getUserPhone,
+  recordPinFailure,
+  resetPinAttempts,
   saveUserPin,
-  saveUserPinSecure,
   setOnboardingComplete,
 } from '../services/storage/onboardingStorage';
 import { checkUserExists, verifyPinWithServer } from '../services/api/accounts';
@@ -81,15 +82,21 @@ export function SignInScreen() {
   const validatePin = async (enteredPin: string) => {
     setIsValidating(true);
     try {
-      // ── Tier 1: AsyncStorage (fastest, cleared when app data is wiped)
-      let pinToCompare = await getUserPin();
-
-      // ── Tier 2: SecureStore (survives app data clears, same device)
-      if (!pinToCompare) {
-        pinToCompare = await getUserPinSecure();
+      const lockedMs = await getPinLockoutRemainingMs();
+      if (lockedMs > 0) {
+        triggerShake();
+        Alert.alert(
+          'Too Many Attempts',
+          `Too many incorrect PINs. Please try again in ${Math.ceil(lockedMs / 60000)} minute(s).`,
+        );
+        setIsValidating(false);
+        return;
       }
 
-      // ── Tier 3: Backend verification (requires network). The server never
+      // ── Tier 1: SecureStore (the only local PIN copy)
+      let pinToCompare = await getUserPin();
+
+      // ── Tier 2: Backend verification (requires network). The server never
       // returns the PIN; it only confirms a match and enforces lockout.
       // Read phone directly from storage in case the state hasn't populated yet.
       if (!pinToCompare) {
@@ -102,9 +109,8 @@ export function SignInScreen() {
         }
         try {
           await verifyPinWithServer(phoneForQuery, enteredPin);
-          // Restore both local stores so future logins are offline-capable.
+          // Restore the local copy so future logins are offline-capable.
           await saveUserPin(enteredPin);
-          await saveUserPinSecure(enteredPin);
           pinToCompare = enteredPin;
         } catch (err) {
           triggerShake();
@@ -134,9 +140,17 @@ export function SignInScreen() {
 
       if (enteredPin !== pinToCompare) {
         triggerShake();
+        const lockoutMs = await recordPinFailure();
+        if (lockoutMs > 0) {
+          Alert.alert(
+            'Too Many Attempts',
+            `Too many incorrect PINs. Please try again in ${Math.ceil(lockoutMs / 60000)} minutes.`,
+          );
+        }
         setIsValidating(false);
         return;
       }
+      await resetPinAttempts();
 
       // PIN is correct. Load the persisted main wallet for SEP-10 auth.
       const mainWalletSecret = await getMainWalletSecret();

@@ -18,6 +18,7 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import { AppButton } from '../components/ui/AppButton';
+import { useSecureScreen } from '../hooks/useSecureScreen';
 import { deriveKeysFromMnemonic } from '../services/wallet/mnemonic';
 import { checkUserExists } from '../services/api/accounts';
 import { getSep10Token } from '../services/stellar/anchorService';
@@ -35,6 +36,7 @@ import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegist
 import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
 
 export function RestoreWalletScreen() {
+  useSecureScreen();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();

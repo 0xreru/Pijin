@@ -9,7 +9,13 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getUserPin, saveUserPin, saveUserPinSecure } from '../services/storage/onboardingStorage';
+import {
+  getPinLockoutRemainingMs,
+  getUserPin,
+  recordPinFailure,
+  resetPinAttempts,
+  saveUserPin,
+} from '../services/storage/onboardingStorage';
 
 const KEYPAD = [
   ['1', '2', '3'],
@@ -43,12 +49,25 @@ export function ChangePinScreen({ navigation }: any) {
 
   const processPin = async (enteredPin: string) => {
     if (step === 'verify') {
+      const lockedMs = await getPinLockoutRemainingMs();
+      if (lockedMs > 0) {
+        Alert.alert('Too Many Attempts', `Please try again in ${Math.ceil(lockedMs / 60000)} minute(s).`);
+        setPin('');
+        return;
+      }
       const currentPin = await getUserPin();
       if (enteredPin === currentPin) {
+        await resetPinAttempts();
         setStep('new');
         setPin('');
       } else {
-        Alert.alert('Error', 'Incorrect current PIN.');
+        const lockoutMs = await recordPinFailure();
+        Alert.alert(
+          lockoutMs > 0 ? 'Too Many Attempts' : 'Error',
+          lockoutMs > 0
+            ? `Too many incorrect PINs. Please try again in ${Math.ceil(lockoutMs / 60000)} minutes.`
+            : 'Incorrect current PIN.',
+        );
         setPin('');
       }
     } else if (step === 'new') {
@@ -58,7 +77,6 @@ export function ChangePinScreen({ navigation }: any) {
     } else if (step === 'confirm') {
       if (enteredPin === newPin) {
         await saveUserPin(enteredPin);
-        await saveUserPinSecure(enteredPin);
         Alert.alert('Success', 'PIN successfully changed.', [
           { text: 'OK', onPress: () => navigation.goBack() }
         ]);

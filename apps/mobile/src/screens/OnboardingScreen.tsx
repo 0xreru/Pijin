@@ -27,7 +27,6 @@ import { AppPinInput } from '../components/ui/AppPinInput';
 import {
   setOnboardingComplete,
   saveUserPin,
-  saveUserPinSecure,
   saveUserPhone,
   saveUserFirstName,
   saveUserLastName,
@@ -47,7 +46,8 @@ import { StatusBar } from 'expo-status-bar';
 import { generateWalletMnemonic, deriveKeysFromMnemonic } from '../services/wallet/mnemonic';
 import * as SecureStore from 'expo-secure-store';
 import { ensureMigration } from '../services/storage/migration';
-import * as Clipboard from 'expo-clipboard';
+import { copySecretToClipboard } from '../utils/secureClipboard';
+import { useSecureScreen } from '../hooks/useSecureScreen';
 import {
   CountryCodePicker,
   CountryEntry,
@@ -99,6 +99,8 @@ export function OnboardingScreen() {
   
   const { login } = useAuth();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
+  // Steps 6-7 show / quiz the seed phrase.
+  useSecureScreen(step === 6 || step === 7);
   const [maxAllowedStep, setMaxAllowedStep] = useState<number>(1);
   const [userFlowType, setUserFlowType] = useState<UserFlowType>(null);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
@@ -375,8 +377,8 @@ export function OnboardingScreen() {
   };
 
   const handleCopyPhrase = async () => {
-    await Clipboard.setStringAsync(mnemonic);
-    Alert.alert('Copied', 'Seed phrase copied to clipboard!');
+    await copySecretToClipboard(mnemonic);
+    Alert.alert('Copied', 'Seed phrase copied. It will be cleared from the clipboard in 60 seconds.');
   };
 
   const handleVerifyConfirm = async () => {
@@ -391,7 +393,6 @@ export function OnboardingScreen() {
     }
     try {
       await saveUserPin(pin);
-      await saveUserPinSecure(pin);
       navigateToStep(8);
     } catch (e) {
       console.error(e);
