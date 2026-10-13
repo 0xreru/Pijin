@@ -17,6 +17,7 @@ interface DepositFormProps {
   transactionId: string;
   assetCode: string;
   stellarAccount: string;
+  token?: string;
 }
 
 type ScreenState = 'idle' | 'submitting' | 'success' | 'error';
@@ -473,7 +474,7 @@ function SuccessScreen({ assetCode, amount, txHash }: { assetCode: string; amoun
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export default function DepositForm({ transactionId, assetCode, stellarAccount }: DepositFormProps) {
+export default function DepositForm({ transactionId, assetCode, stellarAccount, token }: DepositFormProps) {
   const meta = getAssetMeta(assetCode);
 
   const [amount, setAmount] = useState('');
@@ -501,8 +502,15 @@ export default function DepositForm({ transactionId, assetCode, stellarAccount }
       try {
         const response = await fetch('/api/anchor/simulate-payment', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transaction_id: transactionId, amount: parsedAmount.toString() }),
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            transaction_id: transactionId,
+            amount: parsedAmount.toString(),
+            token,
+          }),
         });
 
         const data = (await response.json()) as {

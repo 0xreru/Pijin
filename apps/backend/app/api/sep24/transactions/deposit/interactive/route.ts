@@ -133,6 +133,7 @@ import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { AnchorTxType } from '@prisma/client';
+import { enforceRampKillSwitch } from '@/lib/ramp-config';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -228,6 +229,11 @@ async function parseRequestBody(request: Request): Promise<DepositRequestBody> {
 // ── POST Handler ──────────────────────────────────────────────────────────────
 
 export async function POST(request: Request): Promise<Response> {
+  const killSwitchResponse = enforceRampKillSwitch('deposit');
+  if (killSwitchResponse) {
+    return killSwitchResponse;
+  }
+
   try {
     // ── 1. Authenticate: verify the SEP-10 session JWT ──────────────────────
     const sep10Secret = requireEnv('SECRET_SEP10_JWT_SECRET');

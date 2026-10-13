@@ -56,6 +56,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSmsGateways } from '@/lib/sms';
 import { getTextbeeStatus } from '@/lib/sms-health';
+import { prisma } from '@/lib/prisma';
+import { getRedis } from '@/lib/rate-limit';
+import { isRampEnabled, isDepositEnabled, isWithdrawEnabled } from '@/lib/ramp-config';
 
 export const dynamic = "force-dynamic";
 
@@ -64,12 +67,64 @@ export async function GET(req: NextRequest) {
         const deep = new URL(req.url).searchParams.get('deep') === '1';
         const smsConfigured = getSmsGateways().length > 0;
 
+        // Health probes for dependencies
+        let dbOk = false;
+        let redisOk = false;
+        let rpcOk = false;
+
+        try {
+            await prisma.$queryRaw`SELECT 1`;
+            dbOk = true;
+        } catch (dbErr) {
+            console.error('[Health API] DB ping failed:', dbErr);
+        }
+
+        try {
+            const redis = getRedis();
+            const pong = await redis.ping();
+            redisOk = pong === 'PONG' || Boolean(pong);
+        } catch (redisErr) {
+            console.error('[Health API] Redis ping failed:', redisErr);
+        }
+
+        const rpcUrl = process.env.SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org';
+        try {
+            const rpcRes = await fetch(rpcUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'getHealth',
+                }),
+                signal: AbortSignal.timeout(3000),
+            });
+            const rpcData = await rpcRes.json();
+            rpcOk = rpcData?.result?.status === 'healthy' || rpcRes.ok;
+        } catch {
+            // RPC ping failure
+        }
+
+        let overallStatus = 'healthy';
+        if (!dbOk || !redisOk) {
+            overallStatus = 'degraded';
+        }
+
         const body: Record<string, unknown> = {
-            status: 'healthy',
+            status: overallStatus,
             uptime: process.uptime(),
             timestamp: new Date().toISOString(),
+            checks: {
+                database: dbOk ? 'ok' : 'error',
+                redis: redisOk ? 'ok' : 'error',
+                sorobanRpc: rpcOk ? 'ok' : 'error',
+            },
             features: {
                 smsOtp: smsConfigured || process.env.OTP_TEST_MODE === 'true',
+                ramp: isRampEnabled(),
+                deposit: isDepositEnabled(),
+                withdraw: isWithdrawEnabled(),
+                demo: process.env.DEMO_ENABLED === 'true',
             },
         };
 

@@ -56,6 +56,7 @@ model Account {
   demoSenderPair   DemoAccountPair? @relation("DemoSenderAccount")
   demoReceiverPair DemoAccountPair? @relation("DemoReceiverAccount")
 
+  @@index([phoneNumber])
   @@map("account")
 }
 
@@ -130,6 +131,8 @@ model Settlement {
 
   token Token @relation(fields: [tokenId], references: [id])
 
+  @@index([senderShortId, createdAt])
+  @@index([receiverShortId, createdAt])
   @@map("settlement")
 }
 
@@ -164,6 +167,7 @@ model AnchorTransaction {
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
+  @@index([stellarAccount, createdAt])
   @@map("anchor_transaction")
 }
 

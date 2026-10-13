@@ -235,6 +235,7 @@ export default async function DepositPage({ searchParams }: DepositPageProps) {
         transactionId={anchorTx.id}
         assetCode={anchorTx.assetCode}
         stellarAccount={anchorTx.stellarAccount}
+        token={token}
       />
     </Suspense>
   );

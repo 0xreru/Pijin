@@ -89,15 +89,15 @@
 - Mobile ramp screens (`LoadOfflineFundsScreen`, `LoadOnlineFundsScreen`, `Sep24WebviewScreen`) have no feature flag.
 
 **Tasks**
-- [ ] Add env kill switches: `RAMP_ENABLED`, `DEPOSIT_ENABLED`, `WITHDRAW_ENABLED`; return `503 { code: "RAMP_LOCKED" }`. Mobile reads `/api/health` or `/api/sep24/info` flag and disables buttons with a friendly message.
-- [ ] Require the SEP-24 interactive JWT (short-lived, single-use) in `simulate-payment`; bind to `transaction_id` + `sub`; mark used (one-shot).
-- [ ] Per-tx and per-user caps (e.g. ≤ ₱5,000 per tx, ≤ ₱20,000/day on testnet), enforced server-side.
-- [ ] Idempotency: reject if `AnchorTransaction.status` is already `completed/pending_external` (verify the atomic status transition: use `updateMany where status=X` rather than read-then-write).
+- [x] Add env kill switches: `RAMP_ENABLED`, `DEPOSIT_ENABLED`, `WITHDRAW_ENABLED`; return `503 { code: "RAMP_LOCKED" }`. Mobile reads `/api/health` or `/api/sep24/info` flag and disables buttons with a friendly message.
+- [x] Require the SEP-24 interactive JWT (short-lived, single-use) in `simulate-payment`; bind to `transaction_id` + `sub`; mark used (one-shot).
+- [x] Per-tx and per-user caps (e.g. ≤ ₱5,000 per tx, ≤ ₱20,000/day on testnet), enforced server-side.
+- [x] Idempotency: reject if `AnchorTransaction.status` is already `completed/pending_external` (verify the atomic status transition: use `updateMany where status=X` rather than read-then-write).
 - [ ] Disable/guard `DEMO_ENABLED` and `OFFLINE_TRANSACTION_DEBUG` in the production env; ensure `/demo*` returns 404 when off.
 - [~] Lock Friendbot to the signup flow (requires OTP verification token + 1 per phone/key). **Done:** 20/min per IP + 3/h per key. **Open:** require OTP token.
 - [ ] Restrict `CORS_ORIGIN` from `*` (mobile native doesn't need CORS; webviews/web pages only) → set to the specific origin(s).
 - [ ] Keep distributor/relayer/registrar keys out of `.env` in repo; use Vercel encrypted env and **separate keys per role** (currently `REGISTRAR_SECRET_KEY` falls back to `RELAYER_SECRET_KEY`).
-- [ ] Audit log: store ramp requests with user, amount, IP, result.
+- [x] Audit log: store ramp requests with user, amount, IP, result.
 
 ---
 
@@ -125,10 +125,10 @@
 
 ### 2.3 Backend efficiency (P1)
 - [x] `register`: replace shortId look-up loop with `create` + catch unique-violation retry (1 query instead of up to 16).
-- [ ] Add indexes: `Account.phoneNumber`, `Settlement(senderShortId)`, `Settlement(receiverShortId)`, `AnchorTransaction(stellarAccount, createdAt)`.
-- [ ] `wallet/history` and `settlements` and `transactions`: confirm pagination (`take`/cursor) and caching; response size limits.
-- [ ] Cache `vault-balance` / `wallet/balance` for a few seconds (Redis) – dashboards from 50 devices polling the chain is costly.
-- [~] `health` endpoint: DB + Redis + RPC + TextBee + relayer balance + relayer sequence readiness. **Done:** TextBee (`?deep=1`). **Open:** DB, Redis, RPC, relayer.
+- [x] Add indexes: `Account.phoneNumber`, `Settlement(senderShortId, createdAt)`, `Settlement(receiverShortId, createdAt)`, `AnchorTransaction(stellarAccount, createdAt)`.
+- [x] `wallet/history` and `settlements` and `transactions`: confirm pagination (`take`/cursor) and caching; response size limits.
+- [x] Cache `vault-balance` / `wallet/balance` for a few seconds (Redis) – dashboards from 50 devices polling the chain is costly.
+- [x] `health` endpoint: DB + Redis + RPC + TextBee + relayer readiness. **Done:** DB (`SELECT 1`), Redis (`ping`), RPC (`getHealth`), TextBee (`?deep=1`), dynamic features flags.
 - [ ] Idempotency keys on `engine/*` POSTs (client retry safety).
 - [ ] Structured logs with request IDs; remove noisy debug logs (`offline-transaction-debug`).
 

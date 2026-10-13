@@ -4,6 +4,11 @@ import jwt, { type JwtPayload } from 'jsonwebtoken';
 import { type NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/prisma';
+import {
+  enforceRampKillSwitch,
+  validateRampLimits,
+  logRampAudit,
+} from '@/lib/ramp-config';
 
 interface SubmitWithdrawalBody {
   transaction_id?: unknown;
@@ -45,6 +50,13 @@ function verifyInteractiveToken(request: NextRequest): InteractiveJwtPayload {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const ip = request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? '127.0.0.1';
+
+  const killSwitchResponse = enforceRampKillSwitch('withdraw');
+  if (killSwitchResponse) {
+    return killSwitchResponse;
+  }
+
   let tokenPayload: InteractiveJwtPayload;
   try {
     tokenPayload = verifyInteractiveToken(request);
@@ -96,6 +108,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Check transaction existence and assetCode for limit validation
+  const existingTx = await prisma.anchorTransaction.findUnique({
+    where: { id: transactionId },
+    select: { assetCode: true, stellarAccount: true },
+  });
+
+  if (!existingTx || existingTx.stellarAccount !== tokenPayload.sub) {
+    return NextResponse.json(
+      { success: false, error: 'Withdrawal transaction not found or account mismatch.' },
+      { status: 404 },
+    );
+  }
+
+  const limitCheck = await validateRampLimits(existingTx.stellarAccount, existingTx.assetCode, Number(amount));
+  if (!limitCheck.allowed) {
+    logRampAudit({
+      action: 'withdraw',
+      transactionId,
+      user: existingTx.stellarAccount,
+      amount,
+      asset: existingTx.assetCode,
+      ip,
+      status: 'REJECTED',
+      reason: limitCheck.error,
+    });
+    return NextResponse.json(
+      { success: false, error: limitCheck.error ?? 'Withdrawal limit exceeded.' },
+      { status: 400 },
+    );
+  }
+
   // A 28-byte text memo keeps the user transfer attributable to this withdrawal.
   const memo = transactionId.replace(/-/g, '').substring(0, 28);
 
@@ -124,6 +167,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 409 },
       );
     }
+
+    logRampAudit({
+      action: 'withdraw',
+      transactionId,
+      user: tokenPayload.sub,
+      amount,
+      asset: existingTx.assetCode,
+      ip,
+      status: 'INITIATED',
+    });
 
     // gcashNumber is deliberately not logged. Add an encrypted payout-details
     // model before persisting sensitive customer payout information.

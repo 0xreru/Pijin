@@ -89,6 +89,7 @@ export const runtime = 'nodejs';
 
 // ── Imports ───────────────────────────────────────────────────────────────────
 import { NextResponse } from 'next/server';
+import { isDepositEnabled, isWithdrawEnabled, RAMP_CAPS } from '@/lib/ramp-config';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -128,37 +129,35 @@ interface Sep24InfoResponse {
  * No authentication is required — this is a public endpoint.
  */
 export async function GET(): Promise<Response> {
+  const depositActive = isDepositEnabled();
+  const withdrawActive = isWithdrawEnabled();
+
   const infoResponse: Sep24InfoResponse = {
     // ── Deposit capabilities ──────────────────────────────────────────────
-    // Each key is an ISO 4217 or Stellar asset code the anchor accepts as a
-    // deposit request.  Wallets display this list to the end user.
     deposit: {
       PHPC: {
-        enabled: true,
-        // min_amount: 10,     // Uncomment and configure per business rules
-        // max_amount: 50000,
+        enabled: depositActive,
+        max_amount: RAMP_CAPS.PHPC?.maxPerTx,
       },
       USDC: {
-        enabled: true,
+        enabled: depositActive,
+        max_amount: RAMP_CAPS.USDC?.maxPerTx,
       },
     },
 
     // ── Withdrawal capabilities ───────────────────────────────────────────
-    // Mirror of deposit — assets for which the anchor can execute withdrawals
-    // (on-chain → fiat / off-chain).
     withdraw: {
       PHPC: {
-        enabled: true,
+        enabled: withdrawActive,
+        max_amount: RAMP_CAPS.PHPC?.maxPerTx,
       },
       USDC: {
-        enabled: true,
+        enabled: withdrawActive,
+        max_amount: RAMP_CAPS.USDC?.maxPerTx,
       },
     },
 
     // ── Fee disclosure ────────────────────────────────────────────────────
-    // Set `enabled: true` and implement GET /api/sep24/fee when the anchor
-    // is ready to expose fee estimates programmatically.  Until then, fees
-    // are disclosed inside the interactive webview UI.
     fee: {
       enabled: false,
     },
