@@ -27,6 +27,7 @@ import { OfflinePaymentPayload } from '../types/payment';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { confirmOnlineTransfer } from '../services/api/transactions';
 import { getApiBaseUrl } from '../constants/api';
+import { apiFetch, fetchWithTimeout } from '../services/api/client';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 56;
@@ -49,7 +50,7 @@ async function resolveRecipientPublicKey(shortId: string): Promise<string> {
     throw new Error('Recipient Short ID is missing.');
   }
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_URL}/api/users/lookup?shortId=${encodeURIComponent(normalizedShortId)}`,
   );
   const data = await response.json().catch(() => ({}));
@@ -96,7 +97,7 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
   }
 
   const amountStroops = amountToStroops(input.amount).toString();
-  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/^['"]|['"]$/g, '');
+  const apiBase = getApiBaseUrl();
   const tokenAddress = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
   const rpcUrl = process.env.EXPO_PUBLIC_SOROBAN_RPC_URL?.trim().replace(/^['"]|['"]$/g, '');
   const networkPassphrase = process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE?.trim().replace(/^['"]|['"]$/g, '');
@@ -105,7 +106,9 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
   const sigBuffer = mainWalletKeypair.sign(Buffer.from(canonicalMessage));
   const sigBase64 = Buffer.from(sigBuffer).toString('base64');
 
-  const assembleResponse = await fetch(`${apiBase}/api/engine/transfer`, {
+  const assembleResponse = await apiFetch(`${apiBase}/api/engine/transfer`, {
+      auth: false,
+      timeoutMs: 25_000,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -147,7 +150,7 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
   }
   const signedXdrBase64 = Buffer.from(bytes).toString('base64');
 
-  const sendResp = await fetch(rpcUrl, {
+  const sendResp = await fetchWithTimeout(rpcUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -176,7 +179,7 @@ async function executeTransfer(input: { senderPublicKey: string; recipientPublic
     let confirmed = false;
     for (let attempt = 0; attempt < 15; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      const pollResp = await fetch(rpcUrl, {
+      const pollResp = await fetchWithTimeout(rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -5,6 +5,7 @@ import {
   getOrGenerateDeviceKeypair,
   markDeviceKeyEnrolled,
 } from './deviceKeyStore';
+import { apiFetch, fetchWithTimeout } from '../api/client';
 
 type PrepareResponse =
   | { status: 'synced' }
@@ -21,7 +22,8 @@ async function keyRequest<T>(
   jwt: string,
   offlineDeviceKey: string,
 ): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}/api/engine/offline-key`, {
+  const response = await apiFetch(`${getApiBaseUrl()}/api/engine/offline-key`, {
+    timeoutMs: 25_000,
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -42,7 +44,7 @@ async function submitAndConfirm(xdrEnvelope: string, mainWallet: Keypair): Promi
   const transaction = TransactionBuilder.fromXDR(xdrEnvelope, networkPassphrase);
   transaction.sign(mainWallet);
 
-  const submitted = await fetch(rpcUrl, {
+  const submitted = await fetchWithTimeout(rpcUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -65,7 +67,7 @@ async function submitAndConfirm(xdrEnvelope: string, mainWallet: Keypair): Promi
 
   for (let attempt = 0; attempt < 20; attempt++) {
     await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-    const polled = await fetch(rpcUrl, {
+    const polled = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

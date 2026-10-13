@@ -1,9 +1,13 @@
 import { StrKey } from "@stellar/stellar-sdk";
 import { NextRequest, NextResponse } from "next/server";
+import { createLimiter, enforceLimit, getClientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 const FRIENDBOT_URL = "https://friendbot.stellar.org";
+
+const ipLimit = createLimiter("pijin:api:friendbot:ip", 20, "1 m");
+const keyLimit = createLimiter("pijin:api:friendbot:key", 3, "1 h");
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,6 +21,11 @@ export async function POST(req: NextRequest) {
     if (!StrKey.isValidEd25519PublicKey(publicKey)) {
       return NextResponse.json({ error: "Invalid Stellar public key." }, { status: 400 });
     }
+
+    const limited =
+      (await enforceLimit(ipLimit, getClientIp(req))) ??
+      (await enforceLimit(keyLimit, publicKey));
+    if (limited) return limited;
 
     const response = await fetch(`${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`, {
       method: "GET",

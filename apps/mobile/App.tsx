@@ -14,6 +14,13 @@ import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScre
 import { Sep24WebviewScreen } from './src/screens/Sep24WebviewScreen';
 import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 import { ensureMigration } from './src/services/storage/migration';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { AppButton } from './src/components/ui/AppButton';
+import { installGlobalErrorHandler, reportError } from './src/services/errorReporting';
+
+installGlobalErrorHandler();
+
+type DbStatus = 'pending' | 'ready' | 'error';
 
 type RootStackParamList = {
   Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 } | undefined;
@@ -84,10 +91,14 @@ function AppContent({
   fontsLoaded,
   fontError,
   fontLoadTimedOut,
+  dbStatus,
+  onRetryDb,
 }: {
   fontsLoaded: boolean;
   fontError: any;
   fontLoadTimedOut: boolean;
+  dbStatus: DbStatus;
+  onRetryDb: () => void;
 }) {
   const { isAppReady } = useAuth();
   const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList | null>(null);
@@ -108,7 +119,17 @@ function AppContent({
     }
   }, [isAppReady]);
 
-  if (!isAppReady || (!fontsLoaded && !fontError && !fontLoadTimedOut) || !initialRoute) {
+  if (dbStatus === 'error') {
+    return (
+      <View style={styles.splashContainer} accessibilityRole="alert">
+        <Text style={styles.errorTitle}>Pijin couldn't start</Text>
+        <Text style={styles.splashText}>Local storage failed to open. Your wallet is safe — please try again.</Text>
+        <AppButton title="Try again" onPress={onRetryDb} style={styles.retryButton} />
+      </View>
+    );
+  }
+
+  if (dbStatus !== 'ready' || !isAppReady || (!fontsLoaded && !fontError && !fontLoadTimedOut) || !initialRoute) {
     return (
       <View style={styles.splashContainer}>
         <ActivityIndicator size="large" color="#111111" />
@@ -129,32 +150,34 @@ export default function App() {
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   const [fontLoadTimedOut, setFontLoadTimedOut] = useState(false);
   const isMountedRef = useRef(true);
+  const [dbStatus, setDbStatus] = useState<DbStatus>('pending');
+  const [dbAttempt, setDbAttempt] = useState(0);
 
-  // Initialize the SQLite database and start the RxJS sync service.
-  // runMigrations() is idempotent — safe to run on every app launch.
+  // Initialize storage, then the SQLite database, then the RxJS sync service —
+  // in that order. Both migrations are idempotent, so retrying is safe.
   useEffect(() => {
     isMountedRef.current = true;
-    
-    // Ensure all storage migrations run first
-    ensureMigration().catch(err => {
-      console.error('[App] Storage migration failed:', err);
-    });
+    setDbStatus('pending');
 
-    runMigrations()
-      .then(() => {
-        if (isMountedRef.current) {
-          syncService.start();
-        }
-      })
-      .catch(err => {
-        console.error('[App] DB initialization failed:', err);
-      });
+    const init = async () => {
+      try {
+        await ensureMigration();
+        await runMigrations();
+        if (!isMountedRef.current) return;
+        setDbStatus('ready');
+        syncService.start();
+      } catch (err) {
+        reportError(err, { source: 'App.init', attempt: dbAttempt });
+        if (isMountedRef.current) setDbStatus('error');
+      }
+    };
+    init();
 
     return () => {
       isMountedRef.current = false;
       syncService.stop();
     };
-  }, []);
+  }, [dbAttempt]);
 
   useEffect(() => {
     if (fontError) {
@@ -177,13 +200,17 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <AppContent
-          fontsLoaded={fontsLoaded}
-          fontError={fontError}
-          fontLoadTimedOut={fontLoadTimedOut}
-        />
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <AppContent
+            fontsLoaded={fontsLoaded}
+            fontError={fontError}
+            fontLoadTimedOut={fontLoadTimedOut}
+            dbStatus={dbStatus}
+            onRetryDb={() => setDbAttempt((n) => n + 1)}
+          />
+        </AuthProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
@@ -199,5 +226,16 @@ const styles = StyleSheet.create({
   splashText: {
     color: '#4B5563',
     fontSize: 14,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  errorTitle: {
+    color: '#111111',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  retryButton: {
+    marginTop: 8,
+    minWidth: 160,
   },
 });

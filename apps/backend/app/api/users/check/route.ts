@@ -57,6 +57,8 @@
  *               examples:
  *                 missing: { value: { error: "Missing required parameter: phone" } }
  *                 invalid: { value: { error: "Invalid phone number format" } }
+ *       '429':
+ *         description: Rate limit exceeded (60 / min per IP).
  *       '500':
  *         description: Internal server error.
  *         content:
@@ -69,11 +71,17 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { createLimiter, enforceLimit, getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
+const checkLimit = createLimiter("pijin:api:users:check", 60, "1 m");
+
 export async function GET(req: NextRequest) {
   try {
+    const limited = await enforceLimit(checkLimit, getClientIp(req));
+    if (limited) return limited;
+
     const { searchParams } = new URL(req.url);
     const phone = searchParams.get("phone");
 
@@ -88,10 +96,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid phone number format" }, { status: 400 });
     }
 
+    // Never select the PIN here; PIN checks go through POST /api/auth/pin/verify.
     const account = await prisma.account.findFirst({
       where: {
         phoneNumber: cleanPhone,
       },
+      select: { stellarPublicKey: true, shortId: true },
     });
 
     if (account) {
@@ -99,7 +109,6 @@ export async function GET(req: NextRequest) {
         exists: true,
         stellarPublicKey: account.stellarPublicKey,
         shortId: account.shortId,
-        pin: account.pin,
       }, { status: 200 });
     }
 

@@ -92,7 +92,7 @@ import {
     maskPhoneNumber,
 } from '@/lib/sms-security';
 import { contractConfig, pijinContract, sorobanRpcServer } from '@/lib/pijin-contract';
-import { sendSmsNotification, sendSms } from '@/lib/sms';
+import { enqueueSms } from '@/lib/sms-queue';
 import { Horizon, rpc } from '@stellar/stellar-sdk';
 import { executeTwoPhaseSettlement } from '@/lib/stellar-transaction-manager';
 import {
@@ -243,10 +243,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             reason,
         });
         if (senderPhone) {
-            await sendSms(
-                senderPhone,
-                `Pijin: Transaction failed. Malformed payment payload.`
-            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+            await enqueueSms(senderPhone, `Pijin: Transaction failed. Malformed payment payload.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
         }
         return NextResponse.json({ success: false, status: 'FAILED', error: reason, traceId }, { status: 200 });
     }
@@ -440,10 +437,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
         if (senderPhone) {
-            await sendSms(
-                senderPhone,
-                `Pijin: Transaction failed. Unsupported token.`
-            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+            await enqueueSms(senderPhone, `Pijin: Transaction failed. Unsupported token.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
         }
         return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
@@ -457,10 +451,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         });
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
         if (senderPhone) {
-            await sendSms(
-                senderPhone,
-                `Pijin: Transaction failed. Token is inactive.`
-            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+            await enqueueSms(senderPhone, `Pijin: Transaction failed. Token is inactive.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
         }
         return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
     }
@@ -477,10 +468,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
 
         if (senderPhone) {
-            await sendSms(
-                senderPhone,
-                `Pijin: Transaction failed. Recipient ID ${receiverShortId} was not found.`
-            ).catch((err) => console.error('[Settle] Failed to send recipient not found SMS:', err));
+            await enqueueSms(senderPhone, `Pijin: Transaction failed. Recipient ID ${receiverShortId} was not found.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send recipient not found SMS:', err));
         }
 
         return NextResponse.json(
@@ -500,10 +488,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
 
         if (senderPhone) {
             console.log(`[Settle] Attempting to send unregistered sender SMS to: ${maskPhoneNumber(senderPhone)}`);
-            await sendSms(
-                senderPhone,
-                `Pijin: Transaction failed. Sender account ${senderShortId} is not registered.`
-            ).catch(console.error);
+            await enqueueSms(senderPhone, `Pijin: Transaction failed. Sender account ${senderShortId} is not registered.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch(console.error);
         } else {
             console.warn('[Settle] Skipped sending unregistered sender SMS: senderPhone is empty');
         }
@@ -554,10 +539,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             });
 
             if (senderPhone) {
-                await sendSms(
-                    senderPhone,
-                    `Pijin: Transaction failed. Recipient short ID ${receiverShortId} is not registered on-chain.`
-                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+                await enqueueSms(senderPhone, `Pijin: Transaction failed. Recipient short ID ${receiverShortId} is not registered on-chain.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
             }
 
             return NextResponse.json(
@@ -583,10 +565,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             });
             logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
             if (senderPhone) {
-                await sendSms(
-                    senderPhone,
-                    `Pijin: Transaction failed. Offline device key is not enrolled.`
-                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+                await enqueueSms(senderPhone, `Pijin: Transaction failed. Offline device key is not enrolled.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
             }
             return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
@@ -709,10 +688,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             logOfflineTransactionDebug(traceId, 'db:failed', { settlementId, status: 'FAILED', failReason });
 
             if (senderPhone) {
-                await sendSms(
-                    senderPhone,
-                    `Pijin: Transaction failed. Invalid voucher signature.`
-                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+                await enqueueSms(senderPhone, `Pijin: Transaction failed. Invalid voucher signature.`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
             }
 
             return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
@@ -797,29 +773,23 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         const tokenSymbol = token.symbol;
         const shortRef = txHash ? txHash.substring(0, 8) : settlementId.toString();
 
-        const smsPromises: Promise<void>[] = [];
+        const smsPromises: Promise<unknown>[] = [];
 
         const senderRegisteredNumber = senderAccount.phoneNumber;
         if (senderRegisteredNumber) {
             smsPromises.push(
-                sendSmsNotification(
-                    senderRegisteredNumber,
-                    `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
-                )
+                enqueueSms(senderRegisteredNumber, `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`, { req, traceId, dedupKey: `settle-ok-${settlementId}-sender` })
             );
         }
 
         const receiverRegisteredNumber = receiverAccount.phoneNumber;
         if (receiverRegisteredNumber) {
             smsPromises.push(
-                sendSmsNotification(
-                    receiverRegisteredNumber,
-                    `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
-                )
+                enqueueSms(receiverRegisteredNumber, `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`, { req, traceId, dedupKey: `settle-ok-${settlementId}-receiver` })
             );
         }
 
-        // Wait for both SMS requests to hit the network, but ignore any 502 Textbee errors
+        // Queue both receipts (throttled delivery via /api/sms/dispatch); never fails the settlement
         if (smsPromises.length > 0) {
             await Promise.allSettled(smsPromises);
         }
@@ -854,21 +824,15 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
                     const tokenSymbol = token.symbol;
                     const shortRef = reconciliation.txHash ? reconciliation.txHash.substring(0, 8) : settlementId.toString();
 
-                    const smsPromises: Promise<void>[] = [];
+                    const smsPromises: Promise<unknown>[] = [];
                     if (senderAccount.phoneNumber) {
                         smsPromises.push(
-                            sendSmsNotification(
-                                senderAccount.phoneNumber,
-                                `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
-                            ),
+                            enqueueSms(senderAccount.phoneNumber, `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`, { req, traceId, dedupKey: `settle-ok-${settlementId}-sender` }),
                         );
                     }
                     if (receiverAccount.phoneNumber) {
                         smsPromises.push(
-                            sendSmsNotification(
-                                receiverAccount.phoneNumber,
-                                `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
-                            ),
+                            enqueueSms(receiverAccount.phoneNumber, `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`, { req, traceId, dedupKey: `settle-ok-${settlementId}-receiver` }),
                         );
                     }
                     if (smsPromises.length > 0) {
@@ -914,10 +878,7 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
 
         // Notify sender of permanent business-logic failure (e.g. insufficient balance).
         if (senderPhone) {
-            await sendSms(
-                senderPhone,
-                `Pijin: Transaction failed. ${normalizedFailureMessage || 'Please check your balance or voucher.'}`
-            ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
+            await enqueueSms(senderPhone, `Pijin: Transaction failed. ${normalizedFailureMessage || 'Please check your balance or voucher.'}`, { req, traceId, dedupKey: `settle-fail-${traceId}` }).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
         }
 
         return NextResponse.json(

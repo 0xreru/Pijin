@@ -27,6 +27,7 @@ import { db } from '../db/client';
 import { paymentQueue as paymentQueueTable } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { getApiBaseUrl } from '../constants/api';
+import { apiFetch } from '../services/api/client';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CACHED_BALANCE_KEY = 'pijn.cached_balance';
@@ -195,7 +196,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
         return;
       }
 
-      const res = await fetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`);
+      const res = await apiFetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`, { retries: 0 });
       if (res.status === 404) {
         setSearchError('No account found with that Short ID or phone number.');
         return;
@@ -280,7 +281,7 @@ export function SendMoneyScreen({ route, navigation }: any) {
         } else {
           // Online lookup
           const paramKey = isPhone ? 'phone' : 'shortId';
-          const res = await fetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`);
+          const res = await apiFetch(`${API_URL}/api/users/lookup?${paramKey}=${encodeURIComponent(q)}`);
           if (res.status === 404 || !res.ok) {
             setRecipientShortIdError('No account found with that Short ID or phone number.');
             setIsResolving(false);

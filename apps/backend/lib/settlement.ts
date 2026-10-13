@@ -1,6 +1,6 @@
 import { Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
 import { prisma } from "@/lib/prisma";
-import { sendSmsReceipt } from "@/lib/textbee";
+import { enqueueSms } from "@/lib/sms-queue";
 import { contractConfig, pijinContract } from "@/lib/pijin-contract";
 import {
   buildOfflineSignatureXdr,
@@ -164,15 +164,12 @@ export async function processOfflineSettlement(
     },
   });
 
-  // Send SMS receipt to receiver (merchant) using pin/phoneNumber fields
-  const receiptMsg = `SUCCESS: Received ${amountStroops} stroops. PIN:${receiverAccount.pin ?? "0000"}`;
+  // Send SMS receipt to receiver (merchant). Never include the PIN.
+  const receiptMsg = `SUCCESS: Received ${amountStroops} stroops.`;
   const receiptPhone = normalizePhone(receiverAccount.phoneNumber);
   if (receiptPhone) {
-    void sendSmsReceipt(receiptPhone, receiptMsg).then((result) => {
-      if (!result.success) {
-        console.error(`[Textbee] Async SMS receipt failed: ${result.error}`);
-      }
-    });
+    // Awaited: a dangling promise can be frozen when the serverless function returns.
+    await enqueueSms(receiptPhone, receiptMsg, { dedupKey: `settlement-ok-${nonceB64}-receiver` });
   }
 
   return {

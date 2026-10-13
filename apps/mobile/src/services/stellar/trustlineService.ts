@@ -17,6 +17,7 @@ import {
   Operation,
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
+import { fetchWithTimeout } from '../api/client';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -136,7 +137,7 @@ export async function ensureTrustline(
   }
 
   // Submit to Testnet Horizon manually using fetch.
-  const response = await fetch(`${HORIZON_TESTNET_URL}/transactions`, {
+  const response = await fetchWithTimeout(`${HORIZON_TESTNET_URL}/transactions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',

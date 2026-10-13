@@ -6,7 +6,6 @@ export type RegisteredAccount = {
   role: string;
   stellarPublicKey: string;
   offlineDeviceKey: string | null;
-  pin: string | null;
   phoneNumber: string | null;
   firstName: string | null;
   lastName: string | null;
@@ -27,6 +26,8 @@ export async function registerAccount(input: {
   firstName?: string;
   lastName?: string;
   email?: string;
+  /** Token from /api/otp/verify proving ownership of phoneNumber. */
+  verificationToken?: string;
 }): Promise<RegisteredAccount> {
   const body: Record<string, string> = {
     role: 'USER', // Mobile always registers as USER role
@@ -51,6 +52,9 @@ export async function registerAccount(input: {
   if (input.email) {
     body.email = input.email;
   }
+  if (input.verificationToken) {
+    body.verificationToken = input.verificationToken;
+  }
 
   const result = await apiRequest<RegisterResponse>('/api/register', {
     method: 'POST',
@@ -64,7 +68,6 @@ type CheckUserResponse = {
   exists: boolean;
   stellarPublicKey?: string;
   shortId?: string;
-  pin?: string | null;
 };
 
 /**
@@ -75,6 +78,18 @@ type CheckUserResponse = {
 export async function checkUserExists(phone: string): Promise<CheckUserResponse> {
   // Pass the full E.164 number — the backend strips '+' via /\D/g automatically.
   return apiRequest<CheckUserResponse>(`/api/users/check?phone=${encodeURIComponent(phone)}`);
+}
+
+/**
+ * Verifies a PIN server-side. Resolves on success; otherwise throws ApiError:
+ * 401 wrong PIN (body.attemptsRemaining), 404 no account, 423 locked
+ * (body.retryAfter seconds), 429 rate limited.
+ */
+export async function verifyPinWithServer(phone: string, pin: string): Promise<void> {
+  await apiRequest<{ success: boolean }>('/api/auth/pin/verify', {
+    method: 'POST',
+    body: JSON.stringify({ phoneNumber: phone, pin }),
+  });
 }
 
 type LookupUserResponse = {
