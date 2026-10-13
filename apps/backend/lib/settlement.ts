@@ -102,12 +102,27 @@ export async function processOfflineSettlement(
     receiverShortId,
     gatewayPublicKey: process.env.RELAYER_PUBLIC_KEY,
     tokenContractId: token.contractId,
+    contractAddress: contractConfig.contractId,
   });
-  const isValid = verifyOfflineVoucherSignature(
+  let isValid = verifyOfflineVoucherSignature(
     verificationKey,
     signedXdr,
     signature,
   );
+
+  if (!isValid) {
+    const signedXdr6 = buildOfflineSignatureXdr({
+      amountStroops,
+      tollStroops,
+      nonce,
+      receiverShortId,
+      gatewayPublicKey: process.env.RELAYER_PUBLIC_KEY,
+      tokenContractId: token.contractId,
+    });
+    if (verifyOfflineVoucherSignature(verificationKey, signedXdr6, signature)) {
+      isValid = true;
+    }
+  }
 
   if (!isValid) {
     return { ok: false, status: 403, error: "Unauthorized" };

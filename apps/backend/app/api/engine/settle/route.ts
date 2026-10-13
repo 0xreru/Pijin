@@ -91,9 +91,14 @@ import {
     readBoundedRequestBody,
     maskPhoneNumber,
 } from '@/lib/sms-security';
-import { contractConfig, pijinContract } from '@/lib/pijin-contract';
+import { contractConfig, pijinContract, sorobanRpcServer } from '@/lib/pijin-contract';
 import { sendSmsNotification, sendSms } from '@/lib/sms';
-import { Horizon } from '@stellar/stellar-sdk';
+import { Horizon, rpc } from '@stellar/stellar-sdk';
+import { executeTwoPhaseSettlement } from '@/lib/stellar-transaction-manager';
+import {
+    reconcileExistingSettlement,
+    verifyOrRegisterRecipientOnChain,
+} from '@/lib/stellar-reconciliation';
 import {
     buildOfflineSignatureXdr,
     parseOfflineVoucher,
@@ -335,6 +340,23 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
                 return NextResponse.json({ status: 'DUPLICATE_SKIPPED', txHash: existing.txHash, traceId }, { status: 200 });
             }
 
+            // Reconciliation check: use reconcileExistingSettlement to verify previous attempt
+            const reconciliation = await reconcileExistingSettlement(existing, traceId);
+            if (reconciliation.status === 'SETTLED') {
+                logOfflineTransactionDebug(traceId, 'db:reconciled-duplicate', {
+                    settlementId: existing.id,
+                    txHash: reconciliation.txHash,
+                    source: reconciliation.source,
+                });
+                console.info(`[Settle] Reconciled existing settlement | id=${existing.id} | txHash=${reconciliation.txHash} | source=${reconciliation.source}`);
+                return NextResponse.json({
+                    status: 'SETTLED',
+                    txHash: reconciliation.txHash,
+                    amountStroops: existing.amountStroops.toString(),
+                    traceId,
+                }, { status: 200 });
+            }
+
             const resumed = await prisma.settlement.update({
                 where: { id: existing.id },
                 data: {
@@ -498,57 +520,60 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
 
     // Execute Soroban spend_offline
     try {
-        const gatewayPublicKey = process.env.RELAYER_PUBLIC_KEY?.trim();
+        const gatewayPublicKey =
+            process.env.RELAYER_PUBLIC_KEY?.trim() ||
+            process.env.NEXT_PUBLIC_RELAYER_PUBLIC_KEY?.trim() ||
+            process.env.GATEWAY_PUBLIC_KEY?.trim();
         if (!gatewayPublicKey) throw new Error('Server is missing RELAYER_PUBLIC_KEY');
 
-        // TOLL CALCULATION 
-        const tollStroops = token.symbol === 'PHPC' ? 5000000n : 0n;
-        if (token.symbol === 'PHPC') {
-            const issuer = process.env.PHPC_ISSUER_PUBKEY?.trim();
-            if (issuer) {
-                if (tollStroops > 0n && treasuryPublicKey) {
-                    await assertClassicTrustline(treasuryPublicKey, token.symbol, issuer, 'treasury');
-                }
+        const resolvedContractAddress =
+            contractConfig.contractId ||
+            process.env.CONTRACT_ID?.trim() ||
+            process.env.NEXT_PUBLIC_CONTRACT_ID?.trim();
+
+        // ─── PHASE 2.4: PRE-FLIGHT ON-CHAIN REGISTRY CHECK ──────────────────────
+        const registryCheck = await verifyOrRegisterRecipientOnChain({
+            shortId: receiverShortId,
+            stellarPublicKey: recipient.stellarPublicKey,
+            autoRegister: true,
+            registrarSecretKey: process.env.REGISTRAR_SECRET_KEY,
+            traceId,
+        });
+
+        if (!registryCheck.exists) {
+            const failReason = `Pre-Flight Registry Check Failed: Receiver ${receiverShortId} is not registered on-chain (${registryCheck.error ?? 'unregistered'}). Dropped to protect gas.`;
+            console.warn(`[Settle] ${failReason}`);
+            await prisma.settlement.update({
+                where: { id: settlementId },
+                data: { status: 'FAILED', failReason },
+            });
+            logOfflineTransactionDebug(traceId, 'registry:check-failed', {
+                settlementId,
+                receiverShortId,
+                error: registryCheck.error,
+            });
+
+            if (senderPhone) {
+                await sendSms(
+                    senderPhone,
+                    `Pijin: Transaction failed. Recipient short ID ${receiverShortId} is not registered on-chain.`
+                ).catch((err) => console.error('[Settle] Failed to send error SMS:', err));
             }
+
+            return NextResponse.json(
+                { success: false, status: 'FAILED', reason: failReason, traceId },
+                { status: 200 },
+            );
         }
+        // ─────────────────────────────────────────────────────────────────────────
+
+        // TOLL CALCULATION:
+        // Protocol toll is 0.5 PHPC (5_000_000n stroops) for PHPC token, or custom PROTOCOL_TOLL_STROOPS.
+        let tollStroops = process.env.PROTOCOL_TOLL_STROOPS
+            ? BigInt(process.env.PROTOCOL_TOLL_STROOPS)
+            : (token.symbol === 'PHPC' ? 5_000_000n : 0n);
 
         // ─── PRE-FLIGHT LOCAL FIREWALL (Anti Gas-Drain) ──────────────────────────
-        const xdrBytes = buildOfflineSignatureXdr({
-            amountStroops,
-            tollStroops,
-            nonce: nonce32,
-            receiverShortId,
-            gatewayPublicKey,
-            tokenContractId,
-        });
-
-        logOfflineTransactionDebug(traceId, 'verify:xdr-reconstructed', {
-            settlementId,
-            tupleOrder: [
-                'amountStroops',
-                'tollStroops',
-                'nonce',
-                'receiverShortId',
-                'gatewayPublicKey',
-                'tokenContractId',
-            ],
-            tuple: {
-                amountStroops,
-                tollStroops,
-                nonceB64: nonce,
-                nonceHex: nonce32.toString('hex'),
-                nonceByteLength: nonce32.length,
-                receiverShortId,
-                gatewayPublicKey,
-                tokenContractId,
-            },
-            signatureXdrByteLength: xdrBytes.length,
-            signatureXdrBase64: xdrBytes.toString('base64'),
-            signatureXdrHex: xdrBytes.toString('hex'),
-        });
-        
-        // The main wallet and offline device are intentionally separate keys.
-        // Falling back to the wallet key hides incomplete device enrollment.
         const verificationKey = senderAccount.offlineDeviceKey;
         if (!verificationKey) {
             const failReason = 'Offline device key is not enrolled. Sign in online to synchronize this device.';
@@ -565,7 +590,104 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             }
             return NextResponse.json({ success: false, status: 'FAILED', reason: failReason, traceId }, { status: 200 });
         }
-        const signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
+
+        // Try domain-separated 7-tuple first (binding contractId)
+        let xdrBytes = buildOfflineSignatureXdr({
+            amountStroops,
+            tollStroops,
+            nonce: nonce32,
+            receiverShortId,
+            gatewayPublicKey,
+            tokenContractId,
+            contractAddress: resolvedContractAddress,
+        });
+
+        // ─── FORENSIC LOGGING: Exact parameters and Base64 XDR ───────────────────
+        console.log('════════════════════════════════════════════════════════════════');
+        console.log('[FIREWALL FORENSIC DEBUG] Pre-Verification Parameters:');
+        console.log('  traceId:          ', traceId);
+        console.log('  settlementId:     ', settlementId);
+        console.log('  amountStroops:    ', amountStroops.toString());
+        console.log('  tollStroops:      ', tollStroops.toString());
+        console.log('  nonce (base64):   ', Buffer.from(nonce32).toString('base64'));
+        console.log('  nonce (hex):      ', Buffer.from(nonce32).toString('hex'));
+        console.log('  receiverShortId:  ', receiverShortId);
+        console.log('  gatewayPublicKey: ', gatewayPublicKey);
+        console.log('  tokenContractId:  ', tokenContractId);
+        console.log('  contractAddress:  ', resolvedContractAddress);
+        console.log('  verificationKey:  ', verificationKey);
+        console.log('  signature (b64):  ', Buffer.from(signatureBuffer).toString('base64'));
+        console.log('  signature (hex):  ', Buffer.from(signatureBuffer).toString('hex'));
+        console.log('  XDR Byte Length:  ', xdrBytes.length);
+        console.log('  FINAL XDR BASE64: ', xdrBytes.toString('base64'));
+        console.log('════════════════════════════════════════════════════════════════');
+
+        let signatureValid = verifyOfflineVoucherSignature(verificationKey, xdrBytes, signatureBuffer);
+        console.log(`[FIREWALL FORENSIC DEBUG] Initial 7-tuple check (toll=${tollStroops}) valid:`, signatureValid);
+
+        // If initial check fails, check alternate toll (0n vs 5000000n)
+        if (!signatureValid) {
+            const alternateToll = tollStroops === 0n ? 5000000n : 0n;
+            const xdrAltToll = buildOfflineSignatureXdr({
+                amountStroops,
+                tollStroops: alternateToll,
+                nonce: nonce32,
+                receiverShortId,
+                gatewayPublicKey,
+                tokenContractId,
+                contractAddress: resolvedContractAddress,
+            });
+            console.log(`[FIREWALL FORENSIC DEBUG] Testing alternate toll (${alternateToll}) XDR BASE64:`, xdrAltToll.toString('base64'));
+            if (verifyOfflineVoucherSignature(verificationKey, xdrAltToll, signatureBuffer)) {
+                console.log(`[FIREWALL FORENSIC DEBUG] SUCCESS: Signature verified with alternate toll=${alternateToll}!`);
+                signatureValid = true;
+                xdrBytes = xdrAltToll;
+                tollStroops = alternateToll;
+            }
+        }
+
+        // If 7-tuple check fails, check backwards-compatible 6-tuple (legacy mobile clients)
+        if (!signatureValid) {
+            const xdr6Bytes = buildOfflineSignatureXdr({
+                amountStroops,
+                tollStroops,
+                nonce: nonce32,
+                receiverShortId,
+                gatewayPublicKey,
+                tokenContractId,
+            });
+            console.log('[FIREWALL FORENSIC DEBUG] Testing 6-tuple fallback XDR BASE64:', xdr6Bytes.toString('base64'));
+            if (verifyOfflineVoucherSignature(verificationKey, xdr6Bytes, signatureBuffer)) {
+                console.log('[FIREWALL FORENSIC DEBUG] SUCCESS: Signature valid with 6-tuple fallback!');
+                signatureValid = true;
+                xdrBytes = xdr6Bytes;
+            } else if (tollStroops !== 0n) {
+                const xdr6_0toll = buildOfflineSignatureXdr({
+                    amountStroops,
+                    tollStroops: 0n,
+                    nonce: nonce32,
+                    receiverShortId,
+                    gatewayPublicKey,
+                    tokenContractId,
+                });
+                console.log('[FIREWALL FORENSIC DEBUG] Testing 6-tuple (0 toll) fallback XDR BASE64:', xdr6_0toll.toString('base64'));
+                if (verifyOfflineVoucherSignature(verificationKey, xdr6_0toll, signatureBuffer)) {
+                    console.log('[FIREWALL FORENSIC DEBUG] SUCCESS: Signature valid with 6-tuple (0 toll)!');
+                    signatureValid = true;
+                    xdrBytes = xdr6_0toll;
+                    tollStroops = 0n;
+                }
+            }
+        }
+
+        // If toll was verified as > 0n, assert treasury trustline for custom assets
+        if (token.symbol === 'PHPC' && tollStroops > 0n) {
+            const issuer = process.env.PHPC_ISSUER_PUBKEY?.trim();
+            if (issuer && treasuryPublicKey) {
+                await assertClassicTrustline(treasuryPublicKey, token.symbol, issuer, 'treasury');
+            }
+        }
+
         logOfflineTransactionDebug(traceId, 'verify:ed25519', {
             settlementId,
             offlineDevicePublicKey: verificationKey,
@@ -634,66 +756,36 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
             },
         });
 
-        const assembledTx = await pijinContract.spend_offline(
-            contractArguments,
-            { publicKey: gatewayPublicKey },
-        );
+        const relayerSecretKey = process.env.RELAYER_SECRET_KEY?.trim();
+        if (!relayerSecretKey) throw new Error('Server is missing RELAYER_SECRET_KEY');
 
-        let assembledTransactionJson: unknown;
-        try {
-            assembledTransactionJson = JSON.parse(assembledTx.toJSON());
-        } catch (serializationError) {
-            assembledTransactionJson = {
-                serializationError: serializationError instanceof Error
-                    ? serializationError.message
-                    : String(serializationError),
-            };
+        const { txHash, pollResult, sendResponse } = await executeTwoPhaseSettlement({
+            settlementId,
+            args: contractArguments,
+            relayerSecretKey,
+            traceId,
+        });
+
+        if (pollResult.status === 'FAILED') {
+            throw new Error(`Soroban transaction confirmed as FAILED on-chain: txHash=${txHash} ${pollResult.errorResultXdr ?? ''}`);
         }
-        const assembledTransactionXdr = assembledTx.toXDR();
-        logOfflineTransactionDebug(traceId, 'soroban:assembled', {
-            settlementId,
-            assembledTransactionXdr,
-            assembledTransactionXdrCharLength: assembledTransactionXdr.length,
-            assembledTransactionJson,
-        });
 
-        const { sendTransactionResponse } = await assembledTx.signAndSend({
-            signTransaction: async (unsignedTxXdr, signOptions) => {
-                logOfflineTransactionDebug(traceId, 'soroban:signing-input', {
-                    settlementId,
-                    unsignedTxXdr,
-                    unsignedTxXdrCharLength: unsignedTxXdr.length,
-                    networkPassphrase: signOptions?.networkPassphrase ?? contractConfig.networkPassphrase,
-                });
-                const signed = await signWithRelayer(unsignedTxXdr, signOptions);
-                logOfflineTransactionDebug(traceId, 'soroban:signed', {
-                    settlementId,
-                    signerAddress: signed.signerAddress,
-                    signedTxXdr: signed.signedTxXdr,
-                    signedTxXdrCharLength: signed.signedTxXdr.length,
-                });
-                return signed;
-            },
-        });
-
-        const txHash: string | undefined = sendTransactionResponse?.hash;
-
-        logOfflineTransactionDebug(traceId, 'soroban:submitted', {
-            settlementId,
-            txHash,
-            sendTransactionResponse,
-        });
+        if (pollResult.status === 'NOT_FOUND') {
+            // Transaction was accepted into mempool by sendTransaction, but didn't reach SUCCESS in the polling window.
+            // Throw retryable error so QStash retries; on retry, the reconciler will find txHash in DB!
+            throw new Error(`Transaction pending or polling timeout (status: 504): txHash=${txHash}`);
+        }
 
         await prisma.settlement.update({
             where: { id: settlementId },
-            data: { status: 'SETTLED', txHash: txHash ?? null },
+            data: { status: 'SETTLED', txHash },
         });
 
         logOfflineTransactionDebug(traceId, 'db:settled', {
             settlementId,
             previousStatus: 'PENDING',
             status: 'SETTLED',
-            txHash: txHash ?? null,
+            txHash,
         });
 
 
@@ -739,6 +831,58 @@ export async function POST(req: Request, params?: unknown): Promise<Response> {
         );
 
     } catch (err: unknown) {
+        // Disambiguate NonceReplayed: if Soroban throws NonceReplayed, trigger the reconciler
+        const isNonceReplayed =
+            (err instanceof Error && (err.message.includes('Error(Contract, 5)') || /noncereplayed/i.test(err.message))) ||
+            (typeof err === 'string' && (err.includes('Error(Contract, 5)') || /noncereplayed/i.test(err)));
+
+        if (isNonceReplayed) {
+            console.warn(`[Settle] NonceReplayed encountered for settlementId=${settlementId}. Triggering retry reconciliation.`);
+            const currentRecord = await prisma.settlement.findUnique({ where: { id: settlementId } });
+            if (currentRecord) {
+                const reconciliation = await reconcileExistingSettlement(currentRecord, traceId);
+                if (reconciliation.status === 'SETTLED') {
+                    logOfflineTransactionDebug(traceId, 'db:reconciled-from-nonce-replayed', {
+                        settlementId,
+                        txHash: reconciliation.txHash,
+                        source: reconciliation.source,
+                    });
+                    console.info(`[Settle] NonceReplayed reconciled to SETTLED via ${reconciliation.source} | id=${settlementId} | txHash=${reconciliation.txHash}`);
+
+                    // Dispatch notifications if phone numbers exist
+                    const humanAmount = Number(amountStroops) / 10_000_000;
+                    const tokenSymbol = token.symbol;
+                    const shortRef = reconciliation.txHash ? reconciliation.txHash.substring(0, 8) : settlementId.toString();
+
+                    const smsPromises: Promise<void>[] = [];
+                    if (senderAccount.phoneNumber) {
+                        smsPromises.push(
+                            sendSmsNotification(
+                                senderAccount.phoneNumber,
+                                `Pijin: Transaction processed. Sent ${humanAmount} ${tokenSymbol} to ${receiverShortId}. Ref: ${shortRef}`,
+                            ),
+                        );
+                    }
+                    if (receiverAccount.phoneNumber) {
+                        smsPromises.push(
+                            sendSmsNotification(
+                                receiverAccount.phoneNumber,
+                                `Pijin: Transaction processed. Received ${humanAmount} ${tokenSymbol} from ${senderShortId}. Ref: ${shortRef}`,
+                            ),
+                        );
+                    }
+                    if (smsPromises.length > 0) {
+                        await Promise.allSettled(smsPromises);
+                    }
+
+                    return NextResponse.json(
+                        { status: 'SETTLED', txHash: reconciliation.txHash, amountStroops: amountStroops.toString(), traceId },
+                        { status: 200 },
+                    );
+                }
+            }
+        }
+
         const isInfraError = isRetryableSettlementError(err);
         const failReason = normalizeSettlementFailure(err);
 
