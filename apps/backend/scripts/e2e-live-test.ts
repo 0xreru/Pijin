@@ -112,20 +112,28 @@ function computeHmac(rawBody: string, secret: string): string {
 }
 
 async function fundWithFriendbot(publicKey: string, label: string): Promise<boolean> {
-  const friendbotUrl = `https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`;
-  console.log(`[Friendbot] Funding ${label} (${publicKey})...`);
+  // Derive the base URL from your webhook (e.g., https://pijin-preview.vercel.app)
+  const baseUrl = "https://pijin-4lvko11xd-xrerus-projects.vercel.app";
+  const customFriendbotUrl = `${baseUrl}/api/friendbot`;
+  
+  console.log(`[Custom Funder] Funding ${label} (${publicKey}) via backend...`);
   try {
-    const res = await fetch(friendbotUrl);
+    const res = await fetch(customFriendbotUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicKey })
+    });
+    
     if (!res.ok) {
       const errText = await res.text();
-      console.warn(`[Friendbot] HTTP ${res.status}: ${errText}`);
+      console.warn(`[Custom Funder] HTTP ${res.status}: ${errText}`);
       return false;
     }
-    const json = (await res.json()) as { successful?: boolean; hash?: string };
-    console.log(`[Friendbot] Successfully funded ${label}! (txHash: ${json.hash || 'ok'})`);
+    
+    console.log(`[Custom Funder] Successfully funded ${label}!`);
     return true;
   } catch (err) {
-    console.error(`[Friendbot] Network error funding ${label}:`, err);
+    console.error(`[Custom Funder] Network error funding ${label}:`, err);
     return false;
   }
 }
