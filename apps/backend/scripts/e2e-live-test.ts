@@ -69,18 +69,18 @@ const NETWORK_PASSPHRASE =
 // PHPC Classic Asset Details
 const PHPC_ISSUER_PUBKEY =
   process.env.PHPC_ISSUER_PUBKEY?.trim() ||
-  'GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY';
+  'GCBC6SUF536YKVWQVX3LXZIGXYHW6ZX3CKHGNNSOPVCDGPFWC73YMSWK';
 
 const PHPC_CONTRACT_ID =
-  process.env.PHPC_CONTRACT_ID?.trim() ||
-  'CD26OANM4I4GF2GBC47UYTSP3FUBZRQ7WGMGECEQHMZ2D6QV2LXJTNIS';
+  process.env.TOKEN_ID?.trim() ||
+  'CADDQRI74FSCGNWMK4CLNDUSBDWJHMF2GHZQQVYQ4UIO7KZ7V6UK6C24';
 
 const PIJIN_CONTRACT_ADDRESS =
-  process.env.PIJIN_CONTRACT_OVERRIDE ||
+  process.env.CONTRACT_ID?.trim() ||
   'CBYRV2FDGXHMKQILP3EWYI4ILKKQ2HW4NW4NJCFYQY6NEE7463ARLNUD';
 
 const GATEWAY_PUBLIC_KEY =
-  process.env.GATEWAY_PUBKEY_OVERRIDE ||
+  process.env.RELAYER_PUBLIC_KEY ||
   'GDTDK62M4ZJU6QPCEFUSQWOPYED4I4GPHLB4ZZTMBZZL2AO2VK63VQUH';
 
 const BASE62_ALPHABET =
@@ -112,8 +112,8 @@ function computeHmac(rawBody: string, secret: string): string {
 }
 
 async function fundWithFriendbot(publicKey: string, label: string): Promise<boolean> {
-  // Derive the base URL from your webhook (e.g., https://pijin-preview.vercel.app)
-  const baseUrl = "https://pijin-4lvko11xd-xrerus-projects.vercel.app";
+  // Derive the base URL from your webhook (e.g., https://preview-pijin.vercel.app)
+  const baseUrl = "https://preview-pijin.vercel.app";
   const customFriendbotUrl = `${baseUrl}/api/friendbot`;
   
   console.log(`[Custom Funder] Funding ${label} (${publicKey}) via backend...`);

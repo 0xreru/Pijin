@@ -78,7 +78,10 @@ export async function hasTrustline(
       ? cleanEnv(process.env.EXPO_PUBLIC_PHPC_ISSUER_PUBKEY)
       : cleanEnv(process.env.EXPO_PUBLIC_USDC_ISSUER_PUBKEY)) ||
     PIJIN_ASSETS[assetCode]?.issuer;
-
+  
+  if (!issuer || issuer.length !== 56) {
+    throw new Error(`CRITICAL: Invalid or missing issuer key for ${assetCode}. Current value: ${issuer}`);
+  }
   let account: Awaited<ReturnType<typeof testnetServer.loadAccount>>;
   try {
     account = await testnetServer.loadAccount(publicKey);

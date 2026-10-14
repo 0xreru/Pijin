@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import { Address, Keypair, xdr, nativeToScVal } from '@stellar/stellar-sdk';
+import { CONTRACT_ID } from '../constants/stellar';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -33,6 +34,16 @@ export type SmsPayloadParams = {
    * the correct token record without an extra round-trip.
    */
   tokenIdStr: string;
+  /**
+   * Soroban contract ID (C-address) of the Omni-Vault contract.
+   * If omitted, defaults to CONTRACT_ID constant.
+   */
+  contractAddress?: string;
+  /**
+   * Optional explicit protocol toll in stroops.
+   * Defaults to 5000000 stroops (5_000_000n) as required by the Soroban smart contract.
+   */
+  protocolTollStroops?: bigint;
 };
 
 // ---------------------------------------------------------------------------
@@ -95,12 +106,12 @@ export function stripBase64Padding(b64: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Constructs the canonical Soroban XDR `Vec<ScVal>` (acting as a tuple) that
+ * Constructs the canonical Soroban XDR `Vec<ScVal>` (acting as a 7-tuple) that
  * the PijinContract `spend_offline` function verifies on-chain.
  *
  * Field order must match the Rust contract exactly:
  *   [ amount (i128), protocol_toll (i128), nonce (BytesN<32>),
- *     receiver_short_id (BytesN<6>), gateway (Address), token (Address) ]
+ *     receiver_short_id (BytesN<6>), gateway (Address), token (Address), contract (Address) ]
  *
  * @returns A Node.js `Buffer` containing the serialised XDR bytes.
  */
@@ -111,17 +122,21 @@ function buildXdrTuple(
   receiverShortId: string,
   gatewayPubKey: string,
   tokenContractId: string,
+  contractAddress: string,
 ): Buffer {
-  const amountScVal  = nativeToScVal(amountStroops, { type: 'i128' });
-  const tollScVal     = nativeToScVal(tollStroops, { type: 'i128' });
-  const nonceScVal   = xdr.ScVal.scvBytes(Buffer.from(nonce32));
+  const amountScVal   = nativeToScVal(amountStroops, { type: 'i128' });
+  // Protocol toll ScVal - i128 integer type dictated by the Soroban contract ABI
+  const tollScVal     = nativeToScVal(tollStroops,   { type: 'i128' });
+  const nonceScVal    = xdr.ScVal.scvBytes(Buffer.from(nonce32));
   if (!/^[0-9A-Za-z]{6}$/.test(receiverShortId)) {
     throw new Error('Receiver short ID must be exactly 6 case-sensitive Base62 characters');
   }
   const receiverScVal = xdr.ScVal.scvBytes(Buffer.from(receiverShortId, 'ascii'));
   const gatewayScVal  = Address.fromString(gatewayPubKey).toScVal();
   const tokenScVal    = Address.fromString(tokenContractId).toScVal();
+  const contractScVal = Address.fromString(contractAddress).toScVal();
 
+  // Canonical 7-element vector matching Soroban contract spend_offline verification
   const tuple = xdr.ScVal.scvVec([
     amountScVal,
     tollScVal,
@@ -129,6 +144,7 @@ function buildXdrTuple(
     receiverScVal,
     gatewayScVal,
     tokenScVal,
+    contractScVal,
   ]);
 
   return Buffer.from(tuple.toXDR());
@@ -144,7 +160,7 @@ function buildXdrTuple(
  * ### What happens internally
  * 1. **Nonce** – 32 cryptographically-secure random bytes via `expo-crypto`.
  * 2. **XDR Tuple** – Serialises the payment parameters into a Soroban
- *    `Vec<ScVal>` and calls `.toXDR()` to produce the canonical byte sequence
+ *    7-element `Vec<ScVal>` and calls `.toXDR()` to produce the canonical byte sequence
  *    that the on-chain `spend_offline` verifier hashes and checks.
  * 3. **Ed25519 Sign** – Signs the raw XDR bytes with the sender's device key
  *    (the same key registered in the Pijin backend as `offlineDeviceKey`).
@@ -170,6 +186,8 @@ export async function generateOfflineSmsPayload(
     tokenContractId,
     tokenIdStr,
     tokenSymbol,
+    contractAddress,
+    protocolTollStroops,
   } = params;
 
   if (!/^[0-9A-Za-z]{6}$/.test(senderShortId)) {
@@ -185,6 +203,18 @@ export async function generateOfflineSmsPayload(
     throw new Error('Payment amount must be greater than zero');
   }
 
+  // Resolve target contract address for domain separation
+  const resolvedContractAddress = (
+    contractAddress ||
+    CONTRACT_ID ||
+    process.env.EXPO_PUBLIC_CONTRACT_ID ||
+    ''
+  ).trim().replace(/^['"]|['"]$/g, '');
+
+  if (!resolvedContractAddress) {
+    throw new Error('Contract ID is required for 7-tuple offline voucher signature');
+  }
+
   // ── Step 1: Generate a cryptographically-secure 32-byte nonce ──────────────
   const nonce32 = new Uint8Array(32);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
@@ -194,9 +224,11 @@ export async function generateOfflineSmsPayload(
   } else {
     throw new Error('Secure random number generation is unavailable on this device');
   }
-  const isPHPC = tokenSymbol === 'PHPC';
-  const tollStroops = isPHPC ? 5000000n : 0n; // 0.50 PHPC protocol toll
-  // ── Step 2: Serialize the Soroban XDR Tuple ────────────────────────────────
+
+  // Protocol toll: strictly required 5000000 stroops (0.50 PHPC) by contract ABI
+  const tollStroops = protocolTollStroops !== undefined ? protocolTollStroops : 5000000n;
+
+  // ── Step 2: Serialize the Soroban XDR 7-Tuple ──────────────────────────────
   const xdrBuffer = buildXdrTuple(
     amountStroops,
     tollStroops,
@@ -204,6 +236,7 @@ export async function generateOfflineSmsPayload(
     receiverShortId,
     gatewayPubKey,
     tokenContractId,
+    resolvedContractAddress,
   );
 
   // ── Step 3: Sign the XDR bytes with the sender's Ed25519 device key ────────
