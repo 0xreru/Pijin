@@ -318,7 +318,13 @@ export async function POST(req: Request) {
     });
 
     if (!hmacValid) {
-        console.warn(`[SMS Webhook] Blocked: Invalid HMAC signature. traceId=${traceId}`);
+        const cleanSig = incomingSignature.replace(/^sha256=/i, '');
+        console.warn(
+            `[SMS Webhook] Blocked: Invalid HMAC signature. traceId=${traceId} ` +
+            `reason=${!expectedSecret ? 'SERVER_SECRET_MISSING' : !incomingSignature ? 'SIGNATURE_HEADER_MISSING' : !/^[0-9a-f]{64}$/i.test(cleanSig) ? 'SIGNATURE_NOT_64_HEX' : 'SIGNATURE_MISMATCH'} ` +
+            `secretLen=${expectedSecret.length} sigLen=${cleanSig.length} bodyLen=${rawBody.length} host=${req.headers.get('host')} ` +
+            `sigHeaders=${['x-signature', 'x-textbee-signature'].filter((h) => req.headers.has(h)).join(',') || 'none'}`,
+        );
         return NextResponse.json({ error: 'Unauthorized: Invalid HMAC Signature', traceId }, { status: 401 });
     }
 
@@ -339,6 +345,7 @@ export async function POST(req: Request) {
         body.status === 'sent' ||
         body.event === 'MESSAGE_SENT'
     ) {
+        logOfflineTransactionDebug(traceId, 'receive:ignored', { reason: 'delivery receipt', bodyKeys: Object.keys(body) });
         return NextResponse.json({ success: true, message: 'Delivery receipt ignored' });
     }
 
@@ -352,6 +359,7 @@ export async function POST(req: Request) {
 
     if (!isLegacyEvent && !isNewTypeEvent) {
         if (isDeliveryReceipt) {
+            logOfflineTransactionDebug(traceId, 'receive:ignored', { reason: 'non-received event', event: body.event });
             return NextResponse.json({ success: true, status: 'Ignored' });
         }
         // Unknown schema — log and continue optimistically.
@@ -362,7 +370,7 @@ export async function POST(req: Request) {
     const sms = extractSmsPayload(body);
 
     if (!sms) {
-        console.warn('[SMS Webhook] Missing sender/message in payload.');
+        console.warn(`[SMS Webhook] Missing sender/message in payload. traceId=${traceId} bodyKeys=${Object.keys(body).join(',')}`);
         return NextResponse.json({ error: 'Missing sender or message field' }, { status: 400 });
     }
 
@@ -384,6 +392,7 @@ export async function POST(req: Request) {
     // ── Tier 2: Rate Limiting (keyed on sender phone) ─────────────────────────
     const { success: withinLimit } = await ratelimit.limit(senderPhone);
     if (!withinLimit) {
+        logOfflineTransactionDebug(traceId, 'receive:rate-limited', { senderPhone: maskPhoneNumber(senderPhone) });
         console.warn(`[SMS Webhook] Rate limit exceeded for sender ${maskPhoneNumber(senderPhone)}`);
         return NextResponse.json({ success: true, status: 'Rate Limited' });
     }
@@ -427,6 +436,7 @@ export async function POST(req: Request) {
     }
 
     const settleUrl = `${appUrl}/api/engine/settle`;
+    console.log(`[SMS Webhook] Publishing settlement. traceId=${traceId} host=${host ?? '(none)'} target=${settleUrl} dedupId=${deduplicationId}`);
 
     try {
         const qstashResult = await qstash.publishJSON({
@@ -440,7 +450,7 @@ export async function POST(req: Request) {
             qstashMessageId: qstashResult,
         });
     } catch (err) {
-        console.error('[SMS Webhook] QStash publish failed. SMS was NOT buffered:', err);
+        console.error(`[SMS Webhook] QStash publish failed. SMS was NOT buffered. traceId=${traceId} target=${settleUrl}:`, err);
         return NextResponse.json({ error: 'Failed to buffer settlement' }, { status: 500 });
     }
 

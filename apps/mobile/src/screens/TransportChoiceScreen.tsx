@@ -130,11 +130,13 @@ export function TransportChoiceScreen({ route, navigation }: any) {
       // Set waiting flag before opening native SMS app
       setIsWaitingForSmsReturn(true);
 
+      console.log(`[SMS Send] Opening SMS app. gateway=${SMS_GATEWAY_NUMBER} payloadLen=${qrData.length} urlLen=${url.length} os=${Platform.OS}`);
       Linking.openURL(url)
+        .then(() => console.log('[SMS Send] SMS app opened (user still has to press send)'))
         .catch((err) => {
           setIsWaitingForSmsReturn(false);
           Alert.alert('Error', 'Could not open native messaging app.');
-          console.error(err);
+          console.error('[SMS Send] openURL failed:', err);
         });
     } else if (choice === 'relay') {
       // Defer commit until GenerateQR "Done relaying" is pressed
