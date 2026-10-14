@@ -45,6 +45,7 @@ import { getAnchorDomain } from '../../constants/api';
 import {
   HORIZON_TESTNET_URL,
   PIJIN_ASSETS,
+  ensureTrustline,
   type AssetCode,
 } from './trustlineService';
 import { fetchWithTimeout } from '../api/client';
@@ -211,6 +212,12 @@ export async function startSep24Deposit(
   userKeypair: Keypair,
 ): Promise<Sep24DepositResult> {
   const publicKey = userKeypair.publicKey();
+
+  // Ensure trustline is established before opening the SEP-24 deposit webview to prevent op_no_trust error
+  if (assetCode === 'PHPC' || assetCode === 'USDC') {
+    await ensureTrustline(publicKey, userKeypair, assetCode as AssetCode);
+  }
+
   const endpoints = await fetchAnchorEndpoints();
   const token = await getSep10Token(userKeypair);
 

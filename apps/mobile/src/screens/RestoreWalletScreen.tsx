@@ -22,6 +22,7 @@ import { useSecureScreen } from '../hooks/useSecureScreen';
 import { deriveKeysFromMnemonic } from '../services/wallet/mnemonic';
 import { checkUserExists } from '../services/api/accounts';
 import { getSep10Token } from '../services/stellar/anchorService';
+import { ensureTrustline } from '../services/stellar/trustlineService';
 import { useAuth } from '../context/AuthContext';
 import {
   saveMainWalletSecret,
@@ -98,6 +99,13 @@ export function RestoreWalletScreen() {
       await ensureMigration();
       await SecureStore.setItemAsync('pijn.device.secret', deviceKeypair.secret());
       
+      // Ensure PHPC trustline exists for the restored wallet
+      try {
+        await ensureTrustline(checkRes.stellarPublicKey, mainWalletKeypair, 'PHPC');
+      } catch (err) {
+        console.warn('[RestoreWallet] Could not ensure PHPC trustline during restore:', err);
+      }
+
       // 5. Authenticate and Log In
       const token = await getSep10Token(mainWalletKeypair);
       await synchronizeRecipientRegistry(token);

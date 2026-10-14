@@ -1,8 +1,8 @@
 /**
  * Pijin-branded deposit action.
  *
- * PHPC trustline creation belongs to account onboarding. This button only
- * starts the SEP-24 deposit flow.
+ * Checks and creates the asset trustline if needed before opening the SEP-24
+ * interactive deposit webview.
  */
 
 import React, { useRef } from 'react';

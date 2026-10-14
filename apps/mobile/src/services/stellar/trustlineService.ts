@@ -31,18 +31,26 @@ const TX_TIMEOUT_SECONDS = 30;
 
 export type AssetCode = 'PHPC' | 'USDC';
 
+function cleanEnv(value?: string): string {
+  return (value || '').trim().replace(/^['"]|['"]$/g, '');
+}
+
+export const PHPC_ISSUER =
+  cleanEnv(process.env.EXPO_PUBLIC_PHPC_ISSUER_PUBKEY) ||
+  'GCBC6SUF536YKVWQVX3LXZIGXYHW6ZX3CKHGNNSOPVCDGPFWC73YMSWK';
+
+export const USDC_ISSUER =
+  cleanEnv(process.env.EXPO_PUBLIC_USDC_ISSUER_PUBKEY) ||
+  'GDQGJU5JTW5IFCGS6JZTIGK57IKPW4N4LJWWEN7F3K3GSEJEYPVJ3BYA';
+
 export const PIJIN_ASSETS: Record<AssetCode, { code: string; issuer: string }> = {
   PHPC: {
     code: 'PHPC',
-    issuer:
-      process.env.EXPO_PUBLIC_PHPC_ISSUER_PUBKEY ||
-      'GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY',
+    issuer: PHPC_ISSUER,
   },
   USDC: {
     code: 'USDC',
-    issuer:
-      process.env.EXPO_PUBLIC_USDC_ISSUER_PUBKEY ||
-      'GDQGJU5JTW5IFCGS6JZTIGK57IKPW4N4LJWWEN7F3K3GSEJEYPVJ3BYA',
+    issuer: USDC_ISSUER,
   },
 };
 
@@ -63,9 +71,13 @@ const testnetServer = new Horizon.Server(HORIZON_TESTNET_URL);
 
 export async function hasTrustline(
   publicKey: string,
-  assetCode: AssetCode,
+  assetCode: AssetCode = 'PHPC',
 ): Promise<boolean> {
-  const { issuer } = PIJIN_ASSETS[assetCode];
+  const issuer =
+    (assetCode === 'PHPC'
+      ? cleanEnv(process.env.EXPO_PUBLIC_PHPC_ISSUER_PUBKEY)
+      : cleanEnv(process.env.EXPO_PUBLIC_USDC_ISSUER_PUBKEY)) ||
+    PIJIN_ASSETS[assetCode]?.issuer;
 
   let account: Awaited<ReturnType<typeof testnetServer.loadAccount>>;
   try {
@@ -88,18 +100,55 @@ export async function hasTrustline(
   });
 }
 
+/** Fallback helper to fund an account on Testnet if it does not yet exist */
+async function fundAccountViaFriendbot(publicKey: string): Promise<void> {
+  try {
+    await fetchWithTimeout(
+      `https://friendbot.stellar.org/?addr=${encodeURIComponent(publicKey)}`,
+      { method: 'GET' },
+    );
+  } catch (err) {
+    console.warn('[TrustlineService] Friendbot funding fallback notice:', err);
+  }
+}
+
 export async function ensureTrustline(
   publicKey: string,
-  keypair: Keypair,
-  assetCode: AssetCode,
+  keypairOrSecret: Keypair | string,
+  assetCode: AssetCode = 'PHPC',
 ): Promise<TrustlineResult> {
+  const signerKeypair =
+    typeof keypairOrSecret === 'string'
+      ? Keypair.fromSecret(keypairOrSecret)
+      : keypairOrSecret;
+
   const already = await hasTrustline(publicKey, assetCode);
   if (already) {
     return { status: 'exists', assetCode };
   }
 
-  const sourceAccount = await testnetServer.loadAccount(publicKey);
-  const { code, issuer } = PIJIN_ASSETS[assetCode];
+  let sourceAccount: Awaited<ReturnType<typeof testnetServer.loadAccount>>;
+  try {
+    sourceAccount = await testnetServer.loadAccount(publicKey);
+  } catch (err: unknown) {
+    const status =
+      isObject(err) &&
+      isObject(err['response']) &&
+      (err['response'] as Record<string, unknown>)['status'];
+    if (status === 404) {
+      await fundAccountViaFriendbot(publicKey);
+      sourceAccount = await testnetServer.loadAccount(publicKey);
+    } else {
+      throw err;
+    }
+  }
+
+  const issuer =
+    (assetCode === 'PHPC'
+      ? cleanEnv(process.env.EXPO_PUBLIC_PHPC_ISSUER_PUBKEY)
+      : cleanEnv(process.env.EXPO_PUBLIC_USDC_ISSUER_PUBKEY)) ||
+    PIJIN_ASSETS[assetCode]?.issuer;
+  const { code } = PIJIN_ASSETS[assetCode];
   const asset = new Asset(code, issuer);
 
   const transaction = new TransactionBuilder(sourceAccount, {
@@ -114,8 +163,8 @@ export async function ensureTrustline(
     .setTimeout(TX_TIMEOUT_SECONDS)
     .build();
 
-  // Sign with the user's keypair.
-  transaction.sign(keypair);
+  // Sign with the mobile wallet's keypair / secret key.
+  transaction.sign(signerKeypair);
 
   // Convert to Base64 (with polyfill recovery for React Native).
   const rawXdr = transaction.toXDR() as unknown;

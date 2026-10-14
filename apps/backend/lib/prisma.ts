@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 const prismaClientSingleton = () => {
   const connectionString =
@@ -10,7 +11,6 @@ const prismaClientSingleton = () => {
     throw new Error("Missing DATABASE_URL");
   }
 
-  const { PrismaPg } = require("@prisma/adapter-pg");
   const adapter = new PrismaPg({ connectionString });
   return new PrismaClient({ adapter });
 };
