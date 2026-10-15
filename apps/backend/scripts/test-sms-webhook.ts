@@ -10,7 +10,7 @@ if (!WEBHOOK_SECRET) {
 }
 
 // 2. The compressed SMS payload
-const smsPayload = '';
+const smsPayload = '1:nE8o9b:5ZK1fR:6laZE:A6Wc/SiMwJtEbObipPOZfvoCesYnB0upQBmSycGjKlo:X7vp79vbC54hADJb3cCzciM59tPgSe1g3O23EMUOctYaL0Yc+qc5uyWVFiYTU3IQUwl/ND17sDHbcNZMX866Dg';
 const mockSenderPhone = '+1234567890'; // Replace with a mock sender phone number
 
 // 3. Construct the Textbee JSON body

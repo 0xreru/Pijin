@@ -122,6 +122,7 @@ import { parseOfflineVoucher } from '@/lib/offline-voucher';
 import {
     readBoundedRequestBody,
     verifyTextbeeHmac,
+    diagnoseHmacMismatch,
     verifyTimestampDrift,
     maskPhoneNumber,
 } from '@/lib/sms-security';
@@ -325,6 +326,13 @@ export async function POST(req: Request) {
             `secretLen=${expectedSecret.length} sigLen=${cleanSig.length} bodyLen=${rawBody.length} host=${req.headers.get('host')} ` +
             `sigHeaders=${['x-signature', 'x-textbee-signature'].filter((h) => req.headers.has(h)).join(',') || 'none'}`,
         );
+        if (isOfflineTransactionDebugEnabled() && expectedSecret && incomingSignature) {
+            console.warn(
+                `[SMS Webhook] HMAC diagnosis. traceId=${traceId}`,
+                JSON.stringify(diagnoseHmacMismatch(rawBody, incomingSignature, expectedSecret, timestampHeader)),
+                `headerNames=${[...req.headers.keys()].join(',')}`,
+            );
+        }
         return NextResponse.json({ error: 'Unauthorized: Invalid HMAC Signature', traceId }, { status: 401 });
     }
 
