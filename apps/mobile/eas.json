@@ -29,7 +29,10 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://pijin-api.vercel.app",
+        "EXPO_PUBLIC_API_BASE_URL": "https://preview-pijin.vercel.app",
+        "EXPO_PUBLIC_ANCHOR_DOMAIN": "preview-pijin.vercel.app",
+        "EXPO_PUBLIC_PHPC_ISSUER_PUBKEY": "GCBC6SUF536YKVWQVX3LXZIGXYHW6ZX3CKHGNNSOPVCDGPFWC73YMSWK",
+        "EXPO_PUBLIC_USDC_ISSUER_PUBKEY": "GDQGJU5JTW5IFCGS6JZTIGK57IKPW4N4LJWWEN7F3K3GSEJEYPVJ3BYA",
         "EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID": "5af2fb3bebe74b2806e6f9a57b9d79ff",
         "EXPO_PUBLIC_WALLETCONNECT_RELAY_URL": "wss://relay.walletconnect.com",
         "EXPO_PUBLIC_WALLETCONNECT_SIGN_DEEPLINK": "lobstr://",
