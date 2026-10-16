@@ -35,18 +35,8 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(projectRoot);
 
-// --- MONOREPO CONFIGURATION ---
-// 1. Watch all files within the monorepo root so Metro can see hoisted packages
-config.watchFolders = [workspaceRoot];
-
-// 2. Let Metro know where to resolve packages (local first, then root)
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, 'node_modules'),
-  path.resolve(workspaceRoot, 'node_modules'),
-];
-
-// 3. Force Metro to resolve dependencies correctly through the workspace
-config.resolver.disableHierarchicalLookup = true;
+// Expo SDK 54 configures npm workspaces automatically. Keep only the custom
+// package aliases below so Metro can still resolve transitive dependencies.
 
 // --- STELLAR SDK POLYFILLS & ALIASES ---
 // Metro (EAS/Android) often fails on package.json "exports" subpaths.

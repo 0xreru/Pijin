@@ -8,6 +8,10 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "experiments": {
+      "reactCompiler": true,
+      "autolinkingModuleResolution": true
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -43,11 +47,11 @@
       "expo-secure-store",
       "expo-sqlite"
     ],
-    "owner": "senec4",
     "extra": {
       "eas": {
-        "projectId": "a893d514-e18c-4928-8cdd-dacf4e85c690"
+        "projectId": "8f3dc94b-1863-4815-b021-7367f5c13d23"
       }
-    }
+    },
+    "owner": "carlarbolado"
   }
 }

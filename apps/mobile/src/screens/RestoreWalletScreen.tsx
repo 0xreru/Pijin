@@ -28,9 +28,6 @@ import {
   saveMainWalletSecret,
   setOnboardingComplete,
 } from '../services/storage/onboardingStorage';
-import { saveDeviceKey } from '../services/wallet/offlineKeySync'; // We'll need a way to save the device key locally. Wait, deviceKeyStore has this.
-
-// We should import getOrGenerateDeviceKeypair... wait, we need to save the derived device key directly.
 import * as SecureStore from 'expo-secure-store';
 import { ensureMigration } from '../services/storage/migration';
 import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegistrySync';
@@ -85,7 +82,7 @@ export function RestoreWalletScreen() {
       }
       const checkRes = await checkUserExists(phoneNumber);
 
-      if (!checkRes.exists || !checkRes.stellarPublicKey) {
+      if (!checkRes.exists || !checkRes.stellarPublicKey || !checkRes.shortId) {
         throw new Error('Account not found on the network.');
       }
 
