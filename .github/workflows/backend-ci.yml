@@ -8,6 +8,7 @@ on:
       - 'packages/pijin_core/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/backend-ci.yml'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'packages/pijin_core/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/backend-ci.yml'
 
 jobs:
   verify-and-build:
