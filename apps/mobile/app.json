@@ -30,9 +30,15 @@
       },
       "package": "com.anonymous.pijinapp",
       "softwareKeyboardLayoutMode": "pan",
+      "allowBackup": false,
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "plugins": [
@@ -41,7 +47,15 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow camera access to scan customer payment QR codes."
+          "cameraPermission": "Allow camera access to scan customer payment QR codes.",
+          "recordAudioAndroidPermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Allow saving your payment QR code to your gallery.",
+          "granularPermissions": []
         }
       ],
       "expo-secure-store",
