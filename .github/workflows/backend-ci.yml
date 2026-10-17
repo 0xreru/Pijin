@@ -8,6 +8,7 @@ on:
       - 'packages/pijin_core/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/backend-ci.yml'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'packages/pijin_core/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/backend-ci.yml'
 
 jobs:
   verify-and-build:
@@ -31,7 +33,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: |
-            apps/backend/package-lock.json
+            package-lock.json
             packages/pijin_core/package-lock.json
 
       - name: Install Monorepo Dependencies
