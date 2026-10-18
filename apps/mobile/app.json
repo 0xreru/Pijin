@@ -55,7 +55,7 @@
         "expo-media-library",
         {
           "savePhotosPermission": "Allow saving your payment QR code to your gallery.",
-          "granularPermissions": []
+          "granularPermissions": ["photo"]
         }
       ],
       "expo-secure-store",
