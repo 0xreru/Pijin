@@ -28,7 +28,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.pijinapp",
+      "package": "live.pijin.app",
       "softwareKeyboardLayoutMode": "pan",
       "allowBackup": false,
       "permissions": [
