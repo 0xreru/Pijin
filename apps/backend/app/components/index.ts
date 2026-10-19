@@ -8,5 +8,6 @@ export { FAQ } from './FAQ'
 export { Footer } from './Footer'
 export { ScrollReveal } from './ScrollReveal'
 export { Banner } from './Banner'
+export { LegalPage, LegalSection, LegalCallout, LegalHighlights, LegalTable } from './LegalPage'
 
 

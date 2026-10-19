@@ -18,5 +18,12 @@ module.exports = function (api) {
   api.cache(true);
   return {
     presets: ['babel-preset-expo'],
+    env: {
+      // Release bundles: drop console.log/info/debug/warn so nothing sensitive reaches
+      // logcat and the bridge isn't spammed. console.error stays for reportError().
+      production: {
+        plugins: [['transform-remove-console', { exclude: ['error'] }]],
+      },
+    },
   };
 };

@@ -100,6 +100,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Horizon } from "@stellar/stellar-sdk";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { getRedis } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -172,6 +173,26 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // --- Redis 5-Second Balance Cache ---
+    const redis = getRedis();
+    const cacheKey = `pijin:cache:wallet-balance:${publicKey}:${assetCode}`;
+    try {
+      const cached = await redis.get<{ balance: string }>(cacheKey);
+      if (cached && typeof cached.balance === "string") {
+        return NextResponse.json(
+          { balance: cached.balance, cached: true },
+          {
+            headers: {
+              "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+              "X-Cache": "HIT",
+            },
+          },
+        );
+      }
+    } catch {
+      // cache miss or transient redis error
+    }
+
     // --- 4. Fetch Account from Horizon ---
     // By nesting this inside a try block, TypeScript perfectly infers the 
     // AccountResponse type natively from the v15 SDK without breaking.
@@ -190,10 +211,33 @@ export async function GET(req: NextRequest) {
         console.info(
           `[Wallet Balance] No trustline found for ${assetCode} on account ${publicKey}`
         );
-        return NextResponse.json({ balance: "0.00" });
+        try {
+          await redis.set(cacheKey, { balance: "0.00" }, { ex: 5 });
+        } catch {}
+        return NextResponse.json(
+          { balance: "0.00" },
+          {
+            headers: {
+              "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+              "X-Cache": "MISS",
+            },
+          },
+        );
       }
 
-      return NextResponse.json({ balance: trustlineBalance.balance });
+      try {
+        await redis.set(cacheKey, { balance: trustlineBalance.balance }, { ex: 5 });
+      } catch {}
+
+      return NextResponse.json(
+        { balance: trustlineBalance.balance },
+        {
+          headers: {
+            "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+            "X-Cache": "MISS",
+          },
+        },
+      );
 
     } catch (err: any) {
       // A 404 from Horizon means the account is unfunded — treat as zero balance.
@@ -202,7 +246,18 @@ export async function GET(req: NextRequest) {
         console.info(
           `[Wallet Balance] Account not found on Horizon (unfunded): ${publicKey}`
         );
-        return NextResponse.json({ balance: "0.00" });
+        try {
+          await redis.set(cacheKey, { balance: "0.00" }, { ex: 5 });
+        } catch {}
+        return NextResponse.json(
+          { balance: "0.00" },
+          {
+            headers: {
+              "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+              "X-Cache": "MISS",
+            },
+          },
+        );
       }
 
       // Any other Horizon error is an upstream failure.

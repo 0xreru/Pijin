@@ -25,6 +25,7 @@ import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { OfflinePaymentPayload } from '../types/payment';
 import { useAuth } from '../context/AuthContext';
 import { SMS_GATEWAY_NUMBER } from '../constants/api';
+import { debugSmsSend } from '../utils/smsDebug';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const VIEWFINDER_SIZE = SCREEN_WIDTH * 0.82;
@@ -92,14 +93,17 @@ export function ScanQRScreen({ navigation }: any) {
           ? `sms:${SMS_GATEWAY_NUMBER}?body=${encodeURIComponent(data)}`
           : `sms:${SMS_GATEWAY_NUMBER}&body=${encodeURIComponent(data)}`;
         
+        debugSmsSend('ScanQR', SMS_GATEWAY_NUMBER, data, url);
+        console.log(`[SMS Send] Opening SMS app. gateway=${SMS_GATEWAY_NUMBER} payloadLen=${data.length} urlLen=${url.length} os=${Platform.OS}`);
         Linking.openURL(url)
           .then(() => {
+            console.log('[SMS Send] SMS app opened (user still has to press send)');
             navigation.navigate('Dashboard');
           })
           .catch((err) => {
             setScanned(false);
             Alert.alert('Error', 'Could not open native messaging app.');
-            console.error(err);
+            console.error('[SMS Send] openURL failed:', err);
           });
       } catch (err: any) {
         setScanned(false);

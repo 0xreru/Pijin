@@ -8,6 +8,10 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "experiments": {
+      "reactCompiler": true,
+      "autolinkingModuleResolution": true
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -24,11 +28,17 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.pijinapp",
+      "package": "live.pijin.app",
       "softwareKeyboardLayoutMode": "pan",
+      "allowBackup": false,
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "plugins": [
@@ -37,17 +47,25 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow camera access to scan customer payment QR codes."
+          "cameraPermission": "Allow camera access to scan customer payment QR codes.",
+          "recordAudioAndroidPermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Allow saving your payment QR code to your gallery.",
+          "granularPermissions": ["photo"]
         }
       ],
       "expo-secure-store",
       "expo-sqlite"
     ],
-    "owner": "senec4",
     "extra": {
       "eas": {
-        "projectId": "a893d514-e18c-4928-8cdd-dacf4e85c690"
+        "projectId": "8f3dc94b-1863-4815-b021-7367f5c13d23"
       }
-    }
+    },
+    "owner": "carlarbolado"
   }
 }

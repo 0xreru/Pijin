@@ -1,4 +1,20 @@
 const path = require('path');
+const Module = require('module');
+
+// npm hoists metro / @expo/metro-config to the repo root but keeps expo, expo-asset
+// and react-native under apps/mobile/node_modules (React 18 vs. other workspaces).
+// Hoisted tooling lazily requires those packages (e.g. metro's
+// `expo-asset/tools/hashAssetFiles`), which fails on EAS. Expose the app's
+// node_modules to them, same approach as babel.config.js.
+const mobileNodeModules = path.resolve(__dirname, 'node_modules');
+const nodePathEntries = (process.env.NODE_PATH || '')
+  .split(path.delimiter)
+  .filter(Boolean);
+if (!nodePathEntries.includes(mobileNodeModules)) {
+  process.env.NODE_PATH = [mobileNodeModules, ...nodePathEntries].join(path.delimiter);
+  Module._initPaths();
+}
+
 const { getDefaultConfig } = require('expo/metro-config');
 
 // --- DYNAMIC PACKAGE RESOLVER (Teammate's Addition) ---
@@ -19,18 +35,8 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(projectRoot);
 
-// --- MONOREPO CONFIGURATION ---
-// 1. Watch all files within the monorepo root so Metro can see hoisted packages
-config.watchFolders = [workspaceRoot];
-
-// 2. Let Metro know where to resolve packages (local first, then root)
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, 'node_modules'),
-  path.resolve(workspaceRoot, 'node_modules'),
-];
-
-// 3. Force Metro to resolve dependencies correctly through the workspace
-config.resolver.disableHierarchicalLookup = true;
+// Expo SDK 54 configures npm workspaces automatically. Keep only the custom
+// package aliases below so Metro can still resolve transitive dependencies.
 
 // --- STELLAR SDK POLYFILLS & ALIASES ---
 // Metro (EAS/Android) often fails on package.json "exports" subpaths.

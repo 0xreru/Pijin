@@ -14,73 +14,94 @@ export function ConnectionWatcher({ navigation, currentMode, onOfflineRedirect }
   const [countdown, setCountdown] = useState(3);
   const bannerAnim = useRef(new Animated.Value(-120)).current;
   
-  const timerRef = useRef<any>(null);
-  const intervalRef = useRef<any>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Read the latest values from refs so the subscription below does not need
+  // them as dependencies. Previously `showBanner` was a dependency: showing the
+  // banner re-ran the effect, whose cleanup cancelled the redirect timer and
+  // the countdown it had just started.
+  const bannerVisibleRef = useRef(false);
+  const navigationRef = useRef(navigation);
+  const onOfflineRedirectRef = useRef(onOfflineRedirect);
+  navigationRef.current = navigation;
+  onOfflineRedirectRef.current = onOfflineRedirect;
 
   useEffect(() => {
+    const clearTimers = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      timerRef.current = null;
+      intervalRef.current = null;
+    };
+
     const subscription = connectionService.state$.subscribe((state) => {
       // If physically disconnected and currently on an Online page/flow
       if (!state.isConnected && currentMode === 'online') {
-        if (!showBanner) {
-          setShowBanner(true);
-          setCountdown(3);
+        if (bannerVisibleRef.current) return;
+        bannerVisibleRef.current = true;
+        setShowBanner(true);
+        setCountdown(3);
 
-          // Animate banner sliding in from top
-          Animated.spring(bannerAnim, {
-            toValue: 10,
-            useNativeDriver: true,
-            tension: 40,
-            friction: 8,
-          }).start();
+        // Animate banner sliding in from top
+        Animated.spring(bannerAnim, {
+          toValue: 10,
+          useNativeDriver: true,
+          tension: 40,
+          friction: 8,
+        }).start();
 
-          // 3-second redirect timer
-          timerRef.current = setTimeout(() => {
-            Animated.timing(bannerAnim, {
-              toValue: -120,
-              duration: 250,
-              useNativeDriver: true,
-            }).start(() => {
-              setShowBanner(false);
-              if (onOfflineRedirect) {
-                onOfflineRedirect();
-              } else if (navigation) {
-                navigation.navigate('Dashboard');
-              }
-            });
-          }, 3000);
-
-          // Countdown tick
-          let currentCount = 3;
-          intervalRef.current = setInterval(() => {
-            currentCount -= 1;
-            if (currentCount >= 0) {
-              setCountdown(currentCount);
-            }
-          }, 1000);
-        }
-      } else {
-        // If we regained connection or if we are in Offline mode, hide the banner
-        if (showBanner) {
-          if (timerRef.current) clearTimeout(timerRef.current);
+        // 3-second redirect timer
+        timerRef.current = setTimeout(() => {
           if (intervalRef.current) clearInterval(intervalRef.current);
-
           Animated.timing(bannerAnim, {
             toValue: -120,
             duration: 250,
             useNativeDriver: true,
           }).start(() => {
+            bannerVisibleRef.current = false;
             setShowBanner(false);
+            if (onOfflineRedirectRef.current) {
+              onOfflineRedirectRef.current();
+            } else if (navigationRef.current) {
+              navigationRef.current.navigate('Dashboard');
+            }
           });
-        }
+        }, 3000);
+
+        // Countdown tick
+        let currentCount = 3;
+        intervalRef.current = setInterval(() => {
+          currentCount -= 1;
+          if (currentCount >= 0) {
+            setCountdown(currentCount);
+          }
+        }, 1000);
+      } else if (bannerVisibleRef.current) {
+        // Regained connection or switched to Offline mode: cancel the redirect and hide the banner
+        clearTimers();
+        Animated.timing(bannerAnim, {
+          toValue: -120,
+          duration: 250,
+          useNativeDriver: true,
+        }).start(() => {
+          bannerVisibleRef.current = false;
+          setShowBanner(false);
+        });
       }
     });
 
     return () => {
       subscription.unsubscribe();
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      clearTimers();
+      // Reset so a re-subscription (e.g. mode change) can start a fresh banner cycle.
+      if (bannerVisibleRef.current) {
+        bannerVisibleRef.current = false;
+        bannerAnim.setValue(-120);
+        setShowBanner(false);
+      }
     };
-  }, [currentMode, showBanner]);
+  }, [currentMode, bannerAnim]);
 
   if (!showBanner) return null;
 

@@ -27,7 +27,6 @@ import { AppPinInput } from '../components/ui/AppPinInput';
 import {
   setOnboardingComplete,
   saveUserPin,
-  saveUserPinSecure,
   saveUserPhone,
   saveUserFirstName,
   saveUserLastName,
@@ -36,6 +35,7 @@ import {
   saveMainWalletSecret,
 } from '../services/storage/onboardingStorage';
 import { checkUserExists, registerAccount } from '../services/api/accounts';
+import { ApiError, apiFetch } from '../services/api/client';
 import { getOrGenerateDeviceKeypair } from '../services/wallet/deviceKeyStore';
 import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
 import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegistrySync';
@@ -46,7 +46,8 @@ import { StatusBar } from 'expo-status-bar';
 import { generateWalletMnemonic, deriveKeysFromMnemonic } from '../services/wallet/mnemonic';
 import * as SecureStore from 'expo-secure-store';
 import { ensureMigration } from '../services/storage/migration';
-import * as Clipboard from 'expo-clipboard';
+import { copySecretToClipboard } from '../utils/secureClipboard';
+import { useSecureScreen } from '../hooks/useSecureScreen';
 import {
   CountryCodePicker,
   CountryEntry,
@@ -61,6 +62,14 @@ import { getApiBaseUrl } from '../constants/api';
 // ---------------------------------------------------------------------------
 const API_URL = getApiBaseUrl();
 const FRIENDBOT_RETRY_DELAY_MS = 2_000;
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
+
+/** 75 → "1:15" */
+function formatCooldown(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 
 // Enable LayoutAnimation on Android
@@ -90,12 +99,22 @@ export function OnboardingScreen() {
   
   const { login } = useAuth();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
+  // Steps 6-7 show / quiz the seed phrase.
+  useSecureScreen(step === 6 || step === 7);
   const [maxAllowedStep, setMaxAllowedStep] = useState<number>(1);
   const [userFlowType, setUserFlowType] = useState<UserFlowType>(null);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  // Seconds until "Resend" is available again (0 = available).
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   // Phone form
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -109,6 +128,8 @@ export function OnboardingScreen() {
 
   // OTP
   const [otp, setOtp] = useState('');
+  // Proof of phone ownership from /api/otp/verify, required by /api/register.
+  const verificationTokenRef = useRef<string | null>(null);
 
   // Name & Info (new users only)
   const [firstName, setFirstName] = useState('');
@@ -228,7 +249,8 @@ export function OnboardingScreen() {
       setUserFlowType(exists ? 'returning' : 'new');
 
       // Send the real OTP via the backend
-      const response = await fetch(`${API_URL}/api/otp/send`, {
+      const response = await apiFetch(`${API_URL}/api/otp/send`, {
+        auth: false,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: e164 }),
@@ -242,10 +264,25 @@ export function OnboardingScreen() {
         json = { error: responseText || `Request failed with status ${response.status}` };
       }
 
+      if (response.status === 429) {
+        // Respect the server's window so the countdown matches when a resend will succeed.
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : OTP_RESEND_COOLDOWN_SECONDS;
+        setResendCooldown(wait);
+        throw new Error(`Too many code requests. Please try again in ${formatCooldown(wait)}.`);
+      }
+
+      if (response.status === 502 || json.code === 'SMS_FAILED') {
+        // Nothing was sent, so let the user retry immediately.
+        setResendCooldown(0);
+        throw new Error("We couldn't send the SMS. Please check your number and try again.");
+      }
+
       if (!response.ok || !json.success) {
         throw new Error(json.error ?? 'Failed to send OTP. Please try again.');
       }
 
+      setResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
       navigateToStep(3);
     } catch (e: any) {
       console.error('handleSendOtp error:', e);
@@ -263,7 +300,8 @@ export function OnboardingScreen() {
     const e164 = `${selectedCountry.dialCode}${cleanNumber}`;
     setIsVerifyingOtp(true);
     try {
-      const response = await fetch(`${API_URL}/api/otp/verify`, {
+      const response = await apiFetch(`${API_URL}/api/otp/verify`, {
+        auth: false,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: e164, code }),
@@ -280,6 +318,8 @@ export function OnboardingScreen() {
       if (!response.ok || !json.success) {
         throw new Error(json.error ?? 'Invalid OTP. Please try again.');
       }
+      verificationTokenRef.current =
+        typeof json.verificationToken === 'string' ? json.verificationToken : null;
       // OTP verified — proceed based on user flow
       if (userFlowType === 'returning') {
         navigation.replace('SignIn');
@@ -337,8 +377,8 @@ export function OnboardingScreen() {
   };
 
   const handleCopyPhrase = async () => {
-    await Clipboard.setStringAsync(mnemonic);
-    Alert.alert('Copied', 'Seed phrase copied to clipboard!');
+    await copySecretToClipboard(mnemonic);
+    Alert.alert('Copied', 'Seed phrase copied. It will be cleared from the clipboard in 60 seconds.');
   };
 
   const handleVerifyConfirm = async () => {
@@ -353,7 +393,6 @@ export function OnboardingScreen() {
     }
     try {
       await saveUserPin(pin);
-      await saveUserPinSecure(pin);
       navigateToStep(8);
     } catch (e) {
       console.error(e);
@@ -364,7 +403,10 @@ export function OnboardingScreen() {
   const fundMainWallet = async (publicKey: string, retries = 3): Promise<void> => {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const response = await fetch(`${API_URL}/api/friendbot`, {
+        const response = await apiFetch(`${API_URL}/api/friendbot`, {
+          auth: false,
+          retries: 0,
+          timeoutMs: 20_000,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ publicKey }),
@@ -440,6 +482,7 @@ export function OnboardingScreen() {
         firstName,
         lastName,
         email,
+        verificationToken: verificationTokenRef.current ?? undefined,
       };
       const account = await registerAccount(registrationPayload);
 
@@ -467,6 +510,20 @@ export function OnboardingScreen() {
       });
     } catch (e) {
       console.error('[Onboarding Register Error]', e);
+      if (e instanceof ApiError && e.status === 401) {
+        // Verification token missing or expired — the phone must be re-verified.
+        verificationTokenRef.current = null;
+        Alert.alert(
+          'Verify Your Number Again',
+          'Your phone verification has expired. Please request a new code to continue.',
+          [{ text: 'OK', onPress: () => navigateToStep(2) }],
+        );
+        return;
+      }
+      if (e instanceof ApiError && e.status === 429) {
+        Alert.alert('Too Many Attempts', 'Please wait a few minutes and try again.');
+        return;
+      }
       const errorMessage = e instanceof Error ? e.message : 'Please check your connection and try again.';
       Alert.alert('Registration Failed', errorMessage);
     } finally {
@@ -685,11 +742,18 @@ export function OnboardingScreen() {
                 style={styles.resendContainer}
                 activeOpacity={0.7}
                 onPress={handleSendOtp}
-                disabled={isSendingOtp}
+                disabled={isSendingOtp || resendCooldown > 0}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isSendingOtp || resendCooldown > 0, busy: isSendingOtp }}
+                accessibilityLabel={
+                  resendCooldown > 0 ? `Resend code available in ${resendCooldown} seconds` : 'Resend code'
+                }
               >
                 <Text style={styles.resendTextMuted}>Didn't get an OTP? </Text>
                 {isSendingOtp ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : resendCooldown > 0 ? (
+                  <Text style={styles.resendTextMuted}>Resend in {formatCooldown(resendCooldown)}</Text>
                 ) : (
                   <Text style={styles.resendTextLink}>Resend</Text>
                 )}

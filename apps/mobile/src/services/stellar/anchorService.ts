@@ -41,16 +41,19 @@ import {
   Transaction,
 } from '@stellar/stellar-sdk';
 import { Buffer } from 'buffer';
+import { getAnchorDomain } from '../../constants/api';
 import {
   HORIZON_TESTNET_URL,
   PIJIN_ASSETS,
+  ensureTrustline,
   type AssetCode,
 } from './trustlineService';
+import { fetchWithTimeout } from '../api/client';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Base URL of the Pijin anchor backend (no trailing slash). */
-export const ANCHOR_DOMAIN = process.env.EXPO_PUBLIC_ANCHOR_DOMAIN || 'pijin-api.vercel.app';
+/** Base URL of the Pijin anchor backend (no trailing slash). Same host as the API unless overridden. */
+export const ANCHOR_DOMAIN = getAnchorDomain();
 export const ANCHOR_BASE_URL = `https://${ANCHOR_DOMAIN}`;
 
 /** Stellar network we are targeting. */
@@ -141,7 +144,7 @@ export async function confirmSep24WithdrawalPayment(
 ): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${ANCHOR_BASE_URL}/api/anchor/confirm-withdraw`, {
+    response = await fetchWithTimeout(`${ANCHOR_BASE_URL}/api/anchor/confirm-withdraw`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -209,6 +212,12 @@ export async function startSep24Deposit(
   userKeypair: Keypair,
 ): Promise<Sep24DepositResult> {
   const publicKey = userKeypair.publicKey();
+
+  // Ensure trustline is established before opening the SEP-24 deposit webview to prevent op_no_trust error
+  if (assetCode === 'PHPC' || assetCode === 'USDC') {
+    await ensureTrustline(publicKey, userKeypair, assetCode as AssetCode);
+  }
+
   const endpoints = await fetchAnchorEndpoints();
   const token = await getSep10Token(userKeypair);
 
@@ -259,7 +268,7 @@ export async function getSep24WithdrawalInstructions(
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     let response: Response;
     try {
-      response = await fetch(endpoint, {
+      response = await fetchWithTimeout(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
     } catch (err) {
@@ -366,7 +375,7 @@ export async function submitSep24WithdrawalPayment(
     transaction.sign(userKeypair);
 
     const txBase64 = transactionToBase64(transaction);
-    const response = await fetch(`${HORIZON_TESTNET_URL}/transactions`, {
+    const response = await fetchWithTimeout(`${HORIZON_TESTNET_URL}/transactions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `tx=${encodeURIComponent(txBase64)}`,
@@ -411,7 +420,7 @@ async function fetchAnchorEndpoints(): Promise<AnchorEndpoints> {
 
   let response: Response;
   try {
-    response = await fetch(tomlUrl);
+    response = await fetchWithTimeout(tomlUrl);
   } catch (err) {
     throw new AnchorServiceError(
       'Could not reach the Pijin anchor. Please check your internet connection.',
@@ -462,7 +471,7 @@ async function fetchSep10Challenge(
   try {
     const url = new URL(webAuthEndpoint);
     url.searchParams.set('account', publicKey);
-    response = await fetch(url.toString());
+    response = await fetchWithTimeout(url.toString());
   } catch (err) {
     throw new AnchorServiceError(
       'Failed to connect to the authentication server.',
@@ -554,7 +563,7 @@ async function submitSignedChallenge(
 ): Promise<string> {
   let response: Response;
   try {
-    response = await fetch(webAuthEndpoint, {
+    response = await fetchWithTimeout(webAuthEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transaction: signedXdr }),
@@ -614,7 +623,7 @@ async function initiateSep24Deposit(
 
   let response: Response;
   try {
-    response = await fetch(depositUrl, {
+    response = await fetchWithTimeout(depositUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -667,7 +676,7 @@ async function initiateSep24Withdrawal(
 
   let response: Response;
   try {
-    response = await fetch(withdrawalUrl, {
+    response = await fetchWithTimeout(withdrawalUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: formData,

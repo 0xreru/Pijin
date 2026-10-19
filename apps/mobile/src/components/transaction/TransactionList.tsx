@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { StyleSheet, View, Text, Dimensions, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import { Transaction } from '../../types/transaction';
@@ -7,12 +7,26 @@ import { SectionHeader } from '../ui/SectionHeader';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+const keyExtractor = (tx: Transaction) => tx.id;
+
 interface TransactionListProps {
   transactions: Transaction[];
   onViewAll?: () => void;
 }
 
 export function TransactionList({ transactions, onViewAll }: TransactionListProps) {
+  const renderItem = useCallback(
+    ({ item: tx }: { item: Transaction }) => (
+      <TransactionItem
+        id={tx.id}
+        title={tx.title}
+        subtitle={tx.subtitle}
+        amount={tx.amount}
+        type={tx.type}
+      />
+    ),
+    [],
+  );
   const hasTransactions = transactions && transactions.length > 0;
 
   return (
@@ -26,21 +40,12 @@ export function TransactionList({ transactions, onViewAll }: TransactionListProp
       {hasTransactions ? (
         <FlatList
           data={transactions}
-          keyExtractor={(tx) => tx.id}
-          renderItem={({ item: tx }) => (
-            <TransactionItem
-              key={tx.id}
-              id={tx.id}
-              title={tx.title}
-              subtitle={tx.subtitle}
-              amount={tx.amount}
-              type={tx.type}
-            />
-          )}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          // Non-scrolling preview inside the Home ScrollView (callers pass <= 5 rows),
+          // so virtualization can't help: render everything in the first batch.
           scrollEnabled={false}
-          removeClippedSubviews
-          maxToRenderPerBatch={8}
-          windowSize={3}
+          initialNumToRender={10}
           style={styles.listContainer}
         />
       ) : (

@@ -88,12 +88,28 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(15, "10 s"),
+  analytics: false,
+  prefix: "pijin:api:transactions",
+});
 
 export async function GET(req: NextRequest) {
   try {
+    const ip = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "127.0.0.1";
+    const { success } = await ratelimit.limit(ip);
+    if (!success) {
+      return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+    }
+
     const { searchParams } = new URL(req.url);
-    
     const shortId = searchParams.get("shortId")?.trim();
+    const rawLimit = searchParams.get("limit")?.trim();
+    const sinceParam = searchParams.get("since")?.trim();
 
     if (!shortId) {
       return NextResponse.json(
@@ -102,23 +118,47 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const requestedLimit = rawLimit ? Math.min(Math.max(parseInt(rawLimit, 10) || 50, 1), 100) : 50;
+    const sinceDate = sinceParam ? new Date(sinceParam) : null;
+    const validSince = sinceDate && !isNaN(sinceDate.getTime()) ? sinceDate : null;
+
+    const redis = Redis.fromEnv();
+    const cacheKey = `pijin:cache:transactions:${shortId}:${requestedLimit}:${sinceParam ?? 'all'}`;
+    try {
+      const cached = await redis.get<{ success: boolean; data: unknown[] }>(cacheKey);
+      if (cached?.data) {
+        return NextResponse.json(
+          { ...cached, cached: true },
+          {
+            headers: {
+              "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+              "X-Cache": "HIT",
+            },
+          },
+        );
+      }
+    } catch {
+      // cache miss or transient redis error
+    }
+
+    const dateFilter = validSince ? { gte: validSince } : undefined;
+
     const settlements = await prisma.settlement.findMany({
       where: { 
         OR: [
           { senderShortId: shortId },
           { receiverShortId: shortId }
         ],
-        status: "SETTLED" 
+        status: "SETTLED",
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
       },
       include: {
-        
-        // frontend knows exactly what symbol to display (e.g., "PHPC")
         token: {
-            select: { symbol: true, decimals: true }
+          select: { symbol: true, decimals: true }
         }
       },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take: requestedLimit,
     });
 
     const shortIdsToFetch = new Set<string>();
@@ -139,15 +179,28 @@ export async function GET(req: NextRequest) {
 
     // We must serialize BigInt (amountStroops) to strings so JSON.stringify doesn't crash
     const serializedSettlements = settlements.map((settlement: typeof settlements[number]) => ({
-        ...settlement,
-        amountStroops: settlement.amountStroops.toString(),
-        senderName: accountMap.get(settlement.senderShortId) || settlement.senderShortId,
-        receiverName: accountMap.get(settlement.receiverShortId) || settlement.receiverShortId,
+      ...settlement,
+      amountStroops: settlement.amountStroops.toString(),
+      senderName: accountMap.get(settlement.senderShortId) || settlement.senderShortId,
+      receiverName: accountMap.get(settlement.receiverShortId) || settlement.receiverShortId,
     }));
 
-    return NextResponse.json({
+    const responsePayload = {
       success: true,
       data: serializedSettlements,
+    };
+
+    try {
+      await redis.set(cacheKey, responsePayload, { ex: 5 });
+    } catch {
+      // transient redis error
+    }
+
+    return NextResponse.json(responsePayload, {
+      headers: {
+        "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+        "X-Cache": "MISS",
+      },
     });
   } catch (error) {
     console.error("[Transactions API]", error);

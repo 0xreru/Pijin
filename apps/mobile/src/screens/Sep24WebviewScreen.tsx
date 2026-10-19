@@ -268,6 +268,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+// ─── Navigation allow-list ───────────────────────────────────────────────────
+
+const ANCHOR_HOST = ANCHOR_DOMAIN.replace(/\/.*$/, '').replace(/:\d+$/, '').toLowerCase();
+
+/** True only for https URLs on the anchor host (or its subdomains); about:blank is the empty initial document. */
+function isAllowedAnchorUrl(rawUrl: string | undefined): boolean {
+  if (!rawUrl) return false;
+  if (rawUrl === 'about:blank') return true;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === ANCHOR_HOST || host.endsWith(`.${ANCHOR_HOST}`);
+  } catch {
+    return false;
+  }
+}
+
 export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProps) {
   const {
     url,
@@ -354,6 +372,11 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
 
   const handleWebViewMessage = async (event: WebViewMessageEvent) => {
     if (!isWithdrawal || withdrawalInFlightRef.current) return;
+    // The bridge can trigger a wallet payment: only trust messages from the anchor origin.
+    if (!isAllowedAnchorUrl(event.nativeEvent.url)) {
+      console.warn('[Sep24Withdrawal] Ignored WebView message from a non-anchor origin.');
+      return;
+    }
 
     let message: unknown;
     try {
@@ -651,9 +674,11 @@ export function Sep24WebviewScreen({ route, navigation }: Sep24WebviewScreenProp
           source={{ uri: url }}
           style={styles.webview}
           originWhitelist={[
-            `https://${ANCHOR_DOMAIN}`,
-            `https://*.${ANCHOR_DOMAIN}`,
+            `https://${ANCHOR_HOST}`,
+            `https://*.${ANCHOR_HOST}`,
           ]}
+          // originWhitelist alone only hands other links to the OS; this actually blocks them.
+          onShouldStartLoadWithRequest={(request) => isAllowedAnchorUrl(request.url)}
           onLoadProgress={handleLoadProgress}
           onNavigationStateChange={handleNavigationStateChange}
           onMessage={handleWebViewMessage}

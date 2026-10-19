@@ -93,7 +93,8 @@ export function logOfflineTransactionDebug(
   stage: string,
   details: Record<string, unknown>,
 ): void {
-  // Generic console.log suppressed for production
+  if (!isOfflineTransactionDebugEnabled()) return;
+  console.log(`[OfflineDebug] ${stage} traceId=${traceId} ${debugJson(details)}`);
 }
 
 export function logOfflineVoucherDecompression(

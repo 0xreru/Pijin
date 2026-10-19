@@ -5,9 +5,10 @@ import 'lenis/dist/lenis.css'
 
 interface LayoutProps {
   children: ReactNode
+  linkBase?: string
 }
 
-function LayoutContent({ children }: { children: ReactNode }) {
+function LayoutContent({ children, linkBase }: LayoutProps) {
   const lenis = useLenis()
 
   useEffect(() => {
@@ -43,7 +44,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans">
-      <Navbar />
+      <Navbar linkBase={linkBase} />
       <main className="flex-grow pt-20 md:pt-24">
         {children}
       </main>
@@ -51,10 +52,10 @@ function LayoutContent({ children }: { children: ReactNode }) {
   )
 }
 
-export function Layout({ children }: LayoutProps) {
+export function Layout({ children, linkBase }: LayoutProps) {
   return (
     <ReactLenis root options={{ lerp: 0.1, duration: 3, smoothWheel: true }}>
-      <LayoutContent>{children}</LayoutContent>
+      <LayoutContent linkBase={linkBase}>{children}</LayoutContent>
     </ReactLenis>
   )
 }

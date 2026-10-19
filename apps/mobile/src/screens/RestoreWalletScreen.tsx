@@ -18,23 +18,23 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import { AppButton } from '../components/ui/AppButton';
+import { useSecureScreen } from '../hooks/useSecureScreen';
 import { deriveKeysFromMnemonic } from '../services/wallet/mnemonic';
 import { checkUserExists } from '../services/api/accounts';
 import { getSep10Token } from '../services/stellar/anchorService';
+import { ensureTrustline } from '../services/stellar/trustlineService';
 import { useAuth } from '../context/AuthContext';
 import {
   saveMainWalletSecret,
   setOnboardingComplete,
 } from '../services/storage/onboardingStorage';
-import { saveDeviceKey } from '../services/wallet/offlineKeySync'; // We'll need a way to save the device key locally. Wait, deviceKeyStore has this.
-
-// We should import getOrGenerateDeviceKeypair... wait, we need to save the derived device key directly.
 import * as SecureStore from 'expo-secure-store';
 import { ensureMigration } from '../services/storage/migration';
 import { synchronizeRecipientRegistry } from '../services/wallet/recipientRegistrySync';
 import { synchronizeOfflineDeviceKey } from '../services/wallet/offlineKeySync';
 
 export function RestoreWalletScreen() {
+  useSecureScreen();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -82,7 +82,7 @@ export function RestoreWalletScreen() {
       }
       const checkRes = await checkUserExists(phoneNumber);
 
-      if (!checkRes.exists || !checkRes.stellarPublicKey) {
+      if (!checkRes.exists || !checkRes.stellarPublicKey || !checkRes.shortId) {
         throw new Error('Account not found on the network.');
       }
 
@@ -96,6 +96,13 @@ export function RestoreWalletScreen() {
       await ensureMigration();
       await SecureStore.setItemAsync('pijn.device.secret', deviceKeypair.secret());
       
+      // Ensure PHPC trustline exists for the restored wallet
+      try {
+        await ensureTrustline(checkRes.stellarPublicKey, mainWalletKeypair, 'PHPC');
+      } catch (err) {
+        console.warn('[RestoreWallet] Could not ensure PHPC trustline during restore:', err);
+      }
+
       // 5. Authenticate and Log In
       const token = await getSep10Token(mainWalletKeypair);
       await synchronizeRecipientRegistry(token);

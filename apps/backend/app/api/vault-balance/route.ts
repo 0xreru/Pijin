@@ -100,6 +100,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { pijinContract } from "@/lib/pijin-contract";
 import { Horizon } from "@stellar/stellar-sdk";
+import { getRedis } from "@/lib/rate-limit";
 
 const HORIZON_URL = process.env.SOROBAN_RPC_URL?.replace("soroban-testnet", "horizon-testnet") ?? "https://horizon-testnet.stellar.org";
 const server = new Horizon.Server(HORIZON_URL);
@@ -151,6 +152,26 @@ export async function GET(req: NextRequest) {
       }
     } else {
       return NextResponse.json({ error: "Please provide either 'shortId' or 'stellarPublicKey' query parameter" }, { status: 400 });
+    }
+
+    // --- Redis 5-Second Balance Cache ---
+    const redis = getRedis();
+    const cacheKey = `pijin:cache:vault-balance:${stellarPublicKey}`;
+    try {
+      const cached = await redis.get<Record<string, unknown>>(cacheKey);
+      if (cached) {
+        return NextResponse.json(
+          { ...cached, cached: true },
+          {
+            headers: {
+              "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+              "X-Cache": "HIT",
+            },
+          },
+        );
+      }
+    } catch {
+      // cache miss or transient redis error
     }
 
     let balanceStroops: bigint = BigInt(0);
@@ -211,7 +232,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       stellarPublicKey,
       shortId: shortIdFound,
@@ -219,6 +240,19 @@ export async function GET(req: NextRequest) {
       balancePHP,
       offlineBalanceStroops: offlineBalanceStroops.toString(),
       offlineBalancePHP,
+    };
+
+    try {
+      await redis.set(cacheKey, responseData, { ex: 5 });
+    } catch {
+      // transient redis error
+    }
+
+    return NextResponse.json(responseData, {
+      headers: {
+        "Cache-Control": "public, s-maxage=5, stale-while-revalidate=5",
+        "X-Cache": "MISS",
+      },
     });
 
   } catch (error) {

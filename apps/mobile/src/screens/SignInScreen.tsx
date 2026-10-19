@@ -16,14 +16,16 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import {
   getMainWalletSecret,
+  getPinLockoutRemainingMs,
   getUserPin,
-  getUserPinSecure,
   getUserPhone,
+  recordPinFailure,
+  resetPinAttempts,
   saveUserPin,
-  saveUserPinSecure,
   setOnboardingComplete,
 } from '../services/storage/onboardingStorage';
-import { checkUserExists } from '../services/api/accounts';
+import { checkUserExists, verifyPinWithServer } from '../services/api/accounts';
+import { ApiError } from '../services/api/client';
 import { getSep10Token, Keypair as StellarKeypair } from '../services/stellar/anchorService';
 import { useAuth } from '../context/AuthContext';
 import { loadStoredAccount } from '../services/storage/accountStorage';
@@ -80,49 +82,75 @@ export function SignInScreen() {
   const validatePin = async (enteredPin: string) => {
     setIsValidating(true);
     try {
-      // ── Tier 1: AsyncStorage (fastest, cleared when app data is wiped)
-      let pinToCompare = await getUserPin();
-
-      // ── Tier 2: SecureStore (survives app data clears, same device)
-      if (!pinToCompare) {
-        pinToCompare = await getUserPinSecure();
-      }
-
-      // ── Tier 3: Backend DB (ultimate fallback — requires network)
-      // Read phone directly from storage in case the state hasn't populated yet.
-      if (!pinToCompare) {
-        const phoneForQuery = phoneNumber || (await getUserPhone());
-        if (phoneForQuery) {
-          try {
-            const checkRes = await checkUserExists(phoneForQuery);
-            if (checkRes.exists && checkRes.pin) {
-              pinToCompare = checkRes.pin;
-              // Restore both local stores so future logins are offline-capable.
-              await saveUserPin(pinToCompare);
-              await saveUserPinSecure(pinToCompare);
-            }
-          } catch (networkErr) {
-            console.warn('[SignIn] Could not fetch PIN from backend:', networkErr);
-          }
-        }
-      }
-
-      if (!pinToCompare) {
-        // All three tiers exhausted — cannot verify without a known PIN.
+      const lockedMs = await getPinLockoutRemainingMs();
+      if (lockedMs > 0) {
         triggerShake();
         Alert.alert(
-          'Cannot Verify PIN',
-          'Your PIN could not be retrieved. Please ensure you are connected to the internet, then try again.',
+          'Too Many Attempts',
+          `Too many incorrect PINs. Please try again in ${Math.ceil(lockedMs / 60000)} minute(s).`,
         );
         setIsValidating(false);
         return;
       }
 
+      // ── Tier 1: SecureStore (the only local PIN copy)
+      let pinToCompare = await getUserPin();
+
+      // ── Tier 2: Backend verification (requires network). The server never
+      // returns the PIN; it only confirms a match and enforces lockout.
+      // Read phone directly from storage in case the state hasn't populated yet.
+      if (!pinToCompare) {
+        const phoneForQuery = phoneNumber || (await getUserPhone());
+        if (!phoneForQuery) {
+          triggerShake();
+          Alert.alert('Cannot Verify PIN', 'No phone number is linked to this device. Please sign in again.');
+          setIsValidating(false);
+          return;
+        }
+        try {
+          await verifyPinWithServer(phoneForQuery, enteredPin);
+          // Restore the local copy so future logins are offline-capable.
+          await saveUserPin(enteredPin);
+          pinToCompare = enteredPin;
+        } catch (err) {
+          triggerShake();
+          if (err instanceof ApiError && err.status === 401) {
+            // Wrong PIN — the shake is the feedback, same as a local mismatch.
+          } else if (err instanceof ApiError && err.status === 423) {
+            const retryAfter = Number((err.body as { retryAfter?: number } | null)?.retryAfter ?? 900);
+            Alert.alert(
+              'Too Many Attempts',
+              `Your account is temporarily locked. Please try again in ${Math.ceil(retryAfter / 60)} minutes.`,
+            );
+          } else if (err instanceof ApiError && err.status === 429) {
+            Alert.alert('Too Many Attempts', 'Please wait a moment and try again.');
+          } else if (err instanceof ApiError && err.status === 404) {
+            Alert.alert('Account Not Found', 'This phone number is not registered on the network.');
+          } else {
+            console.warn('[SignIn] Could not verify PIN with backend:', err);
+            Alert.alert(
+              'Cannot Verify PIN',
+              'Your PIN could not be verified. Please ensure you are connected to the internet, then try again.',
+            );
+          }
+          setIsValidating(false);
+          return;
+        }
+      }
+
       if (enteredPin !== pinToCompare) {
         triggerShake();
+        const lockoutMs = await recordPinFailure();
+        if (lockoutMs > 0) {
+          Alert.alert(
+            'Too Many Attempts',
+            `Too many incorrect PINs. Please try again in ${Math.ceil(lockoutMs / 60000)} minutes.`,
+          );
+        }
         setIsValidating(false);
         return;
       }
+      await resetPinAttempts();
 
       // PIN is correct. Load the persisted main wallet for SEP-10 auth.
       const mainWalletSecret = await getMainWalletSecret();

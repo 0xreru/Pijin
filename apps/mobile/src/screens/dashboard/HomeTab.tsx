@@ -19,7 +19,8 @@ import { BalanceCard } from '../../components/wallet/BalanceCard';
 import { TransactionList } from '../../components/transaction/TransactionList';
 
 import { DepositButton } from '../../components/ui/DepositButton';
-import type { AssetCode } from '../../services/stellar/trustlineService';
+import { TOPUP_ENABLED } from '../../constants/featureFlags';
+import { ensureTrustline, type AssetCode } from '../../services/stellar/trustlineService';
 import {
   startSep24Deposit,
   startSep24Withdrawal,
@@ -120,10 +121,13 @@ export const HomeTab = memo(function HomeTab({
       }
       const keypair = StellarKeypair.fromSecret(mainWalletSecret);
 
-      // 2. Start the SEP-24 flow (Auth & Deposit initiation)
+      // 2. Ensure trustline exists on-chain before opening the SEP-24 deposit flow
+      await ensureTrustline(keypair.publicKey(), keypair, assetCode);
+
+      // 3. Start the SEP-24 flow (Auth & Deposit initiation)
       const { url, transactionId } = await startSep24Deposit(assetCode, keypair);
 
-      // 3. Navigate directly to the webview!
+      // 4. Navigate directly to the webview!
       navigation.navigate('Sep24Webview', { url, assetCode, transactionId });
     } catch (e) {
       Alert.alert('Deposit Error', String(e));
@@ -264,7 +268,7 @@ export const HomeTab = memo(function HomeTab({
               <DepositButton
                 assetCode="PHPC"
                 onPress={handleDepositPress}
-                disabled={depositLoading || !isOnline || !stellarPublicKey}
+                disabled={!TOPUP_ENABLED || depositLoading || !isOnline || !stellarPublicKey}
                 label="Top-Up"
               />
 

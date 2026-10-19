@@ -19,6 +19,8 @@ import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { connectionService } from '../services/connectionService';
 import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { lookupUserByShortId } from '../services/api/accounts';
 import { db } from '../db/client';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
@@ -149,7 +151,13 @@ export function GenerateQRScreen({ route, navigation }: any) {
           quality: 1,
         });
 
-        const { status } = await MediaLibrary.requestPermissionsAsync();
+        // Expo Go on Android 13+ can't use the media library; fall back to the share sheet.
+        if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+          await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Save QR Code' });
+          return;
+        }
+
+        const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
         if (status === 'granted') {
           await MediaLibrary.saveToLibraryAsync(uri);
           setErrorContent({ title: 'Success', message: 'QR Code saved to gallery!', variant: 'success' });

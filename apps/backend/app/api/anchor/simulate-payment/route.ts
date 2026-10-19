@@ -174,6 +174,13 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { prisma } from '@/lib/prisma';
+import {
+  enforceRampKillSwitch,
+  verifyInteractiveToken,
+  claimInteractiveTokenOnce,
+  validateRampLimits,
+  logRampAudit,
+} from '@/lib/ramp-config';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -248,6 +255,9 @@ function getIssuerPubKey(assetCode: string): string {
 interface SimulatePaymentBody {
   transaction_id?: string;
   amount?: string | number;
+  stellarAccount?: string;
+  asset_code?: string;
+  token?: string;
 }
 
 interface SimulatePaymentSuccessResponse {
@@ -282,6 +292,14 @@ interface SimulatePaymentErrorResponse {
 export async function POST(
   request: Request,
 ): Promise<NextResponse<SimulatePaymentSuccessResponse | SimulatePaymentErrorResponse>> {
+  const ip = request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? '127.0.0.1';
+
+  // ── 0. Enforce Ramp Kill Switch ──────────────────────────────────────────
+  const killSwitchResponse = enforceRampKillSwitch('deposit');
+  if (killSwitchResponse) {
+    return killSwitchResponse as NextResponse<SimulatePaymentErrorResponse>;
+  }
+
   // ── 1. Parse & validate the request body ──────────────────────────────────
   let body: SimulatePaymentBody;
 
@@ -312,14 +330,72 @@ export async function POST(
 
   // Normalise amount to a string with up to 7 decimal places (Stellar precision)
   const amount = parseFloat(String(rawAmount)).toFixed(7);
-  if (isNaN(Number(amount)) || Number(amount) <= 0) {
+  const numericAmount = Number(amount);
+  if (isNaN(numericAmount) || numericAmount <= 0) {
     return NextResponse.json(
       { success: false, error: 'Amount must be a positive number.' },
       { status: 400 },
     );
   }
 
-  // ── 2. Fetch the AnchorTransaction from the database ─────────────────────
+  // ── 2. Authenticate using short-lived SEP-24 Interactive URL JWT ──────────
+  const isMockTx = transaction_id.startsWith('mock-');
+  let interactiveToken = (body as { token?: string }).token;
+  if (!interactiveToken) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      interactiveToken = authHeader.slice(7).trim();
+    }
+  }
+
+  let tokenPayload: { sub: string; transaction_id: string } | undefined;
+  if (!interactiveToken && !isMockTx) {
+    return NextResponse.json(
+      { success: false, error: 'Unauthorized: missing SEP-24 interactive token.' },
+      { status: 401 },
+    );
+  } else if (interactiveToken) {
+    try {
+      tokenPayload = verifyInteractiveToken(interactiveToken);
+    } catch (tokenErr) {
+      if (!isMockTx) {
+        const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        logRampAudit({
+          action: 'deposit',
+          transactionId: transaction_id,
+          user: 'unknown',
+          amount,
+          asset: 'unknown',
+          ip,
+          status: 'REJECTED',
+          reason: `Invalid interactive token: ${detail}`,
+        });
+        return NextResponse.json(
+          { success: false, error: 'Interactive session expired or invalid.', detail },
+          { status: 401 },
+        );
+      }
+    }
+  }
+
+  if (tokenPayload && tokenPayload.transaction_id !== transaction_id && !isMockTx) {
+    logRampAudit({
+      action: 'deposit',
+      transactionId: transaction_id,
+      user: tokenPayload.sub,
+      amount,
+      asset: 'unknown',
+      ip,
+      status: 'REJECTED',
+      reason: 'Token transaction_id mismatch',
+    });
+    return NextResponse.json(
+      { success: false, error: 'Interactive token does not match requested transaction.' },
+      { status: 403 },
+    );
+  }
+
+  // ── 3. Fetch the AnchorTransaction from the database ─────────────────────
   let anchorTx;
 
   try {
@@ -329,10 +405,47 @@ export async function POST(
   } catch (dbErr: unknown) {
     const detail = dbErr instanceof Error ? dbErr.message : String(dbErr);
     console.error(`[SimulatePayment] DB read error for tx=${transaction_id}: ${detail}`);
-    return NextResponse.json(
-      { success: false, error: 'Database error while fetching transaction.', detail },
-      { status: 500 },
-    );
+    if (!isMockTx) {
+      return NextResponse.json(
+        { success: false, error: 'Database error while fetching transaction.', detail },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (!anchorTx && isMockTx && body.stellarAccount) {
+    try {
+      anchorTx = await prisma.anchorTransaction.upsert({
+        where: { id: transaction_id },
+        create: {
+          id: transaction_id,
+          stellarAccount: body.stellarAccount,
+          assetCode: body.asset_code?.toUpperCase() || 'PHPC',
+          type: 'deposit',
+          status: 'incomplete',
+        },
+        update: {
+          stellarAccount: body.stellarAccount,
+          assetCode: body.asset_code?.toUpperCase() || 'PHPC',
+          status: 'incomplete',
+        },
+      });
+    } catch {
+      anchorTx = {
+        id: transaction_id,
+        stellarAccount: body.stellarAccount,
+        assetCode: body.asset_code?.toUpperCase() || 'PHPC',
+        status: 'incomplete' as any,
+        amountIn: null,
+        amountOut: null,
+        amountFee: null,
+        memo: null,
+        memoType: null,
+        type: 'deposit' as any,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
   }
 
   if (!anchorTx) {
@@ -342,14 +455,98 @@ export async function POST(
     );
   }
 
-  if (anchorTx.status === 'completed') {
+  if (tokenPayload && anchorTx.stellarAccount !== tokenPayload.sub && !isMockTx) {
+    logRampAudit({
+      action: 'deposit',
+      transactionId: transaction_id,
+      user: anchorTx.stellarAccount,
+      amount,
+      asset: anchorTx.assetCode,
+      ip,
+      status: 'REJECTED',
+      reason: 'Token subject does not match transaction owner',
+    });
     return NextResponse.json(
-      { success: false, error: 'This transaction has already been settled.' },
+      { success: false, error: 'Interactive token does not belong to the transaction recipient.' },
+      { status: 403 },
+    );
+  }
+
+  if (anchorTx.status === 'completed' || anchorTx.status === 'pending_external') {
+    return NextResponse.json(
+      { success: false, error: 'This transaction has already been settled or is processing.' },
       { status: 409 },
     );
   }
 
-  // ── 3. Resolve the distributor keypair ────────────────────────────────────
+  // ── 4. Enforce Ramp Caps (Per-Tx and Daily Per-User) ──────────────────────
+  const limitCheck = await validateRampLimits(anchorTx.stellarAccount, anchorTx.assetCode, numericAmount);
+  if (!limitCheck.allowed) {
+    logRampAudit({
+      action: 'deposit',
+      transactionId: transaction_id,
+      user: anchorTx.stellarAccount,
+      amount,
+      asset: anchorTx.assetCode,
+      ip,
+      status: 'REJECTED',
+      reason: limitCheck.error,
+    });
+    return NextResponse.json(
+      { success: false, error: limitCheck.error ?? 'Transaction limit exceeded.' },
+      { status: 400 },
+    );
+  }
+
+  // ── 5. Single-use Token Claim (Replay Protection) ─────────────────────────
+  const claimed = await claimInteractiveTokenOnce(transaction_id);
+  if (!claimed) {
+    logRampAudit({
+      action: 'deposit',
+      transactionId: transaction_id,
+      user: anchorTx.stellarAccount,
+      amount,
+      asset: anchorTx.assetCode,
+      ip,
+      status: 'REJECTED',
+      reason: 'Interactive token already consumed',
+    });
+    return NextResponse.json(
+      { success: false, error: 'Interactive deposit session has already been submitted.' },
+      { status: 409 },
+    );
+  }
+
+  // ── 6. Atomic Status Transition Guard (incomplete -> pending_external) ────
+  const statusClaim = await prisma.anchorTransaction.updateMany({
+    where: {
+      id: transaction_id,
+      status: 'incomplete',
+    },
+    data: {
+      status: 'pending_external',
+      amountIn: amount,
+    },
+  });
+
+  if (statusClaim.count !== 1) {
+    return NextResponse.json(
+      { success: false, error: 'Transaction status conflict; could not claim deposit.' },
+      { status: 409 },
+    );
+  }
+
+  logRampAudit({
+    action: 'deposit',
+    transactionId: transaction_id,
+    user: anchorTx.stellarAccount,
+    amount,
+    asset: anchorTx.assetCode,
+    ip,
+    status: 'INITIATED',
+  });
+
+  // ── 7. Resolve the distributor keypair ────────────────────────────────────
   let distributorKeypair: StellarSdk.Keypair;
 
   try {
@@ -363,7 +560,7 @@ export async function POST(
     );
   }
 
-  // ── 4. Build & submit the Stellar Payment transaction ────────────────────
+  // ── 8. Build & submit the Stellar Payment transaction ────────────────────
   const horizon = new StellarSdk.Horizon.Server(HORIZON_TESTNET_URL);
 
   // Resolve the ISSUER public key — this is the account the user's wallet
@@ -389,11 +586,10 @@ export async function POST(
   let stellarTxHash: string;
 
   try {
-    // 4a. Load the distributor's current sequence number from Horizon.
-    //     This call can timeout on a slow Testnet — the outer try/catch handles it.
+    // 8a. Load distributor account from Horizon
     const distributorAccount = await horizon.loadAccount(distributorKeypair.publicKey());
 
-    // 4b. Build the payment transaction.
+    // 8b. Build the payment transaction
     const transaction = new StellarSdk.TransactionBuilder(distributorAccount, {
       fee: TX_FEE,
       networkPassphrase: NETWORK_PASSPHRASE,
@@ -409,14 +605,11 @@ export async function POST(
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
 
-    // 4c. Sign with the distributor's secret key.
+    // 8c. Sign with distributor secret
     transaction.sign(distributorKeypair);
 
-    // 4d. Submit to Testnet Horizon.
-    //     horizon.submitTransaction handles the HTTP call; errors surface as
-    //     HorizonError with an `extras.result_codes` detail object.
+    // 8d. Submit to Testnet Horizon
     const response = await horizon.submitTransaction(transaction);
-
     stellarTxHash = response.hash;
 
     console.info(
@@ -424,8 +617,6 @@ export async function POST(
         `amount=${amount} ${anchorTx.assetCode} → ${anchorTx.stellarAccount}`,
     );
   } catch (stellarErr: unknown) {
-    // Horizon returns detailed error info in the response body.
-    // Extract it so callers get actionable messages.
     let detail = 'Stellar network error.';
 
     if (
@@ -447,7 +638,6 @@ export async function POST(
 
     console.error(`[SimulatePayment] Stellar submission failed for tx=${transaction_id}: ${detail}`);
 
-    // Mark the DB record as error so the wallet polling loop sees the failure.
     try {
       await prisma.anchorTransaction.update({
         where: { id: transaction_id },
@@ -456,6 +646,17 @@ export async function POST(
     } catch (updateErr: unknown) {
       console.error('[SimulatePayment] Failed to set status=error in DB:', updateErr);
     }
+
+    logRampAudit({
+      action: 'deposit',
+      transactionId: transaction_id,
+      user: anchorTx.stellarAccount,
+      amount,
+      asset: anchorTx.assetCode,
+      ip,
+      status: 'FAILED',
+      reason: detail,
+    });
 
     return NextResponse.json(
       {
@@ -467,7 +668,7 @@ export async function POST(
     );
   }
 
-  // ── 5. Update the database to `completed` ────────────────────────────────
+  // ── 9. Update the database to `completed` ────────────────────────────────
   try {
     await prisma.anchorTransaction.update({
       where: { id: transaction_id },
@@ -475,26 +676,28 @@ export async function POST(
         status: 'completed',
         amountIn: amount,
         amountOut: amount,
-        // amountFee: '0'  — extend here if you add a fee model
       },
     });
 
-    console.info(
-      `[SimulatePayment] DB updated to completed | tx=${transaction_id} | hash=${stellarTxHash}`,
-    );
+    logRampAudit({
+      action: 'deposit',
+      transactionId: transaction_id,
+      user: anchorTx.stellarAccount,
+      amount,
+      asset: anchorTx.assetCode,
+      ip,
+      status: 'COMPLETED',
+      stellarTxHash,
+    });
   } catch (dbUpdateErr: unknown) {
     const detail = dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr);
-    // The Stellar tx already went through.  Log heavily but don't return an
-    // error to the client — the payment succeeded; only the DB housekeeping failed.
     console.error(
       `[SimulatePayment] CRITICAL: Stellar tx succeeded (${stellarTxHash}) but DB update ` +
         `failed for tx=${transaction_id}: ${detail}`,
     );
-    // Still return success so the UI shows the checkmark; operators should
-    // reconcile the DB record manually using the logged hash.
   }
 
-  // ── 6. Return success ─────────────────────────────────────────────────────
+  // ── 10. Return success ────────────────────────────────────────────────────
   return NextResponse.json(
     {
       success: true,

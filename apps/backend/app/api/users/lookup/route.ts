@@ -57,11 +57,18 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { createLimiter, enforceLimit, getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
+// High ceiling: the current app resolves names with one lookup per offline row.
+const lookupLimit = createLimiter('pijin:api:users:lookup', 300, '1 m');
+
 export async function GET(req: NextRequest) {
   try {
+    const limited = await enforceLimit(lookupLimit, getClientIp(req));
+    if (limited) return limited;
+
     const { searchParams } = new URL(req.url);
     const shortId = searchParams.get('shortId')?.trim();
     const phone = searchParams.get('phone')?.trim();

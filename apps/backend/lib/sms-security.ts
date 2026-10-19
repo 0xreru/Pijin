@@ -128,6 +128,65 @@ export function verifyTextbeeHmac(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Debug-only: after a SIGNATURE_MISMATCH, tries common signing variants and
+ * reports which (if any) reproduce the incoming signature. Returns booleans and
+ * short hashes only — never the secret or the body.
+ */
+export function diagnoseHmacMismatch(
+    rawBody: string,
+    signatureHeader: string,
+    secret: string,
+    timestampHeader: string | null,
+): Record<string, unknown> {
+    const sig = signatureHeader.replace(/^sha256=/i, '').toLowerCase();
+    const sha8 = (s: string) => crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 8);
+    const hex = (key: string | Buffer, data: string) => crypto.createHmac('sha256', key).update(data, 'utf8').digest('hex');
+
+    let compact: string | null = null;
+    try { compact = JSON.stringify(JSON.parse(rawBody)); } catch { /* not JSON */ }
+
+    const keys: Record<string, string | Buffer> = {
+        secret,
+        secretTrimmed: secret.trim(),
+        secretUnquoted: secret.trim().replace(/^["']|["']$/g, ''),
+        secretBase64Decoded: Buffer.from(secret, 'base64'),
+    };
+    const bodies: Record<string, string> = {
+        raw: rawBody,
+        rawTrimmed: rawBody.trim(),
+        ...(compact !== null ? { reserializedJson: compact } : {}),
+        ...(timestampHeader ? {
+            timestampDotBody: `${timestampHeader}.${rawBody}`,
+            timestampPlusBody: `${timestampHeader}${rawBody}`,
+        } : {}),
+    };
+
+    const matches: string[] = [];
+    for (const [kn, key] of Object.entries(keys)) {
+        for (const [bn, body] of Object.entries(bodies)) {
+            const h = hex(key, body);
+            if (h === sig) matches.push(`key=${kn} body=${bn} (hex)`);
+            if (crypto.createHmac('sha256', key).update(body, 'utf8').digest('base64') === signatureHeader) {
+                matches.push(`key=${kn} body=${bn} (base64)`);
+            }
+        }
+    }
+
+    return {
+        matches: matches.length ? matches : 'NONE — signed with a different secret or different content',
+        secretLen: secret.length,
+        secretFprint: sha8(secret),
+        bodyBytes: Buffer.byteLength(rawBody, 'utf8'),
+        bodyChars: rawBody.length,
+        bodySha8: sha8(rawBody),
+        bodyIsCompactJson: compact === rawBody,
+        incomingSigHead: sig.slice(0, 8),
+        expectedSigHead: hex(secret, rawBody).slice(0, 8),
+        timestampHeader,
+    };
+}
+
+/**
  * Validates the `x-timestamp` / `x-textbee-timestamp` header against the
  * server's wall clock within a configurable tolerance window.
  *

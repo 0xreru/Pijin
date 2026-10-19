@@ -32,11 +32,36 @@ import type { PaymentQueueRow } from '../db/schema';
 import { addTransaction, upsertServerTransactions, upsertHistoryTransactions } from '../db/services/transactionDb';
 import { loadStoredAccount } from './storage/accountStorage';
 import { getUserSettlements, getWalletHistory } from './api/transactions';
-import { getApiBaseUrl } from '../constants/api';
+import { apiFetch } from './api/client';
 
 // ---------------------------------------------------------------------------
 // Backend integration point
 // ---------------------------------------------------------------------------
+
+/** Max queue items posted per flush, so a reconnecting crowd doesn't flood the relayer. */
+const MAX_ITEMS_PER_FLUSH = 5;
+/** Random delay before an automatic flush, so devices regaining signal together spread out. */
+const MAX_AUTO_FLUSH_JITTER_MS = 3_000;
+
+/**
+ * Why a post did not settle:
+ *  - 'transient': network, timeout, 408/429/5xx — keep pending, stop this flush.
+ *  - 'rejected':  401/403 — the backend refused a direct submission (settle is
+ *                 QStash-signed); keep pending so the SMS path can still settle it.
+ *  - 'permanent': 400/413/422 — the payload itself is bad; never retry.
+ */
+export class SyncPostError extends Error {
+  constructor(message: string, public readonly kind: 'transient' | 'rejected' | 'permanent') {
+    super(message);
+    this.name = 'SyncPostError';
+  }
+}
+
+export function classifySettleStatus(status: number): SyncPostError['kind'] {
+  if (status === 401 || status === 403) return 'rejected';
+  if (status === 400 || status === 413 || status === 422) return 'permanent';
+  return 'transient';
+}
 
 /**
  * Sends a single queued payment to the backend Settlement endpoint.
@@ -44,17 +69,22 @@ import { getApiBaseUrl } from '../constants/api';
 async function postToBackend(
   item: PaymentQueueRow
 ): Promise<{ txHash: string | null; status: string; error?: string }> {
-  const apiBase = getApiBaseUrl();
-  const res = await fetch(`${apiBase}/api/engine/settle`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    // /api/engine/settle expects `smsPayload` (not `smsBody`)
-    // and `senderPhone` for SMS receipt notifications.
-    body: JSON.stringify({
-      smsPayload: item.smsBody,
-      senderPhone: null, // No phone available in mobile context; backend handles gracefully
-    }),
-  });
+  let res: Response;
+  try {
+    res = await apiFetch('/api/engine/settle', {
+      method: 'POST',
+      auth: false,
+      timeoutMs: 25_000,
+      // /api/engine/settle expects `smsPayload` (not `smsBody`)
+      // and `senderPhone` for SMS receipt notifications.
+      body: JSON.stringify({
+        smsPayload: item.smsBody,
+        senderPhone: null, // No phone available in mobile context; backend handles gracefully
+      }),
+    });
+  } catch (err) {
+    throw new SyncPostError(err instanceof Error ? err.message : 'Network error', 'transient');
+  }
 
   if (res.status === 409) {
     // Duplicate nonce — idempotent success
@@ -62,7 +92,7 @@ async function postToBackend(
   }
 
   if (!res.ok) {
-    throw new Error(`Backend returned HTTP ${res.status}`);
+    throw new SyncPostError(`Backend returned HTTP ${res.status}`, classifySettleStatus(res.status));
   }
 
   const data = await res.json();
@@ -103,7 +133,7 @@ class SyncService {
         if (this.isFlushInProgress) {
           return EMPTY;
         }
-        return from(this.flush()).pipe(
+        return from(this.flush({ jitter: true })).pipe(
           catchError(err => {
             console.error('[SyncService] Unhandled flush error:', err);
             return EMPTY;
@@ -142,13 +172,17 @@ class SyncService {
    * Called automatically on online transition, but can also be invoked
    * from the "Sync Now" button in DashboardScreen as a manual override.
    */
-  async flush(): Promise<void> {
+  async flush(options: { jitter?: boolean } = {}): Promise<void> {
     if (this.isFlushInProgress) {
       return;
     }
 
     this.isFlushInProgress = true;
     try {
+      if (options.jitter) {
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * MAX_AUTO_FLUSH_JITTER_MS));
+      }
+
       let account: any = null;
       try {
         account = await loadStoredAccount();
@@ -180,6 +214,10 @@ class SyncService {
       let successCount = 0;
       let totalAmount = 0;
 
+      // Already-settled items are reconciled locally without a request, so they
+      // don't count against the per-flush budget.
+      let posted = 0;
+
       for (const item of pending) {
         try {
           const shortNonce = this.extractShortNonce(item.smsBody);
@@ -192,9 +230,14 @@ class SyncService {
             continue;
           }
 
+          if (posted >= MAX_ITEMS_PER_FLUSH) {
+            continue;
+          }
+
           let isFailed = false;
           let errorMessage = '';
 
+          posted++;
           const result = await postToBackend(item);
           if (result.status === 'FAILED') {
             isFailed = true;
@@ -214,8 +257,23 @@ class SyncService {
         } catch (err: any) {
           const message = err?.message ?? 'Unknown error';
           await markSyncError(item.id, message);
+
+          if (err instanceof SyncPostError && err.kind === 'permanent') {
+            // Malformed voucher: retrying can never succeed.
+            await markSynced(item.id, null, 'FAILED');
+            console.warn(`[SyncService] Item ${item.id} permanently rejected: ${message}`);
+            continue;
+          }
+
+          if (err instanceof SyncPostError) {
+            // Transient or rejected: keep the item pending and stop hammering the
+            // backend this round. The next flush (or SMS settlement) picks it up.
+            console.warn(`[SyncService] Item ${item.id} not settled (${err.kind}): ${message}. Stopping this flush.`);
+            break;
+          }
+
           console.warn(`[SyncService] Item ${item.id} failed: ${message}`);
-          // Continue processing remaining items — do not abort the whole flush
+          // Unexpected local error — continue with the remaining items
         }
       }
     } finally {

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { type NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/prisma';
+import { enforceRampKillSwitch, logRampAudit } from '@/lib/ramp-config';
 
 const HORIZON_TESTNET_URL = 'https://horizon-testnet.stellar.org';
 
@@ -68,6 +69,13 @@ async function horizonJson(url: string): Promise<Record<string, unknown>> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const ip = request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? '127.0.0.1';
+
+  const killSwitchResponse = enforceRampKillSwitch('withdraw');
+  if (killSwitchResponse) {
+    return killSwitchResponse;
+  }
+
   let account: string;
   try {
     account = authenticatedAccount(request);
@@ -137,6 +145,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (!transactionMatches || !paymentMatches) {
       console.warn(`[Confirm Withdrawal] Horizon verification mismatch | id=${transactionId} | hash=${stellarTransactionId}`);
+      logRampAudit({
+        action: 'withdraw',
+        transactionId,
+        user: account,
+        amount: expectedAmount,
+        asset: anchorTx.assetCode,
+        ip,
+        status: 'FAILED',
+        stellarTxHash: stellarTransactionId,
+        reason: 'Horizon verification mismatch',
+      });
       return NextResponse.json({ success: false, error: 'The Stellar payment does not match this withdrawal.' }, { status: 422 });
     }
 
@@ -149,6 +168,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     console.info(`[Confirm Withdrawal] Payment verified | id=${transactionId} | hash=${stellarTransactionId}`);
+    logRampAudit({
+      action: 'withdraw',
+      transactionId,
+      user: account,
+      amount: expectedAmount,
+      asset: anchorTx.assetCode,
+      ip,
+      status: 'COMPLETED',
+      stellarTxHash: stellarTransactionId,
+    });
     return NextResponse.json({ success: true, status: 'pending_external' }, { status: 200 });
   } catch (error: unknown) {
     console.error(`[Confirm Withdrawal] Failed | id=${transactionId}:`, error);

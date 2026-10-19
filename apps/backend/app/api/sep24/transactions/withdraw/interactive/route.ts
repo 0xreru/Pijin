@@ -4,6 +4,7 @@ import jwt, { type JwtPayload } from 'jsonwebtoken';
 import { type NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/prisma';
+import { enforceRampKillSwitch } from '@/lib/ramp-config';
 
 const SUPPORTED_ASSETS = new Set(['PHPC', 'USDC']);
 const INTERACTIVE_TOKEN_TTL_SECONDS = 15 * 60;
@@ -51,6 +52,11 @@ async function parseBody(request: NextRequest): Promise<WithdrawalRequestBody> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const killSwitchResponse = enforceRampKillSwitch('withdraw');
+  if (killSwitchResponse) {
+    return killSwitchResponse;
+  }
+
   let session: JwtPayload & { sub: string };
   try {
     session = verifySep10Token(request);

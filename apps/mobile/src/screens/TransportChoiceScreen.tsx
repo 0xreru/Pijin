@@ -17,6 +17,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SMS_GATEWAY_NUMBER } from '../constants/api';
+import { debugSmsSend } from '../utils/smsDebug';
 import { db } from '../db/client';
 import { enqueuePayment } from '../db/services/paymentQueueDb';
 import { addTransaction } from '../db/services/transactionDb';
@@ -130,11 +131,14 @@ export function TransportChoiceScreen({ route, navigation }: any) {
       // Set waiting flag before opening native SMS app
       setIsWaitingForSmsReturn(true);
 
+      debugSmsSend('TransportChoice', SMS_GATEWAY_NUMBER, qrData, url);
+      console.log(`[SMS Send] Opening SMS app. gateway=${SMS_GATEWAY_NUMBER} payloadLen=${qrData.length} urlLen=${url.length} os=${Platform.OS}`);
       Linking.openURL(url)
+        .then(() => console.log('[SMS Send] SMS app opened (user still has to press send)'))
         .catch((err) => {
           setIsWaitingForSmsReturn(false);
           Alert.alert('Error', 'Could not open native messaging app.');
-          console.error(err);
+          console.error('[SMS Send] openURL failed:', err);
         });
     } else if (choice === 'relay') {
       // Defer commit until GenerateQR "Done relaying" is pressed

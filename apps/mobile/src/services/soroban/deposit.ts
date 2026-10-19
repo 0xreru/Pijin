@@ -20,6 +20,7 @@ import {
   HORIZON_URL,
 } from '../../constants/stellar';
 import { getOrGenerateDeviceKeypair } from '../wallet/deviceKeyStore';
+import { fetchWithTimeout } from '../api/client';
 
 // Ensure Buffer is available globally for XDR serialization in Hermes.
 if (typeof global.Buffer === 'undefined') {
@@ -251,7 +252,7 @@ async function resolveAccountSequence(publicKey: string): Promise<string> {
 
 async function fetchHorizonSequence(publicKey: string): Promise<string | null> {
   try {
-    const response = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
+    const response = await fetchWithTimeout(`${HORIZON_URL}/accounts/${publicKey}`);
     if (response.status === 404) return null;
     if (!response.ok) return null;
     const data = (await response.json()) as { sequence?: unknown };

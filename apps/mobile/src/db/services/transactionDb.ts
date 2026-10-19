@@ -17,6 +17,7 @@ import { db } from '../client';
 import { transactions, type TransactionRow, type NewTransactionRow } from '../schema';
 import { desc, eq, like, ne } from 'drizzle-orm';
 import type { TransactionType } from '../../types/transaction';
+import { apiFetch } from '../../services/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -344,10 +345,6 @@ export async function correctLegacyTags(): Promise<void> {
  */
 export async function resolveOfflineTransactionNames(): Promise<void> {
   try {
-    const API_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://pijin-api.vercel.app')
-      .trim()
-      .replace(/^['"]|['"]$/g, '');
-    
     // Find all OFFLINE transactions
     const unresolvedTxs = await db
       .select()
@@ -361,7 +358,7 @@ export async function resolveOfflineTransactionNames(): Promise<void> {
       if (match && match[1]) {
         const shortId = match[1];
         try {
-          const res = await fetch(`${API_URL}/api/users/lookup?shortId=${encodeURIComponent(shortId)}`);
+          const res = await apiFetch(`/api/users/lookup?shortId=${encodeURIComponent(shortId)}`, { auth: false, retries: 0 });
           if (res.ok) {
             const data = await res.json();
             if (data.found && data.displayName) {

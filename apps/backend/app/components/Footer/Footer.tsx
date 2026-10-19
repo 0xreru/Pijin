@@ -1,7 +1,14 @@
 import { Mail, Phone } from 'lucide-react'
 import { ScrollReveal } from '../ScrollReveal'
 
-export function Footer() {
+interface FooterProps {
+  // Set to '/' on pages other than home so section anchors link back to the home page
+  linkBase?: string
+}
+
+export function Footer({ linkBase = '' }: FooterProps) {
+  const resolveHref = (href: string) => (linkBase ? (href === '#' ? linkBase : `${linkBase}${href}`) : href)
+
   return (
     <footer className="bg-white border-t border-slate-100 py-16 lg:py-24 relative overflow-hidden">
 
@@ -14,7 +21,7 @@ export function Footer() {
           {/* Column 1: Brand Info */}
           <ScrollReveal direction="up" delay={0} duration={800} className="flex flex-col space-y-4">
             {/* Logo */}
-            <a href="#" className="flex items-center space-x-2 group focus:outline-none rounded-lg py-1 pr-2">
+            <a href={resolveHref('#')} className="flex items-center space-x-2 group focus:outline-none rounded-lg py-1 pr-2">
               <img
                 src="/assets/logo.png"
                 alt=""
@@ -54,9 +61,9 @@ export function Footer() {
           <ScrollReveal direction="up" delay={100} duration={800} className="flex flex-col space-y-4">
             <h4 className="text-xl sm:text-2xl font-bold text-black font-display">Links</h4>
             <nav className="flex flex-col space-y-3 font-sans">
-              <a href="#" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Home</a>
-              <a href="#about" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">About</a>
-              <a href="#team" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Meet the Team</a>
+              <a href={resolveHref('#')} className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Home</a>
+              <a href={resolveHref('#about')} className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">About</a>
+              <a href={resolveHref('#team')} className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Meet the Team</a>
             </nav>
           </ScrollReveal>
 
@@ -65,7 +72,8 @@ export function Footer() {
             <h4 className="text-xl sm:text-2xl font-bold text-black font-display">Legal</h4>
             <nav className="flex flex-col space-y-3 font-sans">
               <a href="#terms" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Terms Of Use</a>
-              <a href="#privacy" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Privacy Policy</a>
+              <a href="/privacy-policy" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Privacy Policy</a>
+              <a href="/delete-account" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Delete Account</a>
               <a href="#cookie" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Cookie Policy</a>
             </nav>
           </ScrollReveal>
@@ -74,7 +82,7 @@ export function Footer() {
           <ScrollReveal direction="up" delay={300} duration={800} className="flex flex-col space-y-4">
             <h4 className="text-xl sm:text-2xl font-bold text-black font-display">Product</h4>
             <nav className="flex flex-col space-y-3 font-sans">
-              <a href="#tour" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Take Tour</a>
+              <a href={resolveHref('#tour')} className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Take Tour</a>
               <a href="#chat" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Live Chat</a>
               <a href="#reviews" className="text-[15px] font-semibold text-slate-800 hover:text-black transition-colors">Reviews</a>
             </nav>

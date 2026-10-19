@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { loadStoredAccount, saveStoredAccount, clearStoredAccount, type StoredAccount } from '../services/storage/accountStorage';
-import { getStoredJwt, setStoredJwt } from '../services/api/client';
+import { getStoredJwt, setReauthHandler, setStoredJwt } from '../services/api/client';
+import { getMainWalletSecret } from '../services/storage/onboardingStorage';
+import { getSep10Token, Keypair } from '../services/stellar/anchorService';
 
 export type UserMode = 'customer' | 'merchant';
 
@@ -55,6 +57,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  // On a 401 the API client asks for a fresh SEP-10 token, signed with the
+  // wallet key already on this device, and retries once — no logout needed.
+  useEffect(() => {
+    setReauthHandler(async () => {
+      const secret = await getMainWalletSecret();
+      if (!secret) return null;
+      const token = await getSep10Token(Keypair.fromSecret(secret));
+      setJwt(token);
+      return token;
+    });
+    return () => setReauthHandler(null);
   }, []);
 
   const login = async (publicKey: string, shortId: string, token?: string) => {

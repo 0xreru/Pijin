@@ -2,8 +2,8 @@ import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/b
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { Keypair } from '@stellar/stellar-base';
 import { Buffer } from 'buffer';
-import { hmac } from '@noble/hashes/hmac';
-import { sha512 } from '@noble/hashes/sha512';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha512 } from '@noble/hashes/sha2.js';
 
 export interface DerivedKeys {
   mainWalletKeypair: Keypair;

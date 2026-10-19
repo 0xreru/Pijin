@@ -21,6 +21,8 @@ import Svg, { Path } from 'react-native-svg';
 import { ConnectionWatcher } from '../components/ui/ConnectionWatcher';
 import { useAuth } from '../context/AuthContext';
 import { ErrorModal } from '../components/ui/ErrorModal';
+import { getApiBaseUrl } from '../constants/api';
+import { apiFetch, fetchWithTimeout } from '../services/api/client';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BUTTON_WIDTH = 52;
@@ -145,7 +147,7 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
   // assembled (but unsigned) XDR envelope.
   //
   markStage('assemble-via-backend');
-  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/^['"]|['"]$/g, '');
+  const apiBase = getApiBaseUrl();
   const tokenAddress = process.env.EXPO_PUBLIC_TOKEN_ID?.trim().replace(/^['"]|['"]$/g, '');
   const rpcUrl = process.env.EXPO_PUBLIC_SOROBAN_RPC_URL?.trim().replace(/^['"]|['"]$/g, '');
   const networkPassphrase = process.env.EXPO_PUBLIC_STELLAR_NETWORK_PASSPHRASE?.trim().replace(/^['"]|['"]$/g, '');
@@ -157,7 +159,9 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
 
   let assembleResponse: Response;
   try {
-    assembleResponse = await fetch(`${apiBase}/api/engine/deposit`, {
+    assembleResponse = await apiFetch(`${apiBase}/api/engine/deposit`, {
+      auth: false,
+      timeoutMs: 25_000,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -223,7 +227,7 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
   markStage('submit');
   let txHash: string | undefined;
   try {
-    const sendResp = await fetch(rpcUrl, {
+    const sendResp = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -254,7 +258,7 @@ async function executeDeposit(input: { customerPublicKey: string; amount: number
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise<void>((resolve) => setTimeout(resolve, intervalMs));
       try {
-        const pollResp = await fetch(rpcUrl, {
+        const pollResp = await fetchWithTimeout(rpcUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

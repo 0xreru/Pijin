@@ -120,6 +120,8 @@ export async function buildOfflineSmsVoucher(
     tokenContractId,
     tokenIdStr,
     tokenSymbol,
+    contractAddress: offlineConfig.contractId,
+    protocolTollStroops: 5000000n,
   });
 
   // ── 6. Extract nonce/signature from the payload for the result object ──────

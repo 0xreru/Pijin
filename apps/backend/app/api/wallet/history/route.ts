@@ -211,11 +211,37 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const shortId   = searchParams.get('shortId')?.trim();
   const publicKey = searchParams.get('publicKey')?.trim();
+  const rawLimit  = searchParams.get('limit')?.trim();
+  const sinceParam = searchParams.get('since')?.trim();
 
   // --- 3. INPUT VALIDATION ---
   if (!shortId || !publicKey) {
     const missing = [!shortId && 'shortId', !publicKey && 'publicKey'].filter(Boolean).join(', ');
     return NextResponse.json({ error: `Missing required parameter(s): ${missing}` }, { status: 400 });
+  }
+
+  const requestedLimit = rawLimit ? Math.min(Math.max(parseInt(rawLimit, 10) || 50, 1), 100) : 50;
+  const sinceDate = sinceParam ? new Date(sinceParam) : null;
+  const validSince = sinceDate && !isNaN(sinceDate.getTime()) ? sinceDate : null;
+
+  // --- Redis 5-Second History Cache ---
+  const redis = Redis.fromEnv();
+  const cacheKey = `pijin:cache:history:${shortId}:${publicKey}:${requestedLimit}:${sinceParam ?? 'all'}`;
+  try {
+    const cached = await redis.get<{ transactions: TransactionHistoryItem[] }>(cacheKey);
+    if (cached && Array.isArray(cached.transactions)) {
+      return NextResponse.json(
+        { transactions: cached.transactions, cached: true },
+        {
+          headers: {
+            'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=5',
+            'X-Cache': 'HIT',
+          },
+        },
+      );
+    }
+  } catch {
+    // cache miss or transient redis error
   }
 
   // --- 4. PARALLEL DATA FETCH (API-Level Aggregation) ---
@@ -227,6 +253,8 @@ export async function GET(req: NextRequest) {
   let anchorTransactions: AnchorTransaction[] = [];
   let onlineTransfers: OnlineTransferRecord[] = [];
 
+  const dateFilter = validSince ? { gte: validSince } : undefined;
+
   try {
     [settlements, anchorTransactions, onlineTransfers] = await Promise.all([
       // QUERY 1: Offline SMS Settlements
@@ -236,17 +264,21 @@ export async function GET(req: NextRequest) {
             { senderShortId: shortId },
             { receiverShortId: shortId }
           ],
+          ...(dateFilter ? { createdAt: dateFilter } : {}),
         },
         include: { token: true }, // Joins the Token table to grab asset symbol & decimals
         orderBy: { createdAt: 'desc' },
-        take: 50, // Pagination limits. Prevents memory overflow on large accounts!
+        take: requestedLimit, // Pagination limits. Prevents memory overflow on large accounts!
       }),
 
       // QUERY 2: Online SEP-24 Anchor Transactions (Top-Ups / Withdrawals)
       prisma.anchorTransaction.findMany({
-        where: { stellarAccount: publicKey },
+        where: {
+          stellarAccount: publicKey,
+          ...(dateFilter ? { createdAt: dateFilter } : {}),
+        },
         orderBy: { createdAt: 'desc' },
-        take: 50,
+        take: requestedLimit,
       }),
 
       // QUERY 3: Direct Online Soroban Transfers
@@ -256,10 +288,11 @@ export async function GET(req: NextRequest) {
             { senderPublicKey: publicKey },
             { recipientPublicKey: publicKey },
           ],
+          ...(dateFilter ? { createdAt: dateFilter } : {}),
         },
         include: { token: true },
         orderBy: { createdAt: 'desc' },
-        take: 50,
+        take: requestedLimit,
       }),
     ]);
 
@@ -381,11 +414,25 @@ export async function GET(req: NextRequest) {
   const transactions = [...settlementItems, ...anchorItems, ...onlineTransferItems]
     // Sort everything universally by Timestamp (Newest first)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    // Enforce the ultimate limit of 50 items returning to the client to ensure mobile UI snappiness
-    .slice(0, 50);
+    // Enforce the requested limit
+    .slice(0, requestedLimit);
 
   console.info(`[Wallet History API] Refreshed | shortId=${shortId} | itemsReturned=${transactions.length}`);
 
+  try {
+    await redis.set(cacheKey, { transactions }, { ex: 5 });
+  } catch {
+    // transient redis write error
+  }
+
   // SUCCESS: BigInts have already been safely converted to strings!
-  return NextResponse.json({ transactions });
+  return NextResponse.json(
+    { transactions },
+    {
+      headers: {
+        'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=5',
+        'X-Cache': 'MISS',
+      },
+    },
+  );
 }
