@@ -14,7 +14,13 @@ const navItems: NavItem[] = [
   { label: 'FAQ', href: '#faq' },
 ]
 
-export function Navbar() {
+interface NavbarProps {
+  // Set to '/' on pages other than home so section anchors link back to the home page
+  linkBase?: string
+}
+
+export function Navbar({ linkBase = '' }: NavbarProps) {
+  const resolveHref = (href: string) => (linkBase ? (href === '#' ? linkBase : `${linkBase}${href}`) : href)
   const [isOpen, setIsOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const [activeSection, setActiveSection] = useState('#')
@@ -138,7 +144,7 @@ export function Navbar() {
           <div className="flex items-center">
             {/* Logo */}
             <a
-              href="#"
+              href={resolveHref('#')}
               className="flex items-center space-x-2 group focus:outline-none focus:ring-2 focus:ring-slate-900 rounded-lg py-1 pr-2"
               aria-label="Pijin Home"
             >
@@ -157,11 +163,11 @@ export function Navbar() {
             {/* Desktop Navigation Links (Left-aligned next to logo) */}
             <nav className="hidden md:flex items-center ml-12 space-x-8 relative" aria-label="Desktop Main Navigation">
               {navItems.map((item) => {
-                const isActive = item.href === activeSection
+                const isActive = !linkBase && item.href === activeSection
                 return (
                   <a
                     key={item.label}
-                    href={item.href}
+                    href={resolveHref(item.href)}
                     onClick={() => handleNavLinkClick(item.href)}
                     className={`text-sm transition-colors duration-200 py-2 font-sans ${isActive
                         ? 'font-bold text-[#1e3e62]'
@@ -248,11 +254,11 @@ export function Navbar() {
         <div className="px-6 pt-8 pb-10 space-y-8 flex flex-col h-full justify-between max-w-md mx-auto">
           <nav className="flex flex-col space-y-5" aria-label="Mobile Main Navigation">
             {navItems.map((item, idx) => {
-              const isActive = item.href === activeSection
+              const isActive = !linkBase && item.href === activeSection
               return (
                 <a
                   key={item.label}
-                  href={item.href}
+                  href={resolveHref(item.href)}
                   onClick={() => {
                     handleNavLinkClick(item.href)
                     setIsOpen(false)
