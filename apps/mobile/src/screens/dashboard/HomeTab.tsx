@@ -19,6 +19,7 @@ import { BalanceCard } from '../../components/wallet/BalanceCard';
 import { TransactionList } from '../../components/transaction/TransactionList';
 
 import { DepositButton } from '../../components/ui/DepositButton';
+import { TOPUP_ENABLED } from '../../constants/featureFlags';
 import { ensureTrustline, type AssetCode } from '../../services/stellar/trustlineService';
 import {
   startSep24Deposit,
@@ -267,7 +268,7 @@ export const HomeTab = memo(function HomeTab({
               <DepositButton
                 assetCode="PHPC"
                 onPress={handleDepositPress}
-                disabled={depositLoading || !isOnline || !stellarPublicKey}
+                disabled={!TOPUP_ENABLED || depositLoading || !isOnline || !stellarPublicKey}
                 label="Top-Up"
               />
 

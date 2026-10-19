@@ -56,13 +56,16 @@ export function DepositButton({
           activeOpacity={1}
           disabled={disabled}
           accessibilityRole="button"
+          accessibilityState={{ disabled }}
           accessibilityLabel={`Deposit ${assetCode}`}
           accessibilityHint={`Tap to deposit ${PIJIN_ASSETS[assetCode].code} to your Pijin wallet`}
         >
           <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </Animated.View>
-      <Text style={styles.actionLabel}>{label ?? `Deposit ${assetCode}`}</Text>
+      <Text style={[styles.actionLabel, disabled && styles.actionLabelDisabled]}>
+        {label ?? `Deposit ${assetCode}`}
+      </Text>
     </View>
   );
 }
@@ -86,6 +89,9 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   actionCircleDisabled: {
+    opacity: 0.4,
+  },
+  actionLabelDisabled: {
     opacity: 0.4,
   },
   actionLabel: {
