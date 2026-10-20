@@ -1,0 +1,426 @@
+/* ── Pijin docs chrome ─────────────────────────────────────────────────────────
+   Shared by /docs and /api-docs. Palette mirrors the pijin.live landing page:
+   navy accents (#1e3e62 / #0B2F61), slate neutrals, black primary buttons and
+   the deep-navy banner gradient. */
+
+:root {
+  --pj-navy: #1e3e62;
+  --pj-navy-deep: #0b2f61;
+  --pj-navy-soft: #e8eef6;
+  --pj-night-1: #0b162c;
+  --pj-night-2: #050b14;
+  --pj-night-3: #02050a;
+  --pj-black: #000000;
+  --pj-ink: #0f172a;
+  --pj-text: #1e293b;
+  --pj-muted: #64748b;
+  --pj-subtle: #94a3b8;
+  --pj-border: #e2e8f0;
+  --pj-border-soft: #f1f5f9;
+  --pj-bg: #f8fafc;
+  --pj-surface: #ffffff;
+  --pj-teal: #0f766e;
+  --pj-teal-soft: #ccfbf1;
+  --pj-amber: #b45309;
+  --pj-amber-soft: #fef3c7;
+  --pj-red: #dc2626;
+  --pj-red-soft: #fee2e2;
+  --pj-code-bg: #0b162c;
+  --pj-code-text: #e2e8f0;
+  --pj-radius: 12px;
+  --pj-font: "Clash Display", "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pj-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --pj-topbar-h: 64px;
+}
+
+.pj-docs {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--pj-surface);
+  color: var(--pj-text);
+  font-family: var(--pj-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The landing page widens tracking on body text; long-form docs read better without it. */
+.pj-docs p,
+.pj-docs span,
+.pj-docs a,
+.pj-docs li,
+.pj-docs button,
+.pj-docs td,
+.pj-docs th {
+  letter-spacing: normal;
+}
+
+.pj-docs ::selection {
+  background: #14b8a6;
+  color: var(--pj-ink);
+}
+
+.pj-docs :focus-visible {
+  outline: 2px solid var(--pj-navy);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+#pj-main {
+  flex: 1;
+  scroll-margin-top: var(--pj-topbar-h);
+}
+
+.pj-skip {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 100;
+  background: var(--pj-black);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.pj-skip:focus {
+  left: 16px;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────────────── */
+.pj-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--pj-border);
+}
+
+.pj-topbar-inner {
+  max-width: 1280px;
+  height: var(--pj-topbar-h);
+  margin: 0 auto;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.pj-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pj-black);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.pj-brand img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.pj-brand-name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.pj-brand-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pj-navy);
+  background: var(--pj-navy-soft);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.pj-nav {
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.pj-nav-link {
+  position: relative;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--pj-muted);
+  text-decoration: none;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.pj-nav-link:hover {
+  color: var(--pj-black);
+  background: var(--pj-border-soft);
+}
+
+.pj-nav-link[aria-current='page'] {
+  color: var(--pj-black);
+  font-weight: 600;
+}
+
+.pj-nav-link[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -13px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--pj-navy);
+}
+
+.pj-topbar-actions {
+  display: none;
+  margin-left: auto;
+}
+
+.pj-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.pj-btn-dark {
+  background: var(--pj-black);
+  color: #fff;
+}
+
+.pj-btn-dark:hover {
+  background: var(--pj-ink);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+}
+
+.pj-btn-light {
+  background: #fff;
+  color: var(--pj-black);
+}
+
+.pj-btn-light:hover {
+  background: var(--pj-border-soft);
+}
+
+.pj-btn-ghost {
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.pj-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pj-btn-block {
+  width: 100%;
+  min-height: 48px;
+}
+
+.pj-menu-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--pj-border);
+  background: #fff;
+  color: var(--pj-text);
+  cursor: pointer;
+}
+
+.pj-mobile-menu {
+  border-top: 1px solid var(--pj-border);
+  padding: 12px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #fff;
+}
+
+.pj-mobile-menu[hidden] {
+  display: none;
+}
+
+.pj-mobile-link {
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--pj-text);
+  text-decoration: none;
+}
+
+.pj-mobile-link[aria-current='page'] {
+  background: var(--pj-navy-soft);
+  color: var(--pj-navy-deep);
+  font-weight: 600;
+}
+
+.pj-mobile-menu .pj-btn {
+  margin-top: 8px;
+}
+
+@media (min-width: 768px) {
+  .pj-topbar-inner {
+    padding: 0 32px;
+  }
+
+  .pj-nav,
+  .pj-topbar-actions {
+    display: flex;
+  }
+
+  .pj-menu-toggle,
+  .pj-mobile-menu {
+    display: none !important;
+  }
+}
+
+/* ── Hero band (shared) ──────────────────────────────────────────────────── */
+.pj-hero {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(135deg, var(--pj-night-1), var(--pj-night-2) 55%, var(--pj-night-3));
+}
+
+.pj-hero::before {
+  content: '';
+  position: absolute;
+  inset: auto -20% -60% auto;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(30, 62, 98, 0.75), transparent 65%);
+  pointer-events: none;
+}
+
+.pj-hero-inner {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 40px 16px 44px;
+}
+
+.pj-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9fb6d3;
+}
+
+.pj-hero h1 {
+  margin: 12px 0 0;
+  font-size: clamp(30px, 6vw, 48px);
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.pj-hero-lead {
+  margin: 14px 0 0;
+  max-width: 680px;
+  font-size: clamp(15px, 2.2vw, 17px);
+  line-height: 1.6;
+  color: #cbd5e1;
+}
+
+.pj-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.pj-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.pj-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2dd4bf;
+}
+
+.pj-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+@media (min-width: 768px) {
+  .pj-hero-inner {
+    padding: 56px 32px 60px;
+  }
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.pj-footer {
+  border-top: 1px solid var(--pj-border);
+  background: var(--pj-bg);
+}
+
+.pj-footer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--pj-muted);
+}
+
+.pj-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.pj-footer a {
+  color: var(--pj-text);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.pj-footer a:hover {
+  color: var(--pj-navy);
+}
+
+@media (min-width: 768px) {
+  .pj-footer-inner {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 32px;
+  }
+}

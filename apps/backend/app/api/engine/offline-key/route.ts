@@ -1,3 +1,99 @@
+/**
+ * @swagger
+ * /api/engine/offline-key:
+ *   post:
+ *     tags:
+ *       - Offline Engine
+ *     summary: Prepare offline device-key enrollment or rotation
+ *     description: |
+ *       The offline device key signs vouchers; the contract stores it per sender.
+ *
+ *       - If the submitted key already matches `get_offline_key(sender)` on-chain, the
+ *         database mirror is repaired and `{ status: "synced" }` is returned.
+ *       - Otherwise the backend assembles an unsigned `set_offline_key` transaction with
+ *         the **user as source account**. The app signs it with the wallet key, submits it,
+ *         then calls `PATCH` to confirm.
+ *
+ *       The caller must already be registered (`POST /api/register`).
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [offlineDeviceKey]
+ *             properties:
+ *               offlineDeviceKey:
+ *                 type: string
+ *                 description: Device Ed25519 public key as a G-address.
+ *     responses:
+ *       '200':
+ *         description: Either already synced, or a rotation transaction to sign.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       enum: [synced]
+ *                 - type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       enum: [rotation_required]
+ *                     xdr:
+ *                       type: string
+ *                       description: Base64 transaction envelope to sign with the wallet key.
+ *       '400':
+ *         description: offlineDeviceKey is not a valid Ed25519 G-address.
+ *       '401':
+ *         description: Missing or invalid SEP-10 token.
+ *       '500':
+ *         description: Account not registered, or Soroban RPC failure.
+ *   patch:
+ *     tags:
+ *       - Offline Engine
+ *     summary: Confirm an offline device key after on-chain rotation
+ *     description: |
+ *       Reads `get_offline_key(sender)` from the contract and copies the key into the
+ *       database **only if** it matches the submitted key.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [offlineDeviceKey]
+ *             properties:
+ *               offlineDeviceKey:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: Key confirmed on-chain and mirrored.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: synced
+ *       '400':
+ *         description: Invalid key format.
+ *       '401':
+ *         description: Missing or invalid SEP-10 token.
+ *       '409':
+ *         description: The key is not (yet) the on-chain key for this sender.
+ *       '500':
+ *         description: Account not registered, or Soroban RPC failure.
+ */
+
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import {

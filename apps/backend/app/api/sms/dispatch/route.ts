@@ -4,7 +4,7 @@
  * /api/sms/dispatch:
  *   post:
  *     tags:
- *       - SMS
+ *       - SMS Gateway
  *     summary: QStash worker that delivers queued notification SMS
  *     description: |
  *       Internal endpoint invoked **only by QStash** (signature verified with
@@ -14,6 +14,8 @@
  *
  *       - `200` delivered, or permanently undeliverable (no retry).
  *       - `500` transient gateway failure → QStash retries, then dead-letters.
+ *     security:
+ *       - QStashSignature: []
  *     responses:
  *       '200':
  *         description: Delivered or permanently failed.

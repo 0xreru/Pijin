@@ -21,9 +21,17 @@
  *       record is updated to `error` and a `422 Unprocessable Entity` is returned with
  *       the Horizon `result_codes` for debugging.
  *
- *       **⚠️ Not protected by SEP-10 auth** — called from the server-rendered webview which
- *       has already validated the short-lived SEP-24 interactive JWT. Add CSRF/rate-limit
- *       protection before mainnet.
+ *       #### Authentication
+ *       Requires the short-lived **SEP-24 interactive JWT** from the webview URL, sent as
+ *       `token` in the body or as `Authorization: Bearer <token>`. Its `transaction_id`
+ *       and `sub` must match the stored transaction (`403` otherwise). Ramp limits
+ *       (`RAMP_MAX_PER_TX_*`, `RAMP_DAILY_MAX_PER_USER_*`) are enforced before paying.
+ *
+ *       **⚠️ Testnet simulator path:** a `transaction_id` prefixed with `mock-` skips the
+ *       interactive-token check and creates the record from `stellarAccount` /
+ *       `asset_code` in the body. Remove or gate this path before any mainnet deployment.
+ *     security:
+ *       - InteractiveToken: []
  *     requestBody:
  *       required: true
  *       content:
@@ -41,6 +49,16 @@
  *                 type: string
  *                 description: Amount to send in human-readable decimal form (e.g. "100.00"). Normalised to 7 decimal places internally.
  *                 example: "100.00"
+ *               token:
+ *                 type: string
+ *                 description: SEP-24 interactive JWT (alternative to the Authorization header).
+ *               stellarAccount:
+ *                 type: string
+ *                 description: Simulator only (`mock-` transactions) — destination account.
+ *               asset_code:
+ *                 type: string
+ *                 enum: [PHPC, USDC]
+ *                 description: Simulator only (`mock-` transactions). Defaults to PHPC.
  *     responses:
  *       '200':
  *         description: Stellar transaction submitted and DB updated to `completed`.
@@ -89,8 +107,12 @@
  *                   example: false
  *                 error:
  *                   type: string
+ *       '401':
+ *         description: Missing, invalid, or expired interactive token.
+ *       '403':
+ *         description: Token does not match this transaction or its owner.
  *       '409':
- *         description: Transaction has already been settled (status is already `completed`).
+ *         description: Transaction is already `completed` or `pending_external`.
  *         content:
  *           application/json:
  *             schema:
@@ -117,6 +139,8 @@
  *                 detail:
  *                   type: string
  *                   description: Horizon result_codes JSON string for debugging.
+ *       '503':
+ *         description: Deposits are disabled by the ramp kill switch.
  *       '500':
  *         description: Internal server error (missing env var, DB error, or unexpected failure).
  *         content:

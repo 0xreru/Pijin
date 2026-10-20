@@ -22,6 +22,8 @@
  *          and assemble the transaction envelope on the backend.
  *       4. Return the assembled unsigned XDR to the mobile.
  *       5. The mobile signs with the sender's key and submits to the Soroban RPC.
+ *     security:
+ *       - WalletSignature: []
  *     requestBody:
  *       required: true
  *       content:

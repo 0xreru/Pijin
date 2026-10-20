@@ -66,7 +66,7 @@
  *                   type: string
  *                   example: "Too many OTP requests. Please wait a few minutes."
  *       '502':
- *         description: SMS delivery failed (`code: "SMS_FAILED"`). No code is stored; the client may resend.
+ *         description: "SMS delivery failed (`code: SMS_FAILED`). No code is stored; the client may resend."
  *       '500':
  *         description: Internal server error.
  *         content:

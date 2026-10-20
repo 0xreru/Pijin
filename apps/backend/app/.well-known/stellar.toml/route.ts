@@ -26,9 +26,9 @@
  *           text/plain:
  *             example: |
  *               NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
- *               WEB_AUTH_ENDPOINT="https://pijin-api.vercel.app/api/auth"
+ *               WEB_AUTH_ENDPOINT="https://pijin.live/api/auth"
  *               SIGNING_KEY="GABC..."
- *               TRANSFER_SERVER_SEP0024="https://pijin-api.vercel.app/api/sep24"
+ *               TRANSFER_SERVER_SEP0024="https://pijin.live/api/sep24"
  *       '500':
  *         description: Missing or invalid environment variable (e.g. bad SEP-10 signing seed).
  *         content:

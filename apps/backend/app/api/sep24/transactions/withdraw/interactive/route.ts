@@ -1,3 +1,81 @@
+/**
+ * @swagger
+ * /api/sep24/transactions/withdraw/interactive:
+ *   post:
+ *     tags:
+ *       - Anchor (SEP-24)
+ *     summary: Initiate an interactive SEP-24 withdrawal
+ *     description: |
+ *       **Step 1 of the SEP-24 interactive withdrawal (cash-out) flow.**
+ *
+ *       1. Verifies the SEP-10 JWT and reads the user's Stellar account from `sub`.
+ *       2. Creates an `AnchorTransaction` (`type: withdrawal`, `status: incomplete`).
+ *       3. Mints a 15-minute interactive JWT (separate secret from SEP-10) bound to that transaction.
+ *       4. Returns the `/withdraw` webview URL.
+ *
+ *       Inside the webview the user enters the amount and GCash number
+ *       (`POST /api/anchor/submit-withdraw`), pays PHPC/USDC to the treasury with the
+ *       returned memo, then the app confirms it (`POST /api/anchor/confirm-withdraw`).
+ *
+ *       Returns `503` when `RAMP_ENABLED` or `WITHDRAW_ENABLED` is `false`.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [asset_code]
+ *             properties:
+ *               asset_code:
+ *                 type: string
+ *                 enum: [PHPC, USDC]
+ *                 description: Case-insensitive; normalised to uppercase.
+ *                 example: PHPC
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [asset_code]
+ *             properties:
+ *               asset_code:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: Withdrawal initiated.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 type:
+ *                   type: string
+ *                   example: interactive_customer_info_needed
+ *                 url:
+ *                   type: string
+ *                   format: uri
+ *                   example: "https://pijin.live/withdraw?transaction_id=550e8400-e29b-41d4-a716-446655440000&token=eyJ..."
+ *                 id:
+ *                   type: string
+ *                   format: uuid
+ *       '400':
+ *         description: Unparseable body or unsupported `asset_code`.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '401':
+ *         description: Missing, malformed, or expired SEP-10 token.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       '500':
+ *         description: Missing env var or database failure.
+ *       '503':
+ *         description: Withdrawals are disabled by the ramp kill switch.
+ */
+
 export const runtime = 'nodejs';
 
 import jwt, { type JwtPayload } from 'jsonwebtoken';

@@ -13,6 +13,8 @@
  *       is the Base64-encoded Ed25519 signature over the canonical message:
  *       `transfer:v2:online:<tokenAddress>:<senderPublicKey>:<recipientPublicKey>:<amountStroops>`
  *       signed with the user's main wallet secret key.
+ *     security:
+ *       - WalletSignature: []
  *     requestBody:
  *       required: true
  *       content:

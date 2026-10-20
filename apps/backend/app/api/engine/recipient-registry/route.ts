@@ -1,3 +1,48 @@
+/**
+ * @swagger
+ * /api/engine/recipient-registry:
+ *   post:
+ *     tags:
+ *       - Offline Engine
+ *     summary: Register the caller's ShortID in the on-chain recipient registry
+ *     description: |
+ *       Maps the authenticated account's exact, case-sensitive 6-character ShortID to its
+ *       Stellar address with the contract's `register_recipient`, signed by the backend
+ *       **registrar** key (`REGISTRAR_SECRET_KEY`, falling back to `RELAYER_SECRET_KEY`).
+ *
+ *       Idempotent: returns `already_registered` when the mapping exists. The backend
+ *       refuses to run if its registrar does not match `get_registrar()` on-chain.
+ *
+ *       The response also carries `offlineConfig`, the values the phone binds into
+ *       every offline voucher signature.
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       '200':
+ *         description: ShortID is registered on-chain.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [registered, already_registered]
+ *                 txHash:
+ *                   type: string
+ *                   nullable: true
+ *                 offlineConfig:
+ *                   $ref: '#/components/schemas/OfflineConfig'
+ *       '401':
+ *         description: Missing or invalid SEP-10 token.
+ *       '404':
+ *         description: Authenticated account is not registered.
+ *       '409':
+ *         description: ShortID is already mapped to a different Stellar address.
+ *       '500':
+ *         description: Registrar misconfigured, token not seeded, or Soroban failure.
+ */
+
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { Keypair, TransactionBuilder } from '@stellar/stellar-sdk';

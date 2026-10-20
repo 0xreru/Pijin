@@ -108,7 +108,7 @@
  *               properties:
  *                 token:
  *                   type: string
- *                   description: HS256-signed JWT. Pass as `Authorization: Bearer <token>` to protected endpoints.
+ *                   description: "HS256-signed JWT. Pass as `Authorization: Bearer <token>` to protected endpoints."
  *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *       '400':
  *         description: Missing or unparseable `transaction` field in body.

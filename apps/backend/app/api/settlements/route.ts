@@ -18,6 +18,10 @@
  *       **Idempotency:** The `nonce` (part 5) is checked against the `Settlement` table.
  *       If already processed, returns `409 Conflict` with the existing `txHash` and `status`.
  *
+ *       **No authentication by design**: the voucher is self-authenticating. The
+ *       Ed25519 signature is checked against the sender's registered offline key
+ *       (locally, then again on-chain), and the contract rejects replayed nonces.
+ *
  *       > **In production**, prefer `/api/sms/webhook` → QStash → `/api/engine/settle`
  *       > which provides retry guarantees, deduplication, and signature verification.
  *     requestBody:

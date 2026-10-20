@@ -1,3 +1,55 @@
+/**
+ * @swagger
+ * /api/demo/settlement:
+ *   get:
+ *     tags:
+ *       - Demo & Testnet
+ *     summary: Poll the settlement status of a simulator voucher
+ *     description: |
+ *       Lets the simulator show **Transaction Settled** and link the hash on Stellar Expert.
+ *       The record is returned only if `senderShortId` matches the voucher's sender;
+ *       otherwise the response is `NOT_FOUND`.
+ *     security:
+ *       - DemoAccessCode: []
+ *     parameters:
+ *       - in: query
+ *         name: nonce
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[A-Za-z0-9+/]{43}$'
+ *         description: Unpadded Base64 voucher nonce (32 bytes).
+ *       - in: query
+ *         name: senderShortId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[0-9A-Za-z]{6}$'
+ *     responses:
+ *       '200':
+ *         description: Current status (NOT_FOUND, or the settlement's PENDING / SETTLED / FAILED status).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: SETTLED
+ *                 txHash:
+ *                   type: string
+ *                   nullable: true
+ *                 failureReason:
+ *                   type: string
+ *                   nullable: true
+ *       '400':
+ *         description: Invalid parameters.
+ *       '401':
+ *         description: Wrong or missing access code.
+ *       '404':
+ *         description: Demo mode is disabled.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {

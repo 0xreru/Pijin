@@ -188,6 +188,13 @@ export function Navbar() {
           {/* Desktop Documentation and GitHub CTA Buttons (Far Right) */}
           <div className="hidden md:flex items-center gap-3">
             <a
+              href="/docs"
+              aria-label="View setup and integration guide"
+              className="inline-flex items-center justify-center text-black font-medium text-sm px-4 py-2.5 rounded-md gap-2 transition-all duration-300 hover:bg-slate-100 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 focus:ring-offset-white"
+            >
+              <span>Docs</span>
+            </a>
+            <a
               href="/api-docs"
               aria-label="View API documentation"
               className="inline-flex items-center justify-center text-black font-medium text-sm px-4 py-2.5 rounded-md gap-2 transition-all duration-300 hover:bg-slate-100 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 focus:ring-offset-white"
@@ -277,6 +284,13 @@ export function Navbar() {
               }`}
           >
             <div className="flex flex-col gap-3">
+              <a
+                href="/docs"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center justify-center gap-2 w-full border border-slate-200 bg-white hover:bg-slate-50 text-black font-medium py-3.5 rounded-xl transition-all duration-300 active:scale-[0.99]"
+              >
+                <span className="font-sans text-sm">Setup & Integration Guide</span>
+              </a>
               <a
                 href="/api-docs"
                 onClick={() => setIsOpen(false)}

@@ -1,3 +1,53 @@
+/**
+ * @swagger
+ * /api/friendbot:
+ *   post:
+ *     tags:
+ *       - Demo & Testnet
+ *     summary: Create and fund a new Testnet account (50 XLM)
+ *     description: |
+ *       Pijin-hosted alternative to the public Stellar Friendbot, used during onboarding.
+ *       Sends `createAccount` with a 50 XLM starting balance from the distributor account
+ *       (`PHPC_DISTRIBUTOR_SECRET`, or `USDC_DISTRIBUTOR_SECRET`).
+ *
+ *       Rate limited to **20 / min per IP** and **3 / hour per public key**. Sequence
+ *       collisions (`tx_bad_seq`) are retried up to 10 times with jitter. If the account
+ *       already exists the call succeeds without a transaction.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [publicKey]
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ *                 pattern: '^G[A-Z2-7]{55}$'
+ *     responses:
+ *       '200':
+ *         description: Account funded, or already existed.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 txHash:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *                   example: Account already exists.
+ *       '400':
+ *         description: Missing or invalid publicKey.
+ *       '429':
+ *         description: Rate limit exceeded.
+ *       '500':
+ *         description: Distributor key missing or funding failed.
+ */
+
 import {
   Account,
   Keypair,

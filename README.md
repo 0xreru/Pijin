@@ -69,200 +69,286 @@ The app uses familiar, **non-technical** labels:
 
 ## ✨ Pijin Features
 
-- **Non-Custodial Offline Cryptography:** Pijin generates local private keys on the device. Transactions are mathematically signed and sealed completely offline, guaranteeing that central servers act only as "dumb pipes" and cannot intercept or alter user funds.
-- **Dynamic Zero-Data Routing:** Intelligent transport switching that instantly defaults to compressed SMS transmission the moment the device loses internet connectivity.
-- **Bystander "Dumb-Pipe" Relay (Payload QR):** A novel fallback mechanism allowing users with zero cellular load to generate a signed "Payload QR." Any bystander with a text promo can scan and broadcast the transaction on their behalf without compromising the sender's security.
-- **Deterministic Mathematical Compression:** A proprietary local compression engine that maps massive Web3 variables into Base62 encodings and unpadded Base64 strings, shrinking 294-character ledger intents into 152-character payloads that fit perfectly inside a single SMS frame.
-- **On-Chain State Resolution:** Eliminates the need for backend state synchronization. The Soroban smart contract independently resolves 6-character ShortIDs into 56-character public keys via an on-chain admin registry, solving the "cold start" problem for offline mobile nodes.
-- **Seamless Fiat On-Ramp (SEP-24):** Direct integration with regulated Stellar Anchors allowing users to easily convert physical cash into highly liquid, fiat-backed stablecoins (e.g., PHPC) via interactive, KYC-compliant webviews.
-- **Dual Wallet and Offline Vault Architecture:** Pijin separates online wallet funds from an offline spending vault. Users can move funds between both balances, with offline funds explicitly restricted to face-to-face payments.
-- **Automatic Offline Payment Queue and Reconciliation:** Offline payments are stored locally in SQLite, queued while disconnected, and automatically submitted when connectivity returns. The app reconciles nonces against backend settlements, prevents duplicate settlement, and retries failures.
-- **Durable Message Queue Settlement Pipeline:** Authenticated SMS webhooks validate and buffer signed payment payloads through Upstash QStash before settlement. Deduplication IDs make repeated deliveries idempotent, while broker retries isolate mobile and SMS clients from temporary database or Stellar RPC failures.
-- **Distributed API Rate Limiting:** Upstash Redis sliding-window limits protect SMS ingress, OTP delivery, wallet balances, and transaction-history APIs. Limits are scoped by sender phone number or client IP, reducing SMS abuse, bot traffic, and unnecessary backend or blockchain load.
-- **Local-First Transaction History:** Transaction history is persisted in SQLite and synchronized with backend records using upsert logic. The app supports separate Wallet, Offline Funds, and combined transaction views.
-- **SEP-10 Authentication for SEP-24:** The anchor flow authenticates the user by fetching a challenge, signing it with the wallet key, and exchanging it for a short-lived authorization token before starting deposits or withdrawals.
-- **SMS Transaction Receipts:** After successful offline settlement, the backend can send a receipt notification to the sender and receiver through the configured SMS gateway.
+- **Non-Custodial Offline Cryptography:** Pijin generates two keys on the device: a wallet key for the Stellar account and a device key registered on-chain for offline signing. Transactions are signed and sealed completely offline. Central servers act only as "dumb pipes" and cannot intercept or alter user funds.
+- **Dynamic Zero-Data Routing:** Transport switches to compressed SMS as soon as the device loses internet connectivity.
+- **Bystander "Dumb-Pipe" Relay (Payload QR):** A sender with zero cellular load can show a signed "Payload QR." Any bystander with a text promo can scan it and send the transaction for them without being able to change it.
+- **Deterministic Compression:** Amounts are Base62-encoded and nonces/signatures are sent as unpadded Base64. A full Soroban payment intent fits in a single 6-part SMS: `tokenId:senderShortId:receiverShortId:amount:nonce:signature`.
+- **On-Chain State Resolution:** The Soroban contract resolves 6-character, case-sensitive ShortIDs to Stellar addresses through an on-chain registry managed by a narrowly-scoped registrar key. This solves the "cold start" problem for offline phones.
+- **Seamless Fiat On/Off-Ramp (SEP-24):** Interactive deposit and withdrawal webviews convert GCash to PHPC/USDC and back. Per-transaction and daily limits and kill switches are enforced server-side.
+- **Dual Wallet and Offline Vault Architecture:** Online wallet funds are kept separate from a per-token offline vault inside the contract. Users move funds between them, and only vault funds can be spent offline.
+- **Automatic Offline Payment Queue and Reconciliation:** Offline payments are stored in SQLite, queued while disconnected, and reconciled against backend settlements by nonce. This prevents duplicate settlement.
+- **Durable Message Queue Settlement Pipeline:** Authenticated SMS webhooks validate signed payloads and buffer them through Upstash QStash. Deduplication IDs make repeated deliveries idempotent, and retries isolate clients from temporary database or Stellar RPC failures.
+- **Distributed API Rate Limiting:** Upstash Redis sliding-window limits protect SMS ingress, OTP delivery, registration, lookups, balances and history. Limits are scoped by phone number, IP or public key.
+- **Local-First Transaction History:** History is stored in SQLite and synced with backend records. Wallet, Offline Funds and combined views are available.
+- **SEP-10 Authentication:** The app fetches a challenge from the anchor, signs it with the wallet key, and exchanges it for a short-lived JWT used by ramps, ShortID registration and device-key enrollment.
+- **SMS Transaction Receipts:** After settlement, receipts are queued and sent to both parties at a throttled rate, so receipts never starve OTP delivery.
+- **Browser Simulator:** A two-phone simulator (`/demo-split`) leases pre-provisioned Testnet accounts and runs the real signing, webhook, queue and on-chain settlement flow.
 
-## Judges: Start Here - Demo Walkthrough
+## 🚀 Getting Started
 
-> [!IMPORTANT]
-> Please use a desktop browser for the best experience. The simulator displays two phones side by side and performs real settlement on the Stellar Testnet.
->
-> The Pijin mobile app is not yet published on the Google Play Store. Therefore, the browser-based simulator is the official way for judges to test the application's core features hands-on. The demo video on our website shows the actual Android application and its complete user experience.
+> [!TIP]
+> The full **[Setup & Integration Guide](https://pijin.live/docs)** (also in [`docs/SETUP.md`](docs/SETUP.md)) covers contract deployment, asset minting, the SMS gateway, EAS builds, Vercel deployment and API integration step by step.
 
-### 1. Watch the demo video
+### Repository structure
 
-1. Visit the **[Pijin website](https://pijin.live)** and explore the project. *(Ctrl/Cmd + Click to open in new tab)*
-2. Watch the product demo video on the website before selecting **Simulate App**. This provides context for the complete Pijin flow before you test the focused simulation.
+| Path | Description |
+|---|---|
+| [`apps/backend`](apps/backend) | Next.js 16 API, SEP-1/10/24 anchor, SMS webhook, QStash workers, landing page, simulator and docs |
+| [`apps/mobile`](apps/mobile) | Expo 52 / React Native 0.76 Android app |
+| [`contracts`](contracts) | Pijin Soroban smart contract (Rust) |
+| [`packages/pijin_core`](packages/pijin_core) | Generated TypeScript bindings for the contract |
+| [`docs`](docs) | Setup guide and security notes |
 
-### 2. Open the simulator
-1. Select **Simulate App** on the website, or open the <a href="https://pijin.live/demo-split" target="_blank"><strong>Pijin App Simulator</a></strong> directly. *(Ctrl/Cmd + Click to open in new tab)*
-2. Read all onboarding slides and select **Continue** after each one.
-3. On the final slide, confirm that you are using a desktop view, then select **Enter the Demo Environment**.
-4. Wait while the sandbox initializes and prepares two isolated Stellar Testnet accounts. Do not refresh or close the page during initialization.
+### Prerequisites
 
-### 3. Prepare Phone 1 for an offline payment
+- Node.js 20+ and npm 10+
+- Rust (stable) with the `wasm32v1-none` target, and the [Stellar CLI](https://developers.stellar.org/docs/tools/cli)
+- PostgreSQL (Neon recommended), Upstash QStash + Redis, and a Textbee account with an Android SIM gateway
+- Android Studio + JDK 17 for the mobile app (or an Expo/EAS account for cloud builds)
 
-1. On **Phone 1**, remain on the **Online** tab and select **Top-Up**.
-2. Follow the prompts to add PHPC to its Online Wallet, then return to the dashboard.
-3. Select **Load Offline** and transfer some PHPC from the Online Wallet to the Offline Wallet.
-4. Wait for the load operation to complete and return to the dashboard.
+### Installation
 
-### 4. Send PHPC from Phone 1 to Phone 2
+```bash
+git clone https://github.com/0xreru/Pijin.git
+cd Pijin
 
-1. Note the case-sensitive **ID** shown at the top of the **Phone 2** dashboard. This is the receiver's Short ID.
-2. On **Phone 1**, select the **Offline** tab, then select **Send**.
-3. Enter Phone 2's Short ID in **Receiver Short ID** and specify an amount. Keep enough offline funds available for the displayed protocol fee.
-4. Select **Compress & Send SMS** to submit the simulated offline transaction.
-5. Wait for the cryptographic processing and settlement flow to finish. The result will change to **Transaction Settled** after confirmation on Stellar Testnet.
+# Install all workspaces and build the contract bindings
+npm install
+npm run build:sdk
 
-### 5. Verify the result
+# Configure environment variables
+cp apps/backend/.env.example apps/backend/.env
+cp apps/mobile/.env.example apps/mobile/.env
 
-1. Under **Transaction Hash**, select the linked hash to open the transaction in **Stellar Expert** and inspect the on-chain Testnet settlement.
-2. On **Phone 2**, select the **Offline** tab and confirm that its Offline Wallet balance increased by the transferred amount.
-3. If the updated balance is not immediately visible, wait a few seconds and return to the Phone 2 dashboard to trigger a refresh.
+# Prepare the database
+cd apps/backend
+npx prisma generate
+npx prisma migrate deploy
 
-> [!NOTE]
-> The public simulator reproduces the offline signing, compression, webhook, queue, and on-chain settlement flow. Live carrier SMS is intentionally replaced by a safe simulated dispatch in this judge environment.
+# Start the API, landing page and docs → http://localhost:3000
+npm run dev
+```
+
+### Run the mobile app
+
+```bash
+cd apps/mobile
+npm run android        # build and install the development client
+npm start              # start Metro once the dev client is installed
+```
+
+### Build and test the contract
+
+```bash
+cd contracts
+make test              # cargo test
+make build             # → target/wasm32v1-none/release/pijin_contract.wasm
+```
+
+### Run the tests
+
+```bash
+npm run typecheck                  # backend + pijin_core
+cd apps/backend && npm test        # security, settlement and demo suites
+cd contracts && cargo test         # contract unit tests
+```
 
 ## 🏛️ Pijin Architecture
 
 ```mermaid
 sequenceDiagram
     autonumber
-    
-    actor Sender as Sender (Offline, No Load)
+
+    actor Sender as Sender (Offline)
     actor Receiver as Receiver (Offline)
-    actor Relayer as Relaying Agent (Receiver or Bystander)
-    participant Gateway as Inbound SMS Gateway
-    participant RelayerNode as Cloud Relayer (Vercel)
+    actor Relayer as Sender or Bystander (with SMS load)
+    participant Gateway as Textbee SMS Gateway
+    participant Webhook as Pijin API (/api/sms/webhook)
+    participant Queue as Upstash QStash
+    participant Worker as Settlement Worker (/api/engine/settle)
     participant Blockchain as Soroban Smart Contract
 
     Note over Sender, Receiver: Phase 1: Identification & Offline Signing
-    
     alt In-Person Transfer
         Receiver->>Sender: Displays Static ShortID QR
         Sender->>Sender: Scans QR to capture ShortID
     else Remote Transfer
-        Sender->>Sender: Manually types Receiver's ShortID into app
+        Sender->>Sender: Types Receiver's ShortID
     end
-    
-    Sender->>Sender: Inputs Amount & Signs ShortID Payload (Ed25519)
-    Sender->>Sender: Generates Dynamic Payload QR
-    
-    Note over Sender, Relayer: Phase 2: The Trustless "Dumb-Pipe" Relay
-    Sender->>Relayer: Shows Payload QR (Pays bounty OR Merchant scans for payment)
-    Relayer->>Relayer: Scans Payload QR via Pijin App
-    
-    Note over Relayer, Blockchain: Phase 3: Cellular Transport & Settlement
-    Relayer->>Gateway: Broadcasts Compressed Payload via Standard SMS
-    Gateway->>Gateway: Generates SHA-256 HMAC Token
-    Gateway->>RelayerNode: HTTP POST Webhook (with X-Pijin-Signature)
-    
-    RelayerNode->>RelayerNode: Verifies HMAC Authentication
-    RelayerNode->>RelayerNode: Restores Base64 Padding (Preserves ShortIDs)
-    RelayerNode->>RelayerNode: Assembles XDR Meta-Transaction & Sponsors Gas
-    RelayerNode->>Blockchain: Submits Reconstructed Envelope to Ledger
-    
-    Blockchain->>Blockchain: Queries On-Chain Admin Registry (ShortID -> 56-Char PubKey)
-    Blockchain->>Blockchain: ed25519_verify(Unpadded Signature against ShortID)
-    Blockchain->>Blockchain: Verifies Nonce (Replay Protection)
-    Blockchain->>Blockchain: Executes Atomic 2-Way Split (Amount + Toll)
-    
-    Blockchain-->>RelayerNode: Settlement Success Receipt
-    RelayerNode-->>Gateway: Trigger Confirmation Webhooks
-    Gateway-->>Sender: SMS/RF Receipt: Transfer Successful
-    Gateway-->>Receiver: SMS/RF Receipt: Funds Received
+    Sender->>Sender: Signs (amount, toll, nonce, ShortID, gateway, token, contract) with device key
+    Sender->>Sender: Compresses into 6-part voucher
+
+    Note over Sender, Relayer: Phase 2: Transport
+    alt Sender has load
+        Sender->>Gateway: Native SMS composer, prefilled
+    else Sender has no load
+        Sender->>Relayer: Shows Payload QR
+        Relayer->>Gateway: Scans and forwards via SMS (cannot alter)
+    end
+
+    Note over Gateway, Blockchain: Phase 3: Authenticated Ingress & Settlement
+    Gateway->>Webhook: POST MESSAGE_RECEIVED (x-signature HMAC-SHA256)
+    Webhook->>Webhook: Size cap, timestamp drift, HMAC, rate limit, nonce cache, format check
+    Webhook->>Queue: Publish job (dedup id = senderShortId_nonce)
+    Queue->>Worker: Deliver job (upstash-signature)
+    Worker->>Worker: Verify QStash signature, record nonce, pre-verify Ed25519 locally
+    Worker->>Blockchain: Relayer submits spend_offline (pays gas)
+
+    Blockchain->>Blockchain: Gateway whitelisted? Nonce unused?
+    Blockchain->>Blockchain: Resolve ShortID via on-chain registry
+    Blockchain->>Blockchain: ed25519_verify against registered device key
+    Blockchain->>Blockchain: Debit amount + toll, credit receiver vault, toll → treasury
+
+    Blockchain-->>Worker: Settlement confirmed (tx hash)
+    Worker->>Queue: Enqueue SMS receipts
+    Queue-->>Sender: Receipt: Transfer successful
+    Queue-->>Receiver: Receipt: Funds received
 ```
-    
 
 ## 🌍 Stellar Ecosystem Proposal(SEP) Protocol Integration
-- SEP-1 (Stellar Info File)
-- SEP-10 (Stellar Web Authentication)
-- SEP-24 (Hosted Deposit and Withdrawal)
+
+| SEP | Where | What Pijin does |
+|---|---|---|
+| **SEP-1** (Stellar Info File) | `GET /.well-known/stellar.toml` | Publishes `WEB_AUTH_ENDPOINT`, `SIGNING_KEY`, `TRANSFER_SERVER_SEP0024` and the PHPC/USDC currencies, built from environment variables at request time. |
+| **SEP-10** (Web Authentication) | `GET` / `POST /api/auth` | Issues a signed challenge with a random 48-byte nonce, verifies the client's signing weight against Horizon, and returns an HS256 JWT. |
+| **SEP-24** (Hosted Deposit & Withdrawal) | `/api/sep24/*`, `/api/anchor/*` | `info`, interactive deposit/withdraw, and transaction polling. Webviews use a separate 15-minute interactive token. Withdrawals are confirmed by checking the on-chain payment (amount, asset, memo, treasury) on Horizon. |
 
 ## 📃 Smart Contract Functions - Pijin Smart Contract
 
 - **Initialization & Upgrades**
-  - `__constructor(env, admin, treasury)`: Protocol 22 initialization that sets the privileged Admin and Treasury addresses. Starts with the Admin as the default Registrar.
-  - `upgrade(env, new_wasm_hash)`: Allows the Admin to upgrade the contract's WASM hash to a newer version.
-    
+  - `__constructor(env, admin, treasury)`: Protocol 22 initialization that sets the privileged Admin and Treasury addresses. The Admin is also the default Registrar.
+  - `upgrade(env, new_wasm_hash)`: Lets the Admin upgrade the contract to a new WASM, keeping all storage.
+
 - **User Vault Management**
-  - `deposit(env, sender, token, pubkey, amount)`: Transfers ERC-20 equivalent tokens (Stellar assets or Soroban tokens) from the user's wallet to the contract, locking them in a multi-token vault and registering the user's Ed25519 offline signing key.
-  - `withdraw(env, sender, token, amount)`: Unlocks tokens from the sender's vault, transferring them back to their Stellar wallet. Supports partial or full withdrawals (cleaning up storage rent for full withdrawals).
-  - `get_vault(env, user, token)`: Read-only helper to check the vault balance for a specific user and token.
+  - `deposit(env, sender, token, pubkey, amount)`: Transfers Stellar Asset Contract or Soroban tokens from the user's wallet into a per-token vault and registers the user's Ed25519 offline signing key.
+  - `withdraw(env, sender, token, amount)`: Moves tokens from the sender's vault back to their Stellar wallet. Partial and full withdrawals are supported; a full withdrawal removes the storage entry (no more storage rent).
+  - `get_vault(env, user, token)`: Read-only vault balance for a user and token.
 
 - **Offline Payment Engine (Data-Free Transport)**
-  - `spend_offline(env, gateway, sender, token, receiver_short_id, amount, protocol_toll, nonce, signature)`: The core offline settlement engine. Executed by a whitelisted gateway relayer. Cryptographically verifies a payload signed by the sender’s `offline_key`, prevents replay attacks via persistent nonces, dynamically resolves the receiver's `short_id`, and executes the vault-to-vault transfer alongside the protocol toll routing.
-  - `set_offline_key(env, sender, pubkey)`: Allows vault owners to rotate their registered offline signing device without depositing tokens.
-  - `get_offline_key(env, sender)`: Read-only check for clients to verify a device is still the active registered signer before generating vouchers.
+  - `spend_offline(env, gateway, sender, token, receiver_short_id, amount, protocol_toll, nonce, signature)`: The core offline settlement engine, callable only by a whitelisted gateway. It verifies the 7-field voucher signed by the sender's `offline_key`, rejects replayed nonces, resolves the receiver's `short_id`, debits amount + toll from the sender's vault, credits the receiver's vault, transfers the toll to the treasury, and emits a `spend` event.
+  - `set_offline_key(env, sender, pubkey)`: Lets a vault owner rotate their registered offline signing device without making a deposit.
+  - `get_offline_key(env, sender)`: Read-only check that a device is still the active registered signer.
 
 - **Recipient Identity Registry (Short-ID Mapping)**
-  - `set_registrar(env, admin, registrar)`: Admin control to assign a narrowly-scoped backend signer responsible for managing short-ID mappings.
-  - `register_recipient(env, registrar, short_id, receiver)`: Registrar-only function to map a canonical 6-byte Base62 `short_id` to a Stellar address (wallet). Idempotent on identical mappings.
-  - `update_recipient(env, registrar, short_id, receiver)`: Registrar-only function to explicitly rotate an existing `short_id` mapping to a new wallet address.
-  - `get_recipient(env, short_id)`: Read-only lookup to resolve a short ID to its canonical Stellar address.
+  - `set_registrar(env, admin, registrar)`: Admin control to assign a narrowly-scoped backend signer for short-ID mappings.
+  - `get_registrar(env)`: Read-only lookup of the current registrar. The backend checks it before registering IDs.
+  - `register_recipient(env, registrar, short_id, receiver)`: Registrar-only. Maps a 6-byte Base62 `short_id` to a Stellar address. Idempotent for identical mappings.
+  - `update_recipient(env, registrar, short_id, receiver)`: Registrar-only. Moves an existing `short_id` mapping to a new address.
+  - `get_recipient(env, short_id)`: Read-only lookup from a short ID to its Stellar address.
 
 - **Gateway Access Control**
-  - `register_gateway(env, admin, gateway)`: Whitelists a new relayer address permitted to submit `spend_offline` transactions.
-  - `remove_gateway(env, admin, gateway)`: Revokes a gateway's submission permissions.
+  - `register_gateway(env, admin, gateway)`: Whitelists a relayer address allowed to submit `spend_offline` transactions.
+  - `remove_gateway(env, admin, gateway)`: Revokes a gateway's submission permission.
+
+- **Error codes**: `AlreadyInitialized (1)`, `Unauthorized (2)`, `InvalidAmount (3)`, `ExpiredVoucher (4)`, `NonceReplayed (5)`, `InsufficientBalance (6)`, `RecipientNotFound (7)`, `MathOverflow (8)`, `NotWhitelistedGateway (9)`, `ShortIdAlreadyRegistered (10)`, `RegistrarNotConfigured (11)`, `InvalidShortId (12)`.
+
+## 🔐 Applied Security
+
+| Layer | Protection |
+|---|---|
+| **Keys** | Wallet and device keys are generated and kept on the phone. The backend only assembles unsigned Soroban transactions for the phone to sign. |
+| **Voucher integrity** | The Ed25519 signature covers amount, toll, nonce, receiver ShortID, gateway, token and contract address, so a voucher cannot be altered or replayed on another deployment. |
+| **Replay protection** | Four layers: Redis nonce cache at the webhook, QStash deduplication ID, a unique nonce in the database, and on-chain nonce storage (`NonceReplayed`). |
+| **SMS ingress** | Streaming 2 KB body cap, optional ±300 s timestamp drift, constant-time HMAC-SHA256 (`TEXTBEE_WEBHOOK_SECRET`), per-phone rate limit and strict 6-part format validation. |
+| **Queue workers** | `/api/engine/settle` and `/api/sms/dispatch` accept only QStash-signed requests (fail-closed in production). Infrastructure errors are retried; contract rejections are not. |
+| **Gas-drain firewall** | The worker verifies the voucher signature locally before spending relayer gas on a Soroban call. |
+| **On-chain roles** | Separate admin, registrar and whitelisted gateway roles. Overflow-checked arithmetic, ShortID validation and persistent TTL extension. |
+| **Authentication** | SEP-10 JWTs for protected APIs; wallet-signed canonical messages for vault operations; separate 15-minute interactive tokens for SEP-24 webviews. |
+| **Accounts** | OTP via `crypto.randomInt` with a 5-minute TTL, attempt limits and a global hourly cap; scrypt-hashed PINs with lockout after 5 failures; optional mandatory OTP token at registration. |
+| **Ramps** | Kill switches, per-transaction and daily limits, ownership-checked state transitions and a ramp audit log. Withdrawals are verified on Horizon before payout. |
+| **Logging** | Phone numbers are masked, and Stellar secrets, signing keys and bearer tokens are redacted from logs. |
+
+See [`docs/deliverable-2-security-summary.md`](docs/deliverable-2-security-summary.md) for the webhook and queue hardening details.
 
 ## 🛠️ Tech Stack
 
-- **Frontend (Mobile App)**
-  - **Framework:** React Native (Expo)
-  - **Local Database:** SQLite with Drizzle ORM
-  - **Key Features:** Offline QR Generation & Compression, Offline Ed25519 Key Management
+- **Mobile App**
+  - **Framework:** React Native 0.76 with Expo 52 (development build, EAS)
+  - **Local Database:** SQLite (`expo-sqlite`) with Drizzle ORM
+  - **Stellar:** `@stellar/stellar-sdk` for offline Ed25519 signing, XDR and Soroban calls
+  - **Other:** React Navigation, NetInfo connectivity detection, Expo Camera QR scanning, WalletConnect
 
 - **Backend (API)**
-  - **Framework:** Next.js (API Routes)
-  - **Database & ORM:** PostgreSQL (Neon Serverless) and Prisma ORM
-  - **Key Features:** Interactive SEP-24 Webviews, Transaction Simulation, API Documentation (Swagger)
+  - **Framework:** Next.js 16 (App Router route handlers), React 19, TypeScript
+  - **Database & ORM:** PostgreSQL (Neon serverless) with Prisma 7
+  - **Queues & Caching:** Upstash QStash (settlement and SMS jobs) and Upstash Redis (rate limits, OTP, replay cache)
+  - **Docs:** OpenAPI 3 generated with `next-swagger-doc` and rendered with Swagger UI
+  - **Testing:** `node:test` via `tsx`, property-based tests with `fast-check`
 
-- **Infrastructure & Smart Contracts**
-  - **Blockchain:** Stellar / Soroban Smart Contracts (Rust)
-  - **Message Queues:** Upstash QStash (Serverless Background Jobs & Webhook Deliveries)
-  
-- **Other Tools & Integrations**
-  - **SMS Gateway:** Textbee (Zero-API SMS Gateway for offline payloads)
-  - **Cryptography:** Node.js Crypto / `@stellar/stellar-sdk` (Ed25519 Signature Verification & XDR encoding)
-  - **Wallet Integration:** Stellar Demo Wallet (for SEP-24 Auth & Testing)
+- **Smart Contract**
+  - **Blockchain:** Stellar / Soroban (Protocol 22)
+  - **Language:** Rust with `soroban-sdk` 22, compiled to `wasm32v1-none`
+  - **Bindings:** TypeScript client generated by the Stellar CLI (`packages/pijin_core`)
+
+- **Integrations**
+  - **SMS Gateway:** Textbee (inbound webhooks and outbound SMS through an Android SIM)
+  - **Anchor:** SEP-1, SEP-10 and SEP-24 served by the Pijin backend
+  - **Hosting:** Vercel (backend), EAS (Android builds)
+  - **CI:** GitHub Actions (backend typecheck/tests/build, contract test/wasm build, mobile typecheck/export)
 
 ## 📚 API Documentation
 
-The Pijin backend is powered by Next.js API Routes and serves as the bridge between the mobile app, the Soroban smart contracts, and the Stellar ecosystem. 
-<br>
+The Pijin backend connects the mobile app, the Soroban contract and the Stellar network.
 
-For detailed request/response schemas, testing, and OpenAPI specifications, <br> visit our interactive Swagger documentation:
-👉 **[View Interactive API Docs](https://pijin.live/api-docs)**
+- 👉 **[Interactive API Reference](https://pijin.live/api-docs)**: OpenAPI 3 with request/response schemas and "Try it out"
+- 👉 **[Setup & Integration Guide](https://pijin.live/docs)**: auth flows, vault operations and the offline voucher format
+- Raw spec: [`/api/swagger`](https://pijin.live/api/swagger)
+
+### Authentication schemes
+
+| Scheme | Header | Used by |
+|---|---|---|
+| SEP-10 JWT | `Authorization: Bearer <jwt>` | SEP-24 ramps, ShortID registry, device-key enrollment |
+| Wallet signature | `Authorization: Bearer <base64 Ed25519 sig>` | `/api/engine/deposit`, `/withdraw`, `/transfer` |
+| SEP-24 interactive token | `Authorization: Bearer <jwt>` | `/api/anchor/*` webview steps |
+| Textbee HMAC | `x-signature` | `/api/sms/webhook` |
+| QStash signature | `upstash-signature` | `/api/engine/settle`, `/api/sms/dispatch` |
 
 ### Core Services
 
-**Authentication & Onboarding (SEP-10 & OTP)**
-- `POST /api/auth` — Initiates and verifies the SEP-10 Stellar Web Authentication flow to issue a session JWT.
-- `POST /api/otp/send` — Triggers a 6-digit OTP SMS via the gateway for phone verification.
-- `POST /api/otp/verify` — Validates the OTP during user registration.
-- `POST /api/register` — Registers a new user's device and maps their short ID.
+**System & Discovery**
+- `GET /api/health` — Liveness probe; `?deep=1` adds SMS gateway status.
+- `GET /.well-known/stellar.toml` — SEP-1 anchor identity file.
+- `GET /api/swagger` — OpenAPI specification.
 
-**Offline Settlement Engine**
-- `POST /api/engine/settle` — The core relayer endpoint. Receives compressed, offline-signed payloads (via SMS webhooks or direct sync), unpacks the XDR, and submits the `spend_offline` Soroban transaction to the network.
-- `POST /api/sms` — Ingress webhook for the Textbee zero-API SMS gateway.
+**Authentication & Accounts**
+- `GET /api/auth` / `POST /api/auth` — SEP-10 challenge and JWT exchange.
+- `POST /api/otp/send` / `POST /api/otp/verify` — 6-digit SMS OTP. Verify returns a 30-minute phone verification token.
+- `POST /api/register` — Creates an account and its 6-character ShortID.
+- `POST /api/auth/pin/verify` — Server-side PIN check with lockout.
+- `GET /api/users/check` — Is this phone registered?
+- `GET /api/users/lookup` — Resolve a ShortID or phone number to account details.
+
+**Offline Engine**
+- `POST /api/engine/deposit` / `POST /api/engine/withdraw` — Assemble vault deposit/withdraw transactions for the wallet to sign.
+- `POST /api/engine/transfer` — Assemble an online token transfer.
+- `POST /api/engine/recipient-registry` — Register the caller's ShortID on-chain and return the offline signing config.
+- `POST` / `PATCH /api/engine/offline-key` — Enroll, rotate and confirm the offline device key.
+- `POST /api/engine/settle` — QStash-only settlement worker that submits `spend_offline`.
+- `POST /api/settlements` — Direct (synchronous) settlement of a signed voucher.
+
+**SMS Gateway**
+- `POST /api/sms/webhook` — HMAC-authenticated Textbee ingress that enqueues settlement jobs.
+- `POST /api/sms/dispatch` — QStash worker that delivers receipt SMS.
 
 **Wallet & History**
-- `GET /api/wallet/history` — Aggregates unified transaction history (merging Soroban settlements and SEP-24 anchor transactions).
-- `GET /api/wallet/balance` — Fetches the user's current on-chain vault balances.
+- `GET /api/wallet/balance` — Online (Horizon) balance for PHPC/USDC.
+- `GET /api/vault-balance` — Offline vault balance from the contract.
+- `GET /api/wallet/history` — Merged offline, online and anchor history.
+- `GET /api/transactions` — Raw settled offline transactions.
+- `POST /api/wallet/transfers/confirm` — Confirm an online transfer by hash.
 
 **Fiat On/Off Ramps (SEP-24 Anchor)**
-- `GET /api/sep24/info` — Advertises supported deposit/withdrawal assets and fees (SEP-24 capabilities).
-- `POST /api/sep24/transactions/deposit/interactive` — Initiates a fiat deposit and returns the interactive webview URL.
-- `POST /api/sep24/transactions/withdraw/interactive` — Initiates a fiat withdrawal and returns the interactive webview URL.
-- `GET /api/sep24/transaction` — Polls the real-time status of an ongoing fiat transaction.
+- `GET /api/sep24/info` — Supported assets.
+- `POST /api/sep24/transactions/deposit/interactive` / `.../withdraw/interactive` — Start a deposit or withdrawal and get the webview URL.
+- `GET /api/sep24/transaction` — Poll the status of a transaction.
+- `POST /api/anchor/simulate-payment` — Webview step that pays out a deposit.
+- `POST /api/anchor/submit-withdraw` / `POST /api/anchor/confirm-withdraw` — Submit withdrawal details, then verify the user's on-chain payment.
 
-## 🔄 Changes made after idea submission
+**Demo & Testnet**
+- `POST /api/friendbot` — Fund a new Testnet account (rate limited).
+- `POST` / `DELETE /api/demo/session`, `GET /api/demo/settlement` — Browser simulator sessions and settlement polling.
 
-| What We Planned | What We Built (And Why) |
-|---|---|
-| Identify recipients through familiar user details. | **An on-chain ShortID registry** that maps compact, 6-character Base62 IDs to Stellar addresses without using phone numbers for settlement. |
 
 ## Pijin Treasury Portal
 
@@ -359,14 +445,28 @@ Every screen and sub-screen of the live Pijin mobile app, captured from the depl
 
 ## 🌐 Deployment
 
-### Testnet
-- **Smart Contract Address:** `CCGXMMXAYI4EHTGSH65ML3VK6TTRBQGT3BT2NN3P6Y3LGN6XIL2HILPX` [view it on stellar.expert](https://stellar.expert/explorer/testnet/contract/CCGXMMXAYI4EHTGSH65ML3VK6TTRBQGT3BT2NN3P6Y3LGN6XIL2HILPX)
-- **Minted PHPC Token Address:** `CD26OANM4I4GF2GBC47UYTSP3FUBZRQ7WGMGECEQHMZ2D6QV2LXJTNIS` [view it on stellar.expert](https://stellar.expert/explorer/testnet/asset/PHPC-GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY-1)
-- **PHPC Issuer Public Key:** `GDDKZAOAME26SD2GAQGGDUTI6F5VQ5CLXXELWOYOAXLUIQTQVLIFWZLY`
-- **Admin Public Key:** `GAZDBPU7QQWHOZ53MFQO5I2O6OSAQSEOE3OMXDZNBXJCRV2RPVTGDYKS`
-- **Treasury Public Key:** `GBV6SIDIZVHR22Y4KH4MTTYQOGSKNHZ27IWGSHVIHMK2HUUERVVMKFAM`
-- **Registrar Public Key:** `GAFVQPZFHN5GUCTXZQXC6RKI4U4R47VNANCDSZ7KES4KQ7MEWJKUZOKH`
-- **Gateway / Relayer:** `GDTDK62M4ZJU6QPCEFUSQWOPYED4I4GPHLB4ZZTMBZZL2AO2VK63VQUH`
+### Stellar Testnet (development & preview builds)
+
+| Component | Address |
+|---|---|
+| **Pijin Smart Contract** | [`CBYRV2FDGXHMKQILP3EWYI4ILKKQ2HW4NW4NJCFYQY6NEE7463ARLNUD`](https://stellar.expert/explorer/testnet/contract/CBYRV2FDGXHMKQILP3EWYI4ILKKQ2HW4NW4NJCFYQY6NEE7463ARLNUD) |
+| **PHPC Token (Stellar Asset Contract)** | [`CADDQRI74FSCGNWMK4CLNDUSBDWJHMF2GHZQQVYQ4UIO7KZ7V6UK6C24`](https://stellar.expert/explorer/testnet/contract/CADDQRI74FSCGNWMK4CLNDUSBDWJHMF2GHZQQVYQ4UIO7KZ7V6UK6C24) |
+| **PHPC Issuer** | [`GCBC6SUF536YKVWQVX3LXZIGXYHW6ZX3CKHGNNSOPVCDGPFWC73YMSWK`](https://stellar.expert/explorer/testnet/asset/PHPC-GCBC6SUF536YKVWQVX3LXZIGXYHW6ZX3CKHGNNSOPVCDGPFWC73YMSWK) |
+| **Admin** | `GAZDBPU7QQWHOZ53MFQO5I2O6OSAQSEOE3OMXDZNBXJCRV2RPVTGDYKS` |
+| **Treasury** | `GBV6SIDIZVHR22Y4KH4MTTYQOGSKNHZ27IWGSHVIHMK2HUUERVVMKFAM` |
+| **Registrar** | `GAFVQPZFHN5GUCTXZQXC6RKI4U4R47VNANCDSZ7KES4KQ7MEWJKUZOKH` |
+| **Gateway / Relayer** | `GDTDK62M4ZJU6QPCEFUSQWOPYED4I4GPHLB4ZZTMBZZL2AO2VK63VQUH` |
+| **Token DB id** (`EXPO_PUBLIC_TOKEN_DB_ID`) | `1` |
+| **Network passphrase** | `Test SDF Network ; September 2015` |
+
+| Service | URL |
+|---|---|
+| Website, docs and API reference | [pijin.live](https://pijin.live) |
+| Backend for the EAS `development` profile | `pijin-api.vercel.app` |
+| Backend for the EAS `preview` profile | `preview-pijin.vercel.app` |
+
+To deploy your own instance (contract, assets, SMS gateway, Vercel and EAS), follow the **[Setup & Integration Guide](https://pijin.live/docs#deploy)**.
+
 - 📸 **Screenshot — Stellar Expert (Testnet)**
 <img width="1624" height="918" alt="Screenshot 2026-07-14 195353" src="https://github.com/user-attachments/assets/76e2345f-1e9d-4382-8d40-65154dbcacb0" />
 
@@ -374,14 +474,14 @@ Every screen and sub-screen of the live Pijin mobile app, captured from the depl
 
 <img width="2048" height="686" alt="744953176_2162519231264311_8293557383350544543_n" src="https://github.com/user-attachments/assets/33a64331-e87c-4609-9e93-8b2e9c58997c" />
 
-- 🔗 **Pijin App Simulator:** [Live Demo](https://pijin.live/demo-split)
+- 🔗 **Pijin Website:** [pijin.live](https://pijin.live)
+- 🔗 **Pijin App Simulator:** [pijin.live/demo-split](https://pijin.live/demo-split) (desktop browser, real Testnet settlement)
 - 📱 **Live Mobile App:** [APK Link](https://expo.dev/accounts/senec4/projects/pijin-app/builds/fa770cff-7d57-44f9-b94d-8a1e1c73e2aa)
-- 🔗 **Pijin Website:** [Pijin Website](https://pijin.live)
-- 🔗 **Pijin API:** [Pijin API](https://pijin.live/api-docs) 
+- 📘 **Setup & Integration Guide:** [pijin.live/docs](https://pijin.live/docs)
+- 📚 **API Reference:** [pijin.live/api-docs](https://pijin.live/api-docs)
 - 🔗 **Treasury Portal:** [Pijin Treasury Portal](https://pijin-treasury-portal.vercel.app)
 - 🔗 **𝕏 Account:** [Pijin X Account](https://x.com/supportpijin)
-- 🎬 **Demo Video:** [Google Drive link](https://drive.google.com/drive/folders/1t6U8wcVb51mi0uzTqRw5SjulPRAxKj4w?fbclid=IwY2xjawTFPk5leHRuA2FlbQIxMABicmlkETF3Wm82aU56ZHFma0pGQmFQc3J0YwZhcHBfaWQQMjIyMDM5MTc4ODIwMDg5MgABHq_xaoYl2-Dgd9RmSoQc3SldJ-Z-oKXJb6OHMCCuLCpf2uL49ET3IVDRL2rO_aem_uB4143FHr410vqQskDKX7A)
-- 🖼️ **Pitch Deck:** [Canva link](https://www.canva.com/design/DAHQftZcNfQ/stkrT_pfyH_xrup4vs31WQ/edit)
+- 🎬 **Demo Video:** [Google Drive link](https://drive.google.com/drive/folders)
 
 <div align="center">
 
@@ -408,4 +508,7 @@ Every screen and sub-screen of the live Pijin mobile app, captured from the depl
 </div>
 
 ## 📜 License
-MIT
+
+Pijin is open source under the [MIT License](LICENSE) © 2026 The Pijin Team.
+
+Contributions are welcome. See the [Contributing section of the guide](https://pijin.live/docs#contributing) to get started.

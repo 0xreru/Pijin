@@ -70,7 +70,7 @@
  *                   type: string
  *                   format: uri
  *                   description: Interactive webview URL to open in the wallet. Contains a short-lived JWT.
- *                   example: "https://pijin-api.vercel.app/deposit?transaction_id=abc&token=eyJ..."
+ *                   example: "https://pijin.live/deposit?transaction_id=550e8400-e29b-41d4-a716-446655440000&token=eyJ..."
  *                 id:
  *                   type: string
  *                   format: uuid
@@ -89,6 +89,8 @@
  *               $ref: '#/components/schemas/ErrorResponse'
  *       '500':
  *         description: Internal server error (missing env var or DB failure).
+ *       '503':
+ *         description: Deposits are disabled by the ramp kill switch (`RAMP_ENABLED` / `DEPOSIT_ENABLED`).
  *         content:
  *           application/json:
  *             schema:

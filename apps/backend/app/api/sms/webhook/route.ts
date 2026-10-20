@@ -1,6 +1,28 @@
 /**
  * @swagger
  * /api/sms/webhook:
+ *   get:
+ *     tags:
+ *       - SMS Gateway
+ *     summary: Webhook configuration probe
+ *     description: Reports whether the secrets and URLs the webhook depends on are configured (booleans only, never values).
+ *     responses:
+ *       '200':
+ *         description: Configuration flags.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 route:
+ *                   type: string
+ *                   example: /api/sms/webhook
+ *                 configured:
+ *                   type: object
+ *                   additionalProperties:
+ *                     type: boolean
  *   post:
  *     tags:
  *       - SMS Gateway
@@ -40,13 +62,6 @@
  *       of `<senderShortId>_<nonce>` to prevent duplicate on-chain transactions.
  *     security:
  *       - TextbeeHmac: []
- *     parameters:
- *       - in: query
- *         name: secret
- *         required: false
- *         schema:
- *           type: string
- *         description: Deprecated URL-based fallback secret. Kept for backward compatibility but HMAC is preferred.
  *     requestBody:
  *       required: true
  *       content:

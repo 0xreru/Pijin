@@ -1,4 +1,55 @@
 /**
+ * @swagger
+ * /api/wallet/transfers/confirm:
+ *   post:
+ *     tags:
+ *       - Wallet & Balances
+ *     summary: Confirm an online transfer for history
+ *     description: |
+ *       After the app submits a transfer assembled by `POST /api/engine/transfer`, it
+ *       posts the hash here. Parties, token, and amount come from the intent stored at
+ *       assembly time; the request carries only the hash. The record moves to `SETTLED`
+ *       only when Soroban RPC reports that exact hash as successful.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [txHash]
+ *             properties:
+ *               txHash:
+ *                 type: string
+ *                 pattern: '^[a-fA-F0-9]{64}$'
+ *     responses:
+ *       '200':
+ *         description: Transfer settled (or was already settled).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 txHash:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   example: SETTLED
+ *                 confirmedAt:
+ *                   type: string
+ *                   format: date-time
+ *       '400':
+ *         description: Bad JSON or malformed hash.
+ *       '404':
+ *         description: No transfer intent exists for this hash.
+ *       '409':
+ *         description: Not yet visible to RPC (status PENDING); retry shortly.
+ *       '422':
+ *         description: The transaction failed on-chain (status FAILED).
+ *       '502':
+ *         description: Soroban RPC unavailable.
+ */
+
+/**
  * Confirms an online transfer previously assembled by /api/engine/transfer.
  *
  * The request contains only the transaction hash. All parties, token, and

@@ -33,5 +33,6 @@
     "metro-core": "0.80.12",
     "metro-resolver": "0.80.12",
     "metro-transform-worker": "0.80.12"
-  }
+  },
+  "license": "MIT"
 }

@@ -1,3 +1,71 @@
+/**
+ * @swagger
+ * /api/anchor/submit-withdraw:
+ *   post:
+ *     tags:
+ *       - Anchor (SEP-24)
+ *     summary: Submit withdrawal amount and GCash payout number (webview step)
+ *     description: |
+ *       Called by the `/withdraw` webview. Moves an `incomplete` withdrawal to
+ *       `pending_user_transfer_start` and assigns a 28-character text memo that the
+ *       user's on-chain payment to the treasury must carry.
+ *
+ *       - The interactive token's `transaction_id` must equal the body's `transaction_id` (`403` otherwise).
+ *       - Amount must be positive with at most 7 decimals and within the ramp limits
+ *         (`RAMP_MAX_PER_TX_*`, `RAMP_DAILY_MAX_PER_USER_*`).
+ *       - The GCash number is validated but **never logged or stored**.
+ *       - The status transition is conditional, so replaying a submit returns `409`.
+ *     security:
+ *       - InteractiveToken: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [transaction_id, amount, gcash_number]
+ *             properties:
+ *               transaction_id:
+ *                 type: string
+ *                 format: uuid
+ *               amount:
+ *                 oneOf:
+ *                   - type: string
+ *                   - type: number
+ *                 example: "250.00"
+ *               gcash_number:
+ *                 type: string
+ *                 description: "`09XXXXXXXXX` or `+639XXXXXXXXX`; spaces and dashes are stripped."
+ *                 example: "09171234567"
+ *     responses:
+ *       '200':
+ *         description: Withdrawal is now awaiting the user's Stellar payment.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *       '400':
+ *         description: Invalid JSON, amount, GCash number, or ramp limit exceeded.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RampError'
+ *       '401':
+ *         description: Interactive session is invalid or expired.
+ *       '403':
+ *         description: Body `transaction_id` does not match the signed session.
+ *       '404':
+ *         description: Transaction not found, or it belongs to a different account.
+ *       '409':
+ *         description: Withdrawal already submitted.
+ *       '503':
+ *         description: Withdrawals are disabled by the ramp kill switch.
+ */
+
 export const runtime = 'nodejs';
 
 import jwt, { type JwtPayload } from 'jsonwebtoken';

@@ -1,3 +1,68 @@
+/**
+ * @swagger
+ * /api/anchor/confirm-withdraw:
+ *   post:
+ *     tags:
+ *       - Anchor (SEP-24)
+ *     summary: Confirm the user's on-chain withdrawal payment
+ *     description: |
+ *       After the wallet pays the treasury, the app posts the Stellar transaction hash.
+ *       The backend reads it from **Horizon** and accepts it only if **all** of these hold:
+ *
+ *       - the transaction succeeded and its source account is the authenticated user;
+ *       - it carries a `text` memo equal to the memo issued by `submit-withdraw`;
+ *       - it contains a `payment` from the user to `TREASURY_PUBLIC_KEY` in the withdrawal's
+ *         asset (code **and** issuer) for exactly the submitted amount.
+ *
+ *       On success the withdrawal moves to `pending_external` (fiat payout pending).
+ *       Repeating the call after success returns `200` with the same status.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [transaction_id, stellar_transaction_id]
+ *             properties:
+ *               transaction_id:
+ *                 type: string
+ *                 format: uuid
+ *               stellar_transaction_id:
+ *                 type: string
+ *                 pattern: '^[0-9a-f]{64}$'
+ *                 description: Hex transaction hash (case-insensitive).
+ *     responses:
+ *       '200':
+ *         description: Payment verified (or already verified).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 status:
+ *                   type: string
+ *                   example: pending_external
+ *       '400':
+ *         description: Invalid JSON or IDs.
+ *       '401':
+ *         description: Missing or invalid SEP-10 token.
+ *       '404':
+ *         description: Withdrawal not found for this account.
+ *       '409':
+ *         description: Withdrawal is not awaiting a user transfer, or its status changed concurrently.
+ *       '422':
+ *         description: The Stellar payment does not match this withdrawal.
+ *       '500':
+ *         description: Horizon or database failure.
+ *       '503':
+ *         description: Withdrawals are disabled by the ramp kill switch.
+ */
+
 export const runtime = 'nodejs';
 
 import jwt from 'jsonwebtoken';
