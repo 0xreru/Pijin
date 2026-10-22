@@ -1,160 +1,80 @@
-import { useState, useEffect, useRef } from 'react';
-import { runMigrations } from './src/db/migrations';
-import { syncService } from './src/services/syncService';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { useFonts } from 'expo-font';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { runMigrations } from './src/db/migrations';
+import { syncService } from './src/services/syncService';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { OnboardingScreen, DashboardScreen, SignInScreen, TransactionReceiptScreen, LoadOfflineFundsScreen, LoadOnlineFundsScreen, ScanQRScreen, TransportChoiceScreen, SendMoneyScreen, SendMoneyConfirmScreen, GenerateQRScreen, AccountSettingsScreen, VaultSettingsScreen, ChangePinScreen, RestoreWalletScreen } from './src/screens';
-import { Sep24WebviewScreen } from './src/screens/Sep24WebviewScreen';
-import { isOnboardingComplete } from './src/services/storage/onboardingStorage';
 import { ensureMigration } from './src/services/storage/migration';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
-import { AppButton } from './src/components/ui/AppButton';
 import { installGlobalErrorHandler, reportError } from './src/services/errorReporting';
+import { PlaceholderScreen } from './src/screens/PlaceholderScreen';
 
 installGlobalErrorHandler();
 
 type DbStatus = 'pending' | 'ready' | 'error';
 
-type RootStackParamList = {
-  Onboarding: { initialStep?: 1 | 2 | 3 | 4 | 5 | 6 } | undefined;
-  SignIn: undefined;
-  Dashboard: undefined;
-  TransactionReceipt: { transaction: any };
-  LoadOfflineFunds: { balance: number };
-  LoadOnlineFunds: { balance: number };
-  ScanQR: undefined;
-  TransportChoice: { qrData: string };
-  SendMoney: undefined;
-  SendMoneyConfirm: { phone: string; amount: number; note?: string };
-  GenerateQR: { mode: 'receiver' | 'relay'; qrData: string };
-  AccountSettings: undefined;
-  VaultSettings: undefined;
-  ChangePin: undefined;
-  /** Shared SEP-24 interactive webview; deposit remains the default flow. */
-  Sep24Webview: {
-    url: string;
-    assetCode: string;
-    transactionId?: string;
-    flow?: 'deposit' | 'withdrawal';
-    sep10Token?: string;
-  };
-  RestoreWallet: { phoneNumber: string };
+/**
+ * v2 route map. Add screens here as they are built.
+ * Logic lives in src/features/* hooks and src/services/*; screens should stay thin.
+ */
+export type RootStackParamList = {
+  Placeholder: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function RootNavigator({ initialRoute }: { initialRoute: keyof RootStackParamList }) {
+function RootNavigator() {
   return (
-    <View style={{ flex: 1 }}>
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName={initialRoute}
-          screenOptions={{
-            headerShown: false,
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-          <Stack.Screen name="SignIn" component={SignInScreen} />
-          <Stack.Screen name="Dashboard" component={DashboardScreen} />
-          <Stack.Screen name="TransactionReceipt" component={TransactionReceiptScreen} />
-          <Stack.Screen name="LoadOfflineFunds" component={LoadOfflineFundsScreen} />
-          <Stack.Screen name="LoadOnlineFunds" component={LoadOnlineFundsScreen} />
-          <Stack.Screen name="ScanQR" component={ScanQRScreen} />
-          <Stack.Screen name="TransportChoice" component={TransportChoiceScreen} />
-          <Stack.Screen name="SendMoney" component={SendMoneyScreen} />
-          <Stack.Screen name="SendMoneyConfirm" component={SendMoneyConfirmScreen} />
-          <Stack.Screen name="GenerateQR" component={GenerateQRScreen} />
-          <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
-          <Stack.Screen name="VaultSettings" component={VaultSettingsScreen} />
-          <Stack.Screen name="ChangePin" component={ChangePinScreen} />
-          <Stack.Screen name="RestoreWallet" component={RestoreWalletScreen} />
-          <Stack.Screen
-            name="Sep24Webview"
-            component={Sep24WebviewScreen}
-            options={{ headerShown: false, animation: 'slide_from_bottom' }}
-          />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </View>
+    <NavigationContainer>
+      <Stack.Navigator initialRouteName="Placeholder" screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Placeholder" component={PlaceholderScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
-function AppContent({
-  fontsLoaded,
-  fontError,
-  fontLoadTimedOut,
-  dbStatus,
-  onRetryDb,
-}: {
-  fontsLoaded: boolean;
-  fontError: any;
-  fontLoadTimedOut: boolean;
-  dbStatus: DbStatus;
-  onRetryDb: () => void;
-}) {
+function AppContent({ dbStatus, onRetryDb }: { dbStatus: DbStatus; onRetryDb: () => void }) {
   const { isAppReady } = useAuth();
-  const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList | null>(null);
-
-  useEffect(() => {
-    const checkOnboardingStatus = async () => {
-      try {
-        const complete = await isOnboardingComplete();
-        setInitialRoute(complete ? 'SignIn' : 'Onboarding');
-      } catch (err) {
-        console.error('Failed to load onboarding status:', err);
-        setInitialRoute('Onboarding');
-      }
-    };
-
-    if (isAppReady) {
-      checkOnboardingStatus();
-    }
-  }, [isAppReady]);
 
   if (dbStatus === 'error') {
     return (
-      <View style={styles.splashContainer} accessibilityRole="alert">
-        <Text style={styles.errorTitle}>Pijin couldn't start</Text>
-        <Text style={styles.splashText}>Local storage failed to open. Your wallet is safe — please try again.</Text>
-        <AppButton title="Try again" onPress={onRetryDb} style={styles.retryButton} />
+      <View style={styles.center} accessibilityRole="alert">
+        <Text style={styles.title}>HoneBill couldn't start</Text>
+        <Text style={styles.text}>Local storage failed to open. Your wallet is safe, please try again.</Text>
+        <Pressable accessibilityRole="button" onPress={onRetryDb} style={styles.button}>
+          <Text style={styles.buttonText}>Try again</Text>
+        </Pressable>
       </View>
     );
   }
 
-  if (dbStatus !== 'ready' || !isAppReady || (!fontsLoaded && !fontError && !fontLoadTimedOut) || !initialRoute) {
+  if (dbStatus !== 'ready' || !isAppReady) {
     return (
-      <View style={styles.splashContainer}>
+      <View style={styles.center}>
         <ActivityIndicator size="large" color="#111111" />
-        <Text style={styles.splashText}>Starting...</Text>
       </View>
     );
   }
 
   return (
     <>
-      <RootNavigator initialRoute={initialRoute} />
+      <RootNavigator />
       <StatusBar style="auto" />
     </>
   );
 }
 
 export default function App() {
-  const [fontsLoaded, fontError] = useFonts(Ionicons.font);
-  const [fontLoadTimedOut, setFontLoadTimedOut] = useState(false);
   const isMountedRef = useRef(true);
   const [dbStatus, setDbStatus] = useState<DbStatus>('pending');
   const [dbAttempt, setDbAttempt] = useState(0);
 
-  // Initialize storage, then the SQLite database, then the RxJS sync service —
-  // in that order. Both migrations are idempotent, so retrying is safe.
+  // Storage migration, then SQLite migrations, then the sync service, in that
+  // order. Both migrations are idempotent, so retrying is safe.
   useEffect(() => {
     isMountedRef.current = true;
     setDbStatus('pending');
@@ -179,36 +99,11 @@ export default function App() {
     };
   }, [dbAttempt]);
 
-  useEffect(() => {
-    if (fontError) {
-      console.error('Failed to load Ionicons font:', fontError);
-    }
-  }, [fontError]);
-
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      return;
-    }
-
-    const timeout = setTimeout(() => {
-      setFontLoadTimedOut(true);
-      console.warn('Ionicons font load timed out. Continuing app startup.');
-    }, 6000);
-
-    return () => clearTimeout(timeout);
-  }, [fontsLoaded, fontError]);
-
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
         <AuthProvider>
-          <AppContent
-            fontsLoaded={fontsLoaded}
-            fontError={fontError}
-            fontLoadTimedOut={fontLoadTimedOut}
-            dbStatus={dbStatus}
-            onRetryDb={() => setDbAttempt((n) => n + 1)}
-          />
+          <AppContent dbStatus={dbStatus} onRetryDb={() => setDbAttempt((n) => n + 1)} />
         </AuthProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
@@ -216,26 +111,9 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  splashContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  splashText: {
-    color: '#4B5563',
-    fontSize: 14,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
-  errorTitle: {
-    color: '#111111',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  retryButton: {
-    marginTop: 8,
-    minWidth: 160,
-  },
+  center: { flex: 1, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  title: { color: '#111111', fontSize: 20, fontWeight: '700' },
+  text: { color: '#4B5563', fontSize: 14, textAlign: 'center', paddingHorizontal: 32 },
+  button: { marginTop: 8, minWidth: 160, backgroundColor: '#111111', borderRadius: 8, paddingVertical: 14, alignItems: 'center' },
+  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
 });

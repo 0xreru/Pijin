@@ -113,8 +113,8 @@ async function getSignClient(): Promise<SignClient> {
       relayUrl: WALLETCONNECT_RELAY_URL,
       logger: 'fatal',
       metadata: {
-        name: 'Pijin',
-        description: 'Pijin mobile wallet connection',
+        name: 'HoneBill',
+        description: 'HoneBill mobile wallet connection',
         url: 'https://pijin.app',
         icons: [],
         redirect: {

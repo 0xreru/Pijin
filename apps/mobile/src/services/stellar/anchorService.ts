@@ -423,7 +423,7 @@ async function fetchAnchorEndpoints(): Promise<AnchorEndpoints> {
     response = await fetchWithTimeout(tomlUrl);
   } catch (err) {
     throw new AnchorServiceError(
-      'Could not reach the Pijin anchor. Please check your internet connection.',
+      'Could not reach the HoneBill anchor. Please check your internet connection.',
       'TOML_FETCH_FAILED',
       String(err),
     );
